@@ -132,3 +132,5 @@
 .br-page .r-empty { text-align: center; padding: 24px; }
 /* line numbers are not part of a quoted selection (mod-l from a reader's VISUAL selects the painted text) */
 .file-v .src .dl .n, .diff.flat .dl .n { user-select: none; }
+/* a mouse selection turned VISUAL is drawn by the painted selection, not twice */
+.file-v .src.msel ::selection { background: transparent; }

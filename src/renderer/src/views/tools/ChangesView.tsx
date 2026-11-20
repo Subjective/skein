@@ -19,6 +19,7 @@ import { animate, MOTION } from '../../ui/motion';
 import { Checkbox, Chip, cx, Icon, IconButton, SplitButton, Spinner } from '../../ui/primitives';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
 import { CodeLine, LangBadge, Nums, selectPainted, type Paint } from './code';
+import { colAt, nodeAt, selEnds, useToolSel } from './mousesel';
 import { registerHooks } from './hooks';
 import { openCommit, type CommitAction } from './CommitDialog';
 import { baseName, langOf, tokenize, type HlState } from './highlight';
@@ -57,7 +58,8 @@ interface View {
   tq: string;
   cur: number;
   anchor: number | null;
-  vmode: 'n' | 'V';
+  /** n, V-LINE (V), or a mouse selection in the page (v: VISUAL with the Add to Chat bar, VIM-MODEL rule 10) */
+  vmode: 'n' | 'V' | 'v';
   g: boolean;
   lastUndo: { undo: RevertUndo; name: string } | null;
   flash?: string;
@@ -316,8 +318,15 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
   };
   const nextFile = (d: number) => { let i = v.cur + d; while (rows[i] && rows[i].k !== 'file') i += d; if (rows[i]) go(i); else if (d < 0) go(0); };
   const { own } = useSurface(t.id, focused, {
-    mode: (): Mode => (v.vmode === 'V' ? 'V-LINE' : 'NORMAL'),
+    mode: (): Mode => (v.vmode === 'V' ? 'V-LINE' : v.vmode === 'v' ? 'VISUAL' : 'NORMAL'),
     key: k => {
+      // a mouse selection: y copies it, esc lets it go; any other key lets it go and does what it does
+      if (v.vmode === 'v') {
+        const txt = getSelection()?.toString() || '';
+        dropSel();
+        if (k === 'esc') return true;
+        if (k === 'y') { yankReg(txt); toast('Copied'); return true; }
+      }
       if (nativeTarget() && (k === 'enter' || k === 'space')) return false;
       if (v.g) {
         v.g = false;
@@ -362,6 +371,48 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
     },
   });
 
+  // the mouse in a diff (VIM-MODEL rule 10): a click puts the character cursor there, a double click or a drag
+  // selects (VISUAL), a triple click the line (V-LINE), each with Add to Chat. Enter (or g f) opens the file.
+  const mouse = useRef(false);
+  // the selection as rows and columns: a render repaints the line's spans, and the page selection is put back from these
+  const msel = useRef<{ a: [number, number]; b: [number, number]; back: boolean } | null>(null);
+  const downCol = useRef(0);
+  const dropSel = () => { mouse.current = false; if (v.vmode !== 'n') { v.vmode = 'n'; v.anchor = null; getSelection()?.removeAllRanges(); update(); } };
+  const tsel = useToolSel(t, dropSel);
+  const lineDown = (e: React.MouseEvent, i: number) => {
+    if (e.detail > 1) return;
+    const cr = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint?.(e.clientX, e.clientY);
+    const at = (e.target as Element).closest('.n') ? { col: 0 } : cr && colAt(cr.startContainer, cr.startOffset);
+    const r = rows[i], len = r?.k === 'line' ? r.l.text.length : 0;
+    v.cur = i; v.col = downCol.current = at ? Math.min(at.col, Math.max(0, len - 1)) : 0; update();
+  };
+  const mouseUp = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const d = e.detail, row = (e.target as Element).closest<HTMLElement>('.dl[data-i]');
+    setTimeout(() => {
+      if (d >= 3 && row) { mouse.current = true; msel.current = null; v.vmode = 'V'; v.anchor = v.cur = +row.dataset.i!; v.col = downCol.current; update(); return; }
+      const g = getSelection(), root = body.current;
+      if (!g || g.isCollapsed || !root || !root.contains(g.anchorNode)) return;
+      if (!g.toString().trim()) { g.removeAllRanges(); return; }   // a double click on blank space selects nothing
+      const x = selEnds(root), ri = (q: { row: HTMLElement }) => +(q.row.dataset.i ?? -1);
+      msel.current = x && ri(x.a) >= 0 && ri(x.b) >= 0 ? { a: [ri(x.a), x.a.col], b: [ri(x.b), x.b.col], back: x.back } : null;
+      const f = g.focusNode && colAt(g.focusNode, g.focusOffset), fi = f && +(f.row.dataset.i || -1);
+      if (f && fi != null && fi >= 0) { v.cur = fi; const back = g.anchorNode && (g.focusNode!.compareDocumentPosition(g.anchorNode) & Node.DOCUMENT_POSITION_FOLLOWING); v.col = Math.max(0, back ? f.col : f.col - 1); }
+      mouse.current = true; v.vmode = 'v'; v.anchor = null; update();
+    }, 0);
+  };
+  useLayoutEffect(() => {
+    if (!mouse.current) return;
+    if (v.vmode === 'n') { mouse.current = false; tsel.show(null); return; }
+    if (v.vmode === 'V') selectPainted(body.current, '.diff.flat .dl.vsel .c');
+    const m = msel.current, root = body.current;
+    if (v.vmode === 'v' && m && root) {
+      const ca = root.querySelector(`.dl[data-i="${m.a[0]}"] .c`), cb = root.querySelector(`.dl[data-i="${m.b[0]}"] .c`);
+      if (ca && cb) { const [an, ao] = nodeAt(ca, m.a[1]), [bn, bo] = nodeAt(cb, m.b[1]); if (m.back) getSelection()?.setBaseAndExtent(bn, bo, an, ao); else getSelection()?.setBaseAndExtent(an, ao, bn, bo); }
+    }
+    tsel.show(getSelection()?.toString() ?? null);
+  });
+
   // keep the cursor row in sight
   useLayoutEffect(() => {
     const el = body.current?.querySelector('.rowcur, .curl');
@@ -375,8 +426,9 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
   const findRe = searchRe(v.find);
   /** The search's matches in a diff line; the one under the cursor is `now`. */
   const hitsIn = (text: string, i: number): Paint[] | undefined => {
-    if (!findRe) return undefined;
-    const out = findAll([text], v.find).map(h => ({ from: h.o, to: h.o + Math.max(1, h.len), cls: i === v.cur && h.o === v.col ? 'hit now' : 'hit' }));
+    const out: Paint[] = findRe ? findAll([text], v.find).map(h => ({ from: h.o, to: h.o + Math.max(1, h.len), cls: i === v.cur && h.o === v.col ? 'hit now' : 'hit' })) : [];
+    // the character cursor, where a click (or a search) put it
+    if (i === v.cur && focused && v.col >= 0 && v.vmode !== 'v') out.push({ from: v.col, to: v.col + 1, cls: 'vc' });
     return out.length ? out : undefined;
   };
   const q = v.tq.trim().toLowerCase();
@@ -403,7 +455,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
         <IconButton icon="panelR" small on={side.show} label="Changed files" keys="t" aria-pressed={side.show} onClick={side.toggle} />
       </header>
       <div className={cx('cbody', side.show && 'tree')}>
-        <div className="tool-b" data-read ref={body} role="region" aria-label="Diff">
+        <div className="tool-b" data-read ref={body} onMouseUp={mouseUp} role="region" aria-label="Diff">
           {v.err ? <div className="r-empty"><Icon name="alert" size="xl" /><span>{v.err}</span></div>
             : !v.files ? <div className="r-empty"><Spinner label="Loading changes" /></div>
             : !files.length ? <div className="r-empty"><Icon name="diff" size="xl" /><span>{v.scope === 'staged' ? 'Nothing staged yet' : v.scope === 'turn' && !turn ? 'No agent turn yet' : 'No changes'}</span></div>
@@ -431,8 +483,8 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
                           {v.gaps.has(r.key) ? <Spinner label="Loading" /> : <Icon name="down" size="sm" />}<span>{r.n} unmodified line{r.n === 1 ? '' : 's'}</span>
                         </button>
                       : r.k === 'note' ? <div key={i} className={cx('dl note', v.cur === i && focused && 'curl')}><span className="n" /><span className="c dim">{r.text}</span></div>
-                      : r.k === 'line' ? <div key={i} className={cx('dl', r.l.k === '+' ? 'add' : r.l.k === '-' ? 'del' : '', v.cur === i && focused && 'curl', sel && i >= sel[0] && i <= sel[1] && 'vsel')}
-                          onMouseDown={() => { v.cur = i; update(); }} onDoubleClick={() => openAt(r)}>
+                      : r.k === 'line' ? <div key={i} data-i={i} className={cx('dl', r.l.k === '+' ? 'add' : r.l.k === '-' ? 'del' : '', v.cur === i && focused && 'curl', sel && i >= sel[0] && i <= sel[1] && 'vsel')}
+                          onMouseDown={e => lineDown(e, i)}>
                           <span className="n">{r.l.k === '-' ? r.l.a : r.l.b}</span><span className="c"><CodeLine toks={r.toks} unit={0} paint={hitsIn(r.l.text, i)} /></span>
                         </div>
                       : null)}
@@ -454,7 +506,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
             {!working(v.scope) && files.length > 0 && <div className="tf all"><span className="t">{files.length} file{files.length === 1 ? '' : 's'} changed</span></div>}
             {dirs.map(d => (
               <div key={d || '.'} role="group" aria-label={d || 'root'}>
-                {d && <div className="td"><Icon name="folder" size="sm" /><span>{d}</span></div>}
+                {d && <div className="td"><Icon name="down" size="sm" /><span>{d}</span></div>}
                 {shown.filter(f => (f.path.includes('/') ? f.path.replace(/\/[^/]*$/, '') : '') === d).map(f => (
                   <div key={f.path} className={cx('tf', d && 'in', rowFile()?.path === f.path && 'on')}>
                     {working(v.scope) && <Checkbox on={staged(f)} label={`Stage ${f.path}`} onChange={on => void stage([f.path], on)} />}
@@ -469,6 +521,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
           </aside>
         )}
       </div>
+      {tsel.bar}
     </div>
   );
   void fileI;

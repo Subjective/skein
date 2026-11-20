@@ -22,6 +22,7 @@ import { openCmdline, openMenu } from '../../shell/overlays';
 import { Button, cx, Icon, IconButton, Seg, Spinner } from '../../ui/primitives';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
 import { CodeLine, LangBadge, selectPainted, type Paint } from './code';
+import { selEnds, useToolSel } from './mousesel';
 import { baseName, indentUnit, langOf, tokenizeAll, type Tok } from './highlight';
 import { registerHooks } from './hooks';
 import { diffLines, toHunks } from './linediff';
@@ -159,6 +160,15 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   // mod-l in VISUAL: the painted selection becomes a page selection, and the quote command takes it from there
   const addr = () => { if (v.rs.mode === 'VISUAL') selectPainted(body.current, '.src .vs'); else if (v.rs.mode === 'V-LINE') selectPainted(body.current, '.src .dl.vsel .c'); return false; };
   useEffect(() => registerHooks(t.id, { back: () => histStep(-1), forward: () => histStep(1), save: () => { void save(); return true; }, addr }));
+  // a mouse selection (mouseUp below) is the reader's VISUAL with the Add to Chat bar; the page selection follows
+  // the painted one as keys move it, and goes when VISUAL does
+  const mouse = useRef(false);
+  const tsel = useToolSel(t, () => { mouse.current = false; if (v.rs.mode === 'VISUAL' || v.rs.mode === 'V-LINE') { v.rs = { ...v.rs, mode: 'NORMAL' }; update(); } });
+  useLayoutEffect(() => {
+    if (!mouse.current) return;
+    if (v.mode !== 'read' || (v.rs.mode !== 'VISUAL' && v.rs.mode !== 'V-LINE')) { mouse.current = false; tsel.show(null); getSelection()?.removeAllRanges(); return; }
+    if (selectPainted(body.current, v.rs.mode === 'VISUAL' ? '.src .vs' : '.src .dl.vsel .c')) tsel.show(getSelection()?.toString() ?? null);
+  });
 
   const edBox = useRef<HTMLDivElement>(null);
   const startEdit = (k?: string) => {
@@ -274,7 +284,8 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     const row = (e.target as HTMLElement).closest('.dl') as HTMLElement | null; if (!row) return null;
     const ln = +(row.dataset.ln || 0), c = row.querySelector('.c'); if (!c) return null;
     const cr = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint?.(e.clientX, e.clientY);
-    let col = lines[ln].length;
+    // the line number puts the cursor at the line's start; right of the text, its end
+    let col = (e.target as HTMLElement).closest('.n') ? 0 : lines[ln].length;
     if (cr && c.contains(cr.startContainer)) {
       col = 0;
       const w = document.createTreeWalker(c, NodeFilter.SHOW_TEXT); let n: Node | null;
@@ -296,6 +307,27 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     return out.length ? out : undefined;
   };
   const showLines = v.mode === 'read' && !preview && doc.disk != null && !doc.binary;
+  // the mouse (VIM-MODEL rule 10): a double click is the word in VISUAL, a drag what it covers, a triple click the
+  // line in V-LINE, each with Add to Chat. Editing stays on i / a.
+  const mouseUp = (e: React.MouseEvent) => {
+    if (e.button !== 0 || v.mode !== 'read') return;
+    const d = e.detail, p = posFromPoint(e);
+    setTimeout(() => {
+      const src = body.current?.querySelector('.src');
+      if (!src) { const doc = body.current?.querySelector('.doc'), g = getSelection(); if (doc && g && !g.isCollapsed && doc.contains(g.anchorNode)) tsel.show(g.toString()); return; }
+      if (d >= 3 && p != null) { mouse.current = true; v.rs = { ...v.rs, pos: p, anchor: p, mode: 'V-LINE' }; update(); return; }
+      const g = getSelection();
+      if (g && !g.isCollapsed && !g.toString().trim()) { g.removeAllRanges(); return; }   // a double click on blank space selects nothing
+      const x = selEnds(src); if (!x) return;
+      const at = (q: { row: HTMLElement; col: number }) => { const ln = +(q.row.dataset.ln || 0); return starts[ln] + Math.min(q.col, lines[ln].length); };
+      const a = at(x.a); let b = at(x.b) - 1;
+      while (b > a && text[b] === '\n') b--;
+      if (b < a) return;
+      mouse.current = true;
+      v.rs = x.back ? { ...v.rs, anchor: b, pos: a, mode: 'VISUAL' } : { ...v.rs, anchor: a, pos: b, mode: 'VISUAL' };
+      update();
+    }, 0);
+  };
   return (
     <div className="file-v" ref={side.ref} onMouseDown={e => { if (v.mode === 'read' && !(e.target as HTMLElement).closest('.ctree, .tool-h')) own(); }}>
       <header className={cx('tool-h', dirty && 'dirty')}>
@@ -334,9 +366,9 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
               </div>
             )}
           {showLines && (
-            <div className="src" data-src={`file:${path}`} role="textbox" aria-readonly="true" aria-label={path} aria-multiline="true"
+            <div className={cx('src', mouse.current && sel && 'msel')} data-src={`file:${path}`} role="textbox" aria-readonly="true" aria-label={path} aria-multiline="true"
               onMouseDown={e => { if (e.detail > 1) return; const p = posFromPoint(e); if (p != null) { v.rs = { ...v.rs, pos: p, mode: 'NORMAL' }; update(); } }}
-              onDoubleClick={e => { const p = posFromPoint(e); if (p != null) { v.rs = { ...v.rs, pos: p, mode: 'NORMAL' }; startEdit('i'); } }}>
+              onMouseUp={mouseUp}>
               {lines.map((_, i) => (
                 <div key={i} data-ln={i} className={cx('dl', marks?.get(i + 1), i === curLine && 'curl', sel && v.rs.mode === 'V-LINE' && starts[i] >= sel[0] && starts[i] <= sel[1] && 'vsel')}>
                   <span className="n">{i + 1}</span><span className="c"><CodeLine toks={toks[i] || []} unit={unit} paint={paintFor(i)} /></span>
@@ -344,7 +376,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
               ))}
             </div>
           )}
-          {v.mode === 'read' && preview && doc.disk != null && <article className="doc prose" data-src={`file:${path}`} onDoubleClick={() => startEdit('i')}><Markdown text={text} /></article>}
+          {v.mode === 'read' && preview && doc.disk != null && <article className="doc prose" data-src={`file:${path}`} onMouseUp={mouseUp}><Markdown text={text} /></article>}
         </div>
         {side.show && (
           <aside className="ctree" aria-label="Project files">
@@ -352,6 +384,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
           </aside>
         )}
       </div>
+      {tsel.bar}
     </div>
   );
 }
