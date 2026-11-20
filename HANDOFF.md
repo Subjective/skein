@@ -33,6 +33,13 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   transcript exists, so a thread knows its session before the first turn.
 - A new thread's first prompt is passed on the TUI's command line.
 - Existing sessions are discovered from `~/.claude/projects` and `~/.codex/sessions` (local only for now).
+- Terminal copy and paste on Windows follow Windows Terminal: `ctrl-c` copies when text is selected (otherwise
+  it goes to the program), `ctrl-v` and `ctrl-shift-v` paste. Every paste checks the clipboard for an image first,
+  so `ctrl-v` with a screenshot pastes its inbox path (G14) the same way locally and over SSH.
+- A TUI's terminal title drives the thread: a spinner glyph means running, the rest becomes the title.
+  The bell, OSC 9 and OSC 777 mark the thread as waiting and post a desktop notification when it isn't on screen.
+- File search (`mod-p`) searches the focused tab's folder with `git ls-files` (a capped walk outside a repo).
+- Dragging a tab: onto a tab bar moves it, onto a pane's edge splits, outside every pane pops it out.
 
 ## Read first
 
