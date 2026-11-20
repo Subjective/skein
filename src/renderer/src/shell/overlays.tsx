@@ -113,6 +113,11 @@ const SHEET: [string, string[]][] = [
   ['Panes', ['vsplit', 'split', 'vshell', 'shell', 'zoom', 'only', 'swap', 'focus h', 'focus l', 'resize -', 'resize +']],
   ['Terminals and workspaces', ['scrollback', 'workspaces', 'wsnext', 'back', 'forward']],
 ];
+/** Reader keys are Vim's own, not keymap commands, so the sheet lists them as they are. */
+const READER: [string, string[]][] = [
+  ['Move, with a count', ['h j k l', 'w b', '3j']], ['Top, bottom', ['gg', 'G']], ['Search, backwards', ['/', '?']],
+  ['Next, previous match', ['n', 'N']], ['Select, lines', ['v', 'V']], ['Copy', ['y']],
+];
 export function openKeys() {
   openLayer(close => <KeysSheet close={close} />);
 }
@@ -122,11 +127,16 @@ function KeysSheet({ close }: { close: () => void }) {
   const fmt = (c: string) => k.keysFor(c).slice(0, 2).map(b => kb(b.layer === 'leader' ? `ldr ${b.keys}` : b.keys).replace('ldr', kb(S.settings.leader)));
   return (
     <Dialog onClose={close} className="keys" label="Keyboard shortcuts">
-      {SHEET.map(([h, cmds]) => (
-        <section key={h}><h4>{h}</h4>
-          {cmds.map(c => <div key={c}><span>{COMMANDS[c]}</span><span className="kk">{fmt(c).map(x => <kbd key={x}>{x}</kbd>)}</span></div>)}
+      <div className="kcols">
+        {SHEET.map(([h, cmds]) => (
+          <section key={h}><h4>{h}</h4>
+            {cmds.map(c => <div key={c}><span>{COMMANDS[c]}</span><span className="kk">{fmt(c).map(x => <kbd key={x}>{x}</kbd>)}</span></div>)}
+          </section>
+        ))}
+        <section><h4>Reading a thread, file, diff or scrollback</h4>
+          {READER.map(([l, ks]) => <div key={l}><span>{l}</span><span className="kk">{ks.map(x => <kbd key={x}>{x}</kbd>)}</span></div>)}
         </section>
-      ))}
+      </div>
       <p className="dim">Plain keys act in NORMAL only. {kb(S.settings.leader)} is the leader. Bindings come from your vimrc (Settings, Vim).</p>
     </Dialog>
   );

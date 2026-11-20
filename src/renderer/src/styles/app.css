@@ -93,3 +93,9 @@ body.dragging-thread { user-select: none; cursor: grabbing; }
 /* Reader search (/ ?): every match; the cursor sits on the current one */
 ::highlight(rsearch) { background-color: rgba(226, 165, 60, .32); }
 .xterm .t-hit { opacity: .45; pointer-events: none; }
+
+/* Keyboard sheet: sections flow down three columns, so a long one leaves no hole beside it */
+.keys { max-height: 86vh; overflow: auto; }
+.keys .kcols { grid-column: 1 / -1; columns: 3 230px; column-gap: 36px; }
+.keys .kcols section { break-inside: avoid; margin-bottom: 20px; }
+.keys .kcols .kk { flex-wrap: wrap; justify-content: flex-end; }
