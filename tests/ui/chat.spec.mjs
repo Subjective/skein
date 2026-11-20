@@ -149,7 +149,8 @@ await test('edit and resend: click a message, esc cancels, enter rewinds and res
 await test('edit from the reader: x on your message edits it in NORMAL', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await composer(p).press('Escape');
-  await p.keyboard.press('k'); await p.keyboard.press('k'); await p.keyboard.press('k');
+  // gg, not a count of k: how many lines the reply above takes depends on the fonts (Linux CI wraps it onto two)
+  await p.keyboard.press('g'); await p.keyboard.press('g');
   await settle(p);
   await p.keyboard.press('0');
   await p.keyboard.press('x');
