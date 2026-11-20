@@ -10,6 +10,7 @@ import { Dispatcher, type Surface } from './dispatcher';
 import { keyOf, type KeyLike } from './keys';
 import { DEFAULTS, Keymap } from './keymap';
 import { canon, type OS } from './platform';
+import { route, TAKEN_FROM_VIM } from '../ui/editor/route';
 
 const OSES: OS[] = ['mac', 'win', 'linux'];
 const LEADERS = ['ctrl-space', 'ctrl-\\'];
@@ -132,6 +133,31 @@ describe('keymap clashes', () => {
       for (const m of src.matchAll(/(?:case\s+|k0?\s*===\s*)'((?:ctrl|alt|cmd)-[^']+)'/g)) if (globals.has(m[1])) clashes.push(`${rel}: ${m[1]} is global (${globals.get(m[1])!.join(', ')})`);
     }
     expect(clashes).toEqual([]);
+  });
+
+  it('in a code editor, every NORMAL key Skein takes from Vim is listed with its reason (ui/editor/route.ts)', () => {
+    for (const os of OSES) {
+      const km = Keymap.build('', os);
+      const taken = [...km.normal.keys()].filter(k => route(k.split(' ')[0], 'NORMAL', true, '', km).to !== 'native');
+      expect(taken.filter(k => !TAKEN_FROM_VIM[k]).map(k => `${os}: ${k} (${km.normal.get(k)!.command})`), 'add it to TAKEN_FROM_VIM, or bind another key').toEqual([]);
+      expect(Object.keys(TAKEN_FROM_VIM).filter(k => !km.normal.has(k)), 'listed but no longer bound').toEqual([]);
+    }
+  });
+});
+
+describe('code editor key routing', () => {
+  const km = Keymap.build('');
+  it('Skein NORMAL keys win only when Vim has nothing pending', () => {
+    expect(route('H', 'NORMAL', true, '', km)).toEqual({ to: 'skein' });
+    expect(route('H', 'NORMAL', false, '', km)).toEqual({ to: 'native' });   // 2H, dH: Vim's
+    expect(route('H', 'INSERT', true, '', km)).toEqual({ to: 'native' });
+    expect(route('H', 'V-LINE', true, '', km)).toEqual({ to: 'native' });
+    expect(route('j', 'NORMAL', true, '', km)).toEqual({ to: 'native' });
+  });
+  it('g is held: g t runs Skein, gg goes to Vim', () => {
+    expect(route('g', 'NORMAL', true, '', km)).toEqual({ to: 'hold' });
+    expect(route('t', 'NORMAL', true, 'g', km)).toEqual({ to: 'run', command: 'tabnext' });
+    expect(route('g', 'NORMAL', true, 'g', km)).toEqual({ to: 'replay', keys: ['g', 'g'] });
   });
 });
 

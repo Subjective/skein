@@ -11,6 +11,9 @@
   --blue: #4aa3ff; --amber: #e2a53c; --caution: #e8834f; --red: #f0616d; --green: #45b97c; --claude: #d97757;
   --add-bg: rgba(69, 185, 124, .15); --del-bg: rgba(240, 97, 109, .15);
   --scrim: rgba(0, 0, 0, .45); --shadow: 0 14px 44px rgba(0, 0, 0, .5);
+  /* the one selection colour (VISUAL, V-LINE, a mouse selection) and syntax colours, shared by every view of code */
+  --hit: rgba(226, 165, 60, .28); --hit-now: rgba(226, 165, 60, .6);
+  --sx-k: #c678dd; --sx-s: #98c379; --sx-n: #d19a66; --sx-c: var(--fg-4); --sx-t: #61afef; --sx-f: #e5c07b;
   --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, system-ui, sans-serif;
   --mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono", Consolas, monospace;
   --mono-w: 350;
@@ -34,6 +37,7 @@
   --blue: #0b7ef5; --amber: #b8770f; --caution: #b04e1c; --red: #d43d4b; --green: #1b8f50; --claude: #c96442;
   --add-bg: rgba(27, 143, 80, .13); --del-bg: rgba(212, 61, 75, .12);
   --scrim: rgba(0, 0, 0, .18); --shadow: 0 12px 36px rgba(0, 0, 0, .14);
+  --sx-k: #a626a4; --sx-s: #50a14f; --sx-n: #986801; --sx-t: #4078f2; --sx-f: #c18401;
   color-scheme: light;
 }
 
@@ -497,8 +501,8 @@ svg.i.flip { transform: rotate(180deg); }
 .cfile > summary::-webkit-details-marker { display: none; }
 .cfile .ch { width: 11px; height: 11px; opacity: .6; transition: transform var(--ease); }
 .cfile .tag { font: 11px var(--sans); color: var(--green); }
-.diff.flat, .src { margin: 0 -14px 10px; padding: 0; border: 0; border-radius: 0; font: var(--mono-w) 12px/1.650 var(--mono); overflow-x: auto; }
-.diff.flat .dl .n, .src .dl .n { width: 48px; }
+.diff.flat { margin: 0 -14px 10px; padding: 0; border: 0; border-radius: 0; font: var(--mono-w) 12px/1.650 var(--mono); overflow-x: auto; }
+.diff.flat .dl .n { width: 48px; }
 .diff.flat .dl.add { box-shadow: inset 3px 0 0 var(--green); }
 .diff.flat .dl.del { box-shadow: inset 3px 0 0 var(--red); }
 .doc { max-width: 760px; padding: 4px 8px 32px; }
@@ -915,10 +919,6 @@ textarea.vn.hollow.drawn { caret-color: transparent; }
 .m-acts.rowcur { background: none; box-shadow: none; }
 .m-acts .ib.kcur { background: var(--active) !important; color: var(--fg) !important; box-shadow: none; outline: 2px solid var(--fg-3); outline-offset: 1px; }
 
-/* a file being edited: gutter + field, same type as the read-only source */
-.ed { flex: none; display: flex; margin: 0 -14px; min-height: 100%; }
-.ed-n { flex: none; width: 48px; margin: 0; padding: 0 10px 0 0; text-align: right; color: var(--fg-4); font: var(--mono-w) 12px/1.650 var(--mono); user-select: none; }
-.file-ed { padding: 0 14px 0 0; font: var(--mono-w) 12px/1.650 var(--mono); white-space: pre; overflow: hidden; }
 .tab.dirty .t::after { content: " \2022"; color: var(--fg-3); }
 
 /* sidebar section headings fold on click: a chevron appears on hover, and stays (turned) while folded */
@@ -1188,12 +1188,8 @@ svg.fi { width: 14px; height: 14px; flex: none; display: block; overflow: visibl
 .tf.pf.on { background: var(--active); color: var(--fg); }
 .gst { margin-left: auto; font: 600 11px var(--sans); }
 .gst.m { color: var(--amber); } .gst.a { color: var(--green); }
-.src .dl.curl { background: var(--hover); }
-.src .dl.g-add .n, .src .dl.g-chg .n { box-shadow: inset 3px 0 0 var(--green); color: var(--fg-2); }
-.src .dl.g-chg .n { box-shadow: inset 3px 0 0 var(--amber); }
 .ig i { font-style: normal; box-shadow: inset 1px 0 0 var(--line); }
-.sx-k { color: #c678dd; } .sx-s { color: #98c379; } .sx-n { color: #d19a66; } .sx-c { color: var(--fg-4); font-style: italic; } .sx-t { color: #61afef; } .sx-f { color: #e5c07b; }
-[data-theme="light"] .sx-k { color: #a626a4; } [data-theme="light"] .sx-s { color: #50a14f; } [data-theme="light"] .sx-n { color: #986801; } [data-theme="light"] .sx-t { color: #4078f2; } [data-theme="light"] .sx-f { color: #c18401; }
+.sx-k { color: var(--sx-k); } .sx-s { color: var(--sx-s); } .sx-n { color: var(--sx-n); } .sx-c { color: var(--sx-c); font-style: italic; } .sx-t { color: var(--sx-t); } .sx-f { color: var(--sx-f); }
 
 /* Sidebar hover actions: one column at the right edge. A machine's + adds a project, a project's compose starts a
    thread there, a thread's pin and archive take the place of its status (spinner, request, age, unread) on hover. */

@@ -1,31 +1,28 @@
-// An open file. It reads like any other text (a Vim cursor with counts, visual mode, y to copy, / ? n N to search,
-// ui/search.tsx) until an editing
-// key: then the source becomes a Vim field at that spot and the key acts there, with u / ctrl-r undo and redo.
-// esc from NORMAL goes back to reading; :w, ctrl-s / cmd-s or Save in the ⋯ menu writes it. Unsaved text stays with the file
-// (closing the tab keeps it for this session) and is what Preview shows.
+// An open file, in the code editor (ui/editor/CodeEditor: CodeMirror with its Vim mode, the same everywhere code is
+// edited). It opens in NORMAL: motions, counts, v / V and y read it; i, a, o, x, d, p ... edit it in place, with
+// u / ctrl-r. / ? n N search through the shared search popup (ui/search.tsx). :w, ctrl-s / cmd-s or Save in the ⋯
+// menu writes it. Unsaved text stays with the file (closing the tab keeps it for this session) and is what Preview shows.
+// Markdown opens as a preview (a reader: j / k scroll, gp or the switch shows the source); v or V there opens the
+// source at the top of the view with that line selected, so y copies Markdown, not rendered text.
 // The header has back / forward (ctrl-o / ctrl-i, through the jump list), the path (each folder opens a list of
-// what is in it; - opens the file's own folder), the language, and the project tree. Lines changed since the last
+// what is in it; - opens the file's own folder), the language, the ⋯ menu (fileactions.tsx) and the project tree. Lines changed since the last
 // commit get a bar in the gutter: green added, amber changed, a red notch where lines were removed.
 // Links in the Markdown preview follow (mdlinks.ts): a file opens in this tab (ctrl-o comes back), a heading
 // scrolls into view, a web link opens in the system browser. tab / shift-tab ring them, enter or g x follows.
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { gutterMarks } from '@shared/gutter';
 import { api } from '../../api';
 import type { Mode } from '../../input/dispatcher';
-import type { KeyLike } from '../../input/keys';
 import { kb } from '../../input/platform';
-import { tabSurface } from '../../input/surfaces';
-import { setText, step, vrange, init, type TextState } from '../../input/vimtext';
-import { yank } from '../../input/register';
 import { ReaderSearch, type Searchable } from '../../ui/search';
 import type { Tab } from '../../state/layout';
-import { S, toast, update, useApp } from '../../state/store';
+import { toast, update, useApp } from '../../state/store';
 import { openCmdline, openMenu } from '../../shell/overlays';
 import { cx, Icon, IconButton, Seg, Spinner } from '../../ui/primitives';
-import { VimField, type VimFieldHandle } from '../../ui/VimField';
-import { CodeLine, LangBadge, selectPainted, type Paint } from './code';
-import { selEnds, useToolSel } from './mousesel';
-import { baseName, indentUnit, langOf, tokenizeAll, type Tok } from './highlight';
+import { CodeEditor, type CodeEditorHandle } from '../../ui/editor/CodeEditor';
+import { LangBadge } from './code';
+import { useToolSel } from './mousesel';
+import { baseName, langOf } from './highlight';
 import { registerHooks } from './hooks';
 import { numbersOn, openFileMenu, registerFile, wrapOn } from './fileactions';
 import { diffLines, toHunks } from './linediff';
@@ -48,16 +45,14 @@ export function fileDirty(t: Tab): boolean {
   const c = ctxOf(t), key = `${c.machine}\u0000${c.dir}\u0000${t.path || ''}`;
   return bufs.has(key) && bufs.get(key) !== docs.get(key)?.disk;
 }
-const EDIT_N = new Set(['i', 'a', 'I', 'A', 'o', 'O', 's', 'S', 'c', 'C', 'd', 'D', 'x', 'X', 'r', 'p', 'P', 'J', '~', 'u', 'ctrl-r', 'delete']);
-const EDIT_V = new Set(['d', 'x', 'c', 's', 'J', '~', 'r', 'delete']);
-const HL_MAX = 8000;   // lines highlighted; the rest of a huge file is plain
+/** Keys that leave a Markdown preview for the source and act there. */
+const TO_SOURCE = new Set(['i', 'a', 'I', 'A', 'o', 'O', 'enter', 'v', 'V']);
 
-interface View { rs: TextState; mode: 'read' | 'edit'; md: 'preview' | 'source'; lk: number; lkTip?: string; hover?: string; diff?: boolean; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string; search: ReaderSearch; reader?: Searchable }
+/** `then`: what to do once the source editor is on screen (a key from the preview, a jump from search). */
+interface View { md: 'preview' | 'source'; lk: number; lkTip?: string; hover?: string; diff?: boolean; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string; search: ReaderSearch; reader?: Searchable; then?: (ed: CodeEditorHandle) => void; pend: string }
 
-const fakeKey = (k: string): KeyLike => ({ key: k.length === 1 ? k : k === 'esc' ? 'Escape' : k, code: '', ctrlKey: k.startsWith('ctrl-'), altKey: false, shiftKey: false, metaKey: false });
 const lineStarts = (t: string) => { const a = [0]; for (let i = 0; i < t.length; i++) if (t.charCodeAt(i) === 10) a.push(i + 1); return a; };
 const lineAt = (ls: number[], pos: number) => { let lo = 0, hi = ls.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (ls[m] <= pos) lo = m; else hi = m - 1; } return lo; };
-const smart = (q: string) => (q !== q.toLowerCase() ? '' : 'i');
 
 export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   useApp();
@@ -68,7 +63,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   const lister = useLister(ctx, re);
   const nav = fileNav(t);
   const v = viewState<View>(t.id, () => {
-    const x: View = { rs: init('', 'NORMAL'), mode: 'read', md: 'preview', lk: -1, tree: true, ts: { open: new Set(), cur: null, q: '' }, find: '', opened: '', search: null as unknown as ReaderSearch };
+    const x: View = { md: 'preview', lk: -1, tree: true, ts: { open: new Set(), cur: null, q: '' }, find: '', opened: '', search: null as unknown as ReaderSearch, pend: '' };
     x.search = new ReaderSearch(() => x.reader!);
     return x;
   });
@@ -79,7 +74,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   const isMd = !!lang.md;
   const text = bufs.get(key) ?? doc.disk ?? '';
   const dirty = bufs.has(key) && bufs.get(key) !== doc.disk;
-  const field = useRef<VimFieldHandle>(null);
+  const ed = useRef<CodeEditorHandle>(null);
   const body = useRef<HTMLDivElement>(null);
 
   // ---------- load the file, and its last committed text for the gutter ----------
@@ -106,22 +101,14 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     void api.git.show(ctx.machine, repo.root, rel, 'HEAD').then(b => { doc.base = b; update(); }, () => { doc.base = ''; update(); });
   }, [key, re.gen, !!repo, doc.disk != null]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // keep the reader's text in step with the file
-  if (v.rs.text !== text) v.rs = setText(v.rs, text, Math.min(v.rs.pos, Math.max(0, text.length - 1)));
   // a new file in this tab: open its folders in the tree, start at the top (or where asked)
   if (v.opened !== path) {
-    v.opened = path; v.mode = 'read'; v.md = 'preview'; v.lk = -1; v.hover = undefined;
+    v.opened = path; v.md = 'preview'; v.lk = -1; v.hover = undefined; v.find = '';
     const parts = path.split('/'); for (let i = 1; i < parts.length; i++) v.ts.open.add(parts.slice(0, i).join('/'));
-    v.rs = { ...init(text, 'NORMAL'), pos: 0 };
   }
 
   const lines = useMemo(() => text.split('\n'), [text]);
   const starts = useMemo(() => lineStarts(text), [text]);
-  const toks = useMemo<Tok[][]>(() => {
-    const hl = tokenizeAll(lines.slice(0, HL_MAX), lang);
-    return lines.length > HL_MAX ? [...hl, ...lines.slice(HL_MAX).map(l => [['', l]] as Tok[])] : hl;
-  }, [lines, lang]);
-  const unit = useMemo(() => indentUnit(lines), [lines]);
   const marks = useMemo(() => {
     if (doc.base == null) return null;
     const base = doc.base === '' ? [] : doc.base.replace(/\n$/, '').split('\n');
@@ -142,23 +129,36 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
       if (l.k === '-') gone.set(b, [...(gone.get(b) || []), l.text]);
       else { if (l.k === '+') added.add(b); b++; }
     }
-    const goneToks = new Map([...gone].map(([i, ls]) => [i, tokenizeAll(ls, lang)] as const));
-    return { gone, goneToks, added };
-  }, [diffv, doc.base, text, lang]);
+    return { gone, added };
+  }, [diffv, doc.base, text]);
+
+  const ready = doc.disk != null && !doc.binary && !doc.err;
+  const preview = isMd && v.md === 'preview';
+  const source = ready && !preview;
+
+  /** Show the source (from a preview) and, once the editor is there, do `then` in it. */
+  const toSource = (then?: (e: CodeEditorHandle) => void) => {
+    if (source && ed.current) { then?.(ed.current); return; }
+    v.md = 'source'; v.then = then; update();
+  };
+  useLayoutEffect(() => {
+    if (!source || !ed.current) return;
+    if (focused && !body.current?.querySelector('.cm-editor')?.contains(document.activeElement) && !body.current?.closest('.file-v')?.querySelector('.ctree')?.contains(document.activeElement)) ed.current.focus();
+    const then = v.then; v.then = undefined; then?.(ed.current);
+  });
 
   // where to put the cursor when asked (opened at a line, back / forward)
   useEffect(() => {
     const g = nav.goto; if (!g || doc.disk == null) return;
     nav.goto = undefined;
     const ln = Math.max(0, Math.min(starts.length - 1, g.line - 1));
-    v.rs = { ...v.rs, pos: Math.min(starts[ln] + (g.col || 0), text.length), mode: 'NORMAL', anchor: 0 };
-    if (isMd && g.line > 1) v.md = 'source';
-    update();
+    const pos = Math.min(starts[ln] + (g.col || 0), text.length);
+    if (isMd && g.line > 1) toSource(e => e.at(pos));
+    else if (ed.current) ed.current.at(pos);
+    else v.then = e => e.at(pos);
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const curLine = lineAt(starts, v.rs.pos);
-  nav.hist[nav.hi] && (nav.hist[nav.hi].line = curLine + 1);
-  const preview = isMd && v.md === 'preview' && v.mode === 'read';
+  const curLine = () => (source && ed.current ? lineAt(starts, ed.current.pos()) : 0);
 
   // ---------- actions ----------
   const save = async () => {
@@ -175,61 +175,27 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   };
   const histStep = (d: number) => {
     const i = nav.hi + d; if (i < 0 || i >= nav.hist.length) return false;
+    nav.hist[nav.hi].line = curLine() + 1;
     nav.hi = i; nav.goto = { line: nav.hist[i].line };
     update(() => { t.path = nav.hist[i].path; });
     return true;
   };
-  // mod-l in VISUAL: the painted selection becomes a page selection, and the quote command takes it from there
-  const addr = () => { if (v.rs.mode === 'VISUAL') selectPainted(body.current, '.src .vs'); else if (v.rs.mode === 'V-LINE') selectPainted(body.current, '.src .dl.vsel .c'); return false; };
-  useEffect(() => registerHooks(t.id, { back: () => histStep(-1), forward: () => histStep(1), save: () => { void save(); return true; }, addr }));
+  useEffect(() => registerHooks(t.id, { back: () => histStep(-1), forward: () => histStep(1), save: () => { void save(); return true; } }));
   // the ⋯ menu (fileactions.tsx) asks this tab what it can do
-  const discard = () => { if (v.mode === 'edit') stopEdit(); bufs.delete(key); update(); };
   useEffect(() => registerFile(t.id, {
-    dirty: () => dirty, discard, canDiff: () => doc.base != null, diff: () => !!v.diff,
-    setDiff: on => { if (v.mode === 'edit') stopEdit(); v.diff = on; if (on && isMd) v.md = 'source'; update(); },
+    dirty: () => dirty, discard: () => { bufs.delete(key); update(); }, canDiff: () => doc.base != null, diff: () => !!v.diff,
+    setDiff: on => { v.diff = on; if (on && isMd) v.md = 'source'; update(); },
     repo: () => (repo ? { root: repo.root, rel: repo.prefix ? repo.prefix + '/' + path : path } : null),
   }));
-  // a mouse selection (mouseUp below) is the reader's VISUAL with the Add to Chat bar; the page selection follows
-  // the painted one as keys move it, and goes when VISUAL does
-  const mouse = useRef(false);
-  const tsel = useToolSel(t, () => { mouse.current = false; if (v.rs.mode === 'VISUAL' || v.rs.mode === 'V-LINE') { v.rs = { ...v.rs, mode: 'NORMAL' }; update(); } });
-  useLayoutEffect(() => {
-    if (!mouse.current) return;
-    if (v.mode !== 'read' || (v.rs.mode !== 'VISUAL' && v.rs.mode !== 'V-LINE')) { mouse.current = false; tsel.show(null); getSelection()?.removeAllRanges(); return; }
-    if (selectPainted(body.current, v.rs.mode === 'VISUAL' ? '.src .vs' : '.src .dl.vsel .c')) tsel.show(getSelection()?.toString() ?? null);
-  });
-
-  const edBox = useRef<HTMLDivElement>(null);
-  const startEdit = (k?: string) => {
-    const f = field.current, box = edBox.current;
-    if (doc.disk == null || doc.binary || !f || !box) return;
-    if (isMd) v.md = 'source';
-    const vis = v.rs.mode === 'VISUAL' || v.rs.mode === 'V-LINE' ? { anchor: v.rs.anchor, mode: v.rs.mode } : undefined;
-    const pending = v.rs.pending;
-    v.mode = 'edit'; v.rs = { ...v.rs, pending: '', mode: 'NORMAL' };
-    // the editor is always there, hidden while reading: show it and hand over in the same key press
-    box.style.display = '';
-    f.focus(); f.at(v.rs.pos, vis);
-    const s = tabSurface(t.id);
-    for (const c of [...pending.replace(/\s/g, '')]) s?.key(c, fakeKey(c));
-    if (k) s?.key(k, fakeKey(k));
-    update(x => { x.tick++; });
-  };
-  const stopEdit = () => {
-    const st = field.current?.state();
-    v.mode = 'read';
-    if (st) v.rs = { ...v.rs, text: st.text, pos: Math.min(st.pos, Math.max(0, st.text.length - 1)), mode: 'NORMAL', pending: '' };
-    (document.activeElement as HTMLElement | null)?.blur();
-    own(); update();
-  };
+  // a mouse selection is VISUAL with the Add to Chat bar (VIM-MODEL rule 10); it goes when VISUAL does
+  const tsel = useToolSel(t, () => {});
   const onEdit = (x: string) => { if (x === doc.disk) bufs.delete(key); else bufs.set(key, x); update(); };
 
   // / ? n N: the shared reader search (ui/search.tsx) over the file's lines; matches are painted with `hit`
-  const gotoPos = (line: number, col: number) => { v.rs = { ...v.rs, pos: Math.min(starts[line] + col, text.length), mode: 'NORMAL' }; if (preview) v.md = 'source'; update(); };
   v.reader = {
     items: () => lines,
-    at: () => ({ i: curLine, o: v.rs.pos - starts[curLine] }),
-    go: h => gotoPos(h.i, h.o),
+    at: () => { const i = curLine(); return { i, o: (ed.current?.pos() ?? 0) - starts[i] }; },
+    go: h => { const pos = Math.min(starts[h.i] + h.o, text.length); toSource(e => e.at(pos)); },
     paint: q => { v.find = q; update(); },
     anchor: () => body.current?.getBoundingClientRect() ?? null,
     num: h => h.i + 1,
@@ -247,6 +213,20 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     });
     if (kids) show(kids);
     else void api.fs.list(ctx.machine, join(ctx.dir, dir)).then(es => show(es.map(e => ({ name: e.name, rel: dir ? dir + '/' + e.name : e.name, dir: e.dir })))).catch(e => toast(String(e)));
+  };
+  const folder = () => crumbMenu(path.includes('/') ? path.replace(/\/[^/]*$/, '') : '');
+
+  // ---------- keys in the source: the file's own, before Vim (ui/editor/CodeEditor onKey) ----------
+  const editorKey = (k: string, c: { mode: Mode; idle: boolean; held: string }) => {
+    if (k === 'ctrl-s' || k === 'cmd-s') { void save(); return true; }
+    if (c.held === 'g' && k === 'p' && isMd) { v.md = 'preview'; update(); return true; }
+    if (!c.idle) return false;
+    if (k === '/' || k === '?' || ((k === 'n' || k === 'N') && v.search.active)) return v.search.key(k, 1);
+    if (k === 'n' || k === 'N') { v.search.next(1); return true; }
+    if (k === ':') { openCmdline(); return true; }
+    if (k === '-') { folder(); return true; }
+    if (k === 'esc') return v.search.clear();
+    return false;
   };
 
   // ---------- links in the preview ----------
@@ -303,128 +283,52 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   };
   const tip = preview ? v.hover ?? (focused && links()[v.lk] ? v.lkTip : undefined) : undefined;
 
-  // ---------- keys while reading ----------
+  // ---------- keys in a Markdown preview (or while the file loads): a reader ----------
   const scrollBy = (px: number) => body.current?.scrollBy({ top: px });
-  const { own } = useSurface(t.id, focused, {
-    fieldOwns: () => v.mode === 'edit',
-    mode: (): Mode => (v.rs.mode === 'INSERT' ? 'NORMAL' : v.rs.mode),
+  /** The source line at the top of the preview. */
+  const topLine = () => {
+    const b = body.current; if (!b) return 0;
+    const top = b.getBoundingClientRect().top;
+    const el = [...b.querySelectorAll<HTMLElement>('.doc [data-ln]')].find(x => x.getBoundingClientRect().bottom > top + 4);
+    return el ? +(el.dataset.ln || 0) : 0;
+  };
+  const reader = useSurface(t.id, focused, {
+    mode: (): Mode => 'NORMAL',
     key: k => {
       if (nativeTarget() && (k === 'enter' || k === 'space')) return false;
-      if (doc.disk == null) return k.length === 1;
-      const visual = v.rs.mode === 'VISUAL' || v.rs.mode === 'V-LINE';
-      if (v.rs.pending.endsWith('g') && k === 'p' && isMd) { v.rs = { ...v.rs, pending: '' }; v.md = v.md === 'preview' ? 'source' : 'preview'; update(); return true; }
-      if (!v.rs.pending || /^\d+$/.test(v.rs.pending)) {
-        const n = Math.max(1, parseInt(v.rs.pending || '1', 10));
-        if (!visual && (k === '/' || k === '?' || ((k === 'n' || k === 'N') && v.search.active))) { v.rs = { ...v.rs, pending: '' }; v.search.key(k, n); return true; }
-        if (k === 'n' || k === 'N') { v.rs = { ...v.rs, pending: '' }; if (!visual) v.search.next(1); return true; }
-        if (k === '-' && !visual) { crumbMenu(path.includes('/') ? path.replace(/\/[^/]*$/, '') : ''); return true; }
-        if (k === ':' && !visual) { openCmdline(); return true; }
-        if (k === 'ctrl-d' || k === 'ctrl-u' || k === 'pagedown' || k === 'pageup') {
-          const h = halfPage(body.current, 20) * n * (k === 'ctrl-d' || k === 'pagedown' ? 1 : -1);
-          if (preview) { scrollBy(h * 20); return true; }
-          const ln = Math.max(0, Math.min(starts.length - 1, curLine + h)); v.rs = { ...v.rs, pending: '', pos: starts[ln] + Math.min(v.rs.pos - starts[curLine], Math.max(0, lines[ln].length - 1)) }; update(); return true;
-        }
-        if (k === 'esc' && !visual && !v.rs.pending && v.search.clear()) return true;
-        if (preview && (k === 'tab' || k === 'shift-tab')) { v.rs = { ...v.rs, pending: '' }; ringLink(k === 'tab' ? 1 : -1); return true; }
-        const lk = preview ? links()[v.lk] : undefined;
-        if (lk && (k === 'enter' || k === 'o' || splitKey(k))) { void follow(lk, splitKey(k)); return true; }
-        if (lk && k === 'esc') { v.lk = -1; v.lkTip = undefined; update(); return true; }
-        if (k === 'enter' && !visual) { startEdit(); return true; }
-        if (preview) {
-          if (k === 'j' || k === 'down') { v.rs = { ...v.rs, pending: '' }; scrollBy(40 * n); return true; }
-          if (k === 'k' || k === 'up') { v.rs = { ...v.rs, pending: '' }; scrollBy(-40 * n); return true; }
-          if (k === 'G') { body.current?.scrollTo({ top: 1e9 }); return true; }
-        }
-        if (!visual && EDIT_N.has(k) && !(preview && k === 'u')) { startEdit(k); return true; }
-        if (visual && EDIT_V.has(k)) { startEdit(k); return true; }
-      }
-      if (preview && v.rs.pending === 'g' && (k === 'x' || k === 'f')) {
-        v.rs = { ...v.rs, pending: '' };
-        const a = links()[v.lk];
-        if (a) void follow(a); else toast(`No link chosen · ${kb('tab')} moves to one`);
+      if (!preview || doc.disk == null) return k.length === 1;
+      const p = v.pend; v.pend = '';
+      const n = Math.max(1, parseInt(p || '1', 10));
+      if (/^\d$/.test(k) && (p || k !== '0')) { v.pend = p + k; return true; }
+      if (p === 'g' && k === 'p') { toSource(); return true; }
+      if (p === 'g' && (k === 'x' || k === 'f')) { const a = links()[v.lk]; if (a) void follow(a); else toast(`No link chosen · ${kb('tab')} moves to one`); return true; }
+      if (k === 'tab' || k === 'shift-tab') { ringLink(k === 'tab' ? 1 : -1); return true; }
+      const lk = links()[v.lk];
+      if (lk && (k === 'enter' || k === 'o' || splitKey(k))) { void follow(lk, splitKey(k)); return true; }
+      if (lk && k === 'esc') { v.lk = -1; v.lkTip = undefined; update(); return true; }
+      if (p === 'g' && k === 'g') { body.current?.scrollTo({ top: 0 }); return true; }
+      if (k === 'g') { v.pend = 'g'; return true; }
+      if (k === 'j' || k === 'down') { scrollBy(40 * n); return true; }
+      if (k === 'k' || k === 'up') { scrollBy(-40 * n); return true; }
+      if (k === 'G') { body.current?.scrollTo({ top: 1e9 }); return true; }
+      if (k === 'ctrl-d' || k === 'ctrl-u' || k === 'pagedown' || k === 'pageup') { scrollBy(halfPage(body.current, 20) * 20 * n * (k === 'ctrl-d' || k === 'pagedown' ? 1 : -1)); return true; }
+      if (k === '/' || k === '?' || ((k === 'n' || k === 'N') && v.search.active)) { v.search.key(k, n); return true; }
+      if (k === 'esc' && v.search.clear()) return true;
+      if (k === '-') { folder(); return true; }
+      if (TO_SOURCE.has(k)) {
+        // the source, at the line on top of the preview: v / V select from there, the editing keys act there
+        const pos = starts[Math.min(topLine(), starts.length - 1)];
+        toSource(e => { e.at(pos); if (k === 'v' || k === 'V') e.at(pos, { anchor: pos, mode: k === 'V' ? 'V-LINE' : 'VISUAL' }); else if (k !== 'enter') e.feed(k); });
         return true;
       }
-      if (preview && v.rs.pending === 'g' && k === 'g') { v.rs = { ...v.rs, pending: '' }; body.current?.scrollTo({ top: 0 }); update(); return true; }
-      if (/^[dcr]/.test(v.rs.pending.replace(/^\d+/, ''))) { startEdit(k); return true; }   // an operator typed while reading
-      const r = step(v.rs, k);
-      if (!r.handled) return false;   // the NORMAL layer (: H L ...) gets it; nothing types
-      if (r.fx.includes('yank')) { yank(r.s.reg.text, r.s.reg.line); toast(`Copied ${r.s.reg.text.split('\n').length > 1 ? r.s.reg.text.split('\n').length + ' lines' : 'selection'}`); }
-      if (r.fx.includes('leave')) { v.rs = { ...r.s, mode: 'NORMAL' }; update(); return false; }
-      if (r.s.text !== v.rs.text) { startEdit(k); return true; }   // anything that would change the text edits instead
-      v.rs = { ...r.s, mode: r.s.mode === 'INSERT' ? 'NORMAL' : r.s.mode }; update();
-      return true;
+      return false;   // : H L and the rest: the NORMAL layer
     },
   });
 
-  // keep the cursor in sight, and the editor's caret too
-  useLayoutEffect(() => {
-    if (v.mode !== 'read' || preview) return;
-    body.current?.querySelector('.src .dl.curl')?.scrollIntoView({ block: 'nearest' });
-  }, [v.rs.pos, v.mode, preview, focused]);
-  useEffect(() => {
-    if (v.mode !== 'edit') return;
-    const onSel = () => {
-      const el = field.current?.el(), b = body.current; if (!el || document.activeElement !== el || !b) return;
-      const ln = lineAt(lineStarts(el.value.slice(0, el.selectionEnd)), el.selectionEnd);
-      const lh = parseFloat(getComputedStyle(el).lineHeight) || 19.8, top = el.offsetTop + ln * lh;
-      if (top < b.scrollTop + 8) b.scrollTop = top - 8; else if (top + lh > b.scrollTop + b.clientHeight - 8) b.scrollTop = top + lh - b.clientHeight + 8;
-    };
-    document.addEventListener('selectionchange', onSel);
-    return () => document.removeEventListener('selectionchange', onSel);
-  }, [v.mode]);
-
-  // ---------- mouse: a click puts the cursor there, a double click starts editing ----------
-  const posFromPoint = (e: React.MouseEvent): number | null => {
-    const row = (e.target as HTMLElement).closest('.dl[data-ln]') as HTMLElement | null; if (!row) return null;
-    const ln = +(row.dataset.ln || 0), c = row.querySelector('.c'); if (!c) return null;
-    const cr = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint?.(e.clientX, e.clientY);
-    // the line number puts the cursor at the line's start; right of the text, its end
-    let col = (e.target as HTMLElement).closest('.n') ? 0 : lines[ln].length;
-    if (cr && c.contains(cr.startContainer)) {
-      col = 0;
-      const w = document.createTreeWalker(c, NodeFilter.SHOW_TEXT); let n: Node | null;
-      while ((n = w.nextNode())) { if (n === cr.startContainer) { col += cr.startOffset; break; } col += (n.textContent || '').length; }
-    }
-    return starts[ln] + Math.min(col, Math.max(0, lines[ln].length - 1));
-  };
-
   // ---------- render ----------
   const parts = path.split('/');
-  const sel = v.rs.mode === 'VISUAL' || v.rs.mode === 'V-LINE' ? vrange(v.rs) : null;
-  const findRe = v.find ? new RegExp(v.find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g' + smart(v.find)) : null;
-  const paintFor = (i: number): Paint[] | undefined => {
-    const out: Paint[] = [];
-    const s = starts[i], e = s + lines[i].length;
-    if (findRe && lines[i]) { findRe.lastIndex = 0; let m; while ((m = findRe.exec(lines[i]))) { out.push({ from: m.index, to: m.index + Math.max(1, m[0].length), cls: 'hit' }); if (!m[0]) findRe.lastIndex++; } }
-    // VISUAL paints the characters; V-LINE shades whole rows (.vsel) instead, so the text is not shaded twice
-    if (sel && v.rs.mode === 'VISUAL' && sel[0] <= e && sel[1] >= s) out.push({ from: Math.max(0, sel[0] - s), to: Math.min(lines[i].length + 1, sel[1] - s), cls: 'vs' });
-    if (focused && i === curLine && v.mode === 'read') out.push({ from: v.rs.pos - s, to: v.rs.pos - s + 1, cls: 'vc' });
-    return out.length ? out : undefined;
-  };
-  const showLines = v.mode === 'read' && !preview && doc.disk != null && !doc.binary;
-  // the mouse (VIM-MODEL rule 10): a double click is the word in VISUAL, a drag what it covers, a triple click the
-  // line in V-LINE, each with Add to Chat. Editing stays on i / a.
-  const mouseUp = (e: React.MouseEvent) => {
-    if (e.button !== 0 || v.mode !== 'read') return;
-    const d = e.detail, p = posFromPoint(e);
-    setTimeout(() => {
-      const src = body.current?.querySelector('.src');
-      if (!src) { const doc = body.current?.querySelector('.doc'), g = getSelection(); if (doc && g && !g.isCollapsed && doc.contains(g.anchorNode)) tsel.show(g.toString()); return; }
-      if (d >= 3 && p != null) { mouse.current = true; v.rs = { ...v.rs, pos: p, anchor: p, mode: 'V-LINE' }; update(); return; }
-      const g = getSelection();
-      if (g && !g.isCollapsed && !g.toString().trim()) { g.removeAllRanges(); return; }   // a double click on blank space selects nothing
-      const x = selEnds(src); if (!x) return;
-      const at = (q: { row: HTMLElement; col: number }) => { const ln = +(q.row.dataset.ln || 0); return starts[ln] + Math.min(q.col, lines[ln].length); };
-      const a = at(x.a); let b = at(x.b) - 1;
-      while (b > a && text[b] === '\n') b--;
-      if (b < a) return;
-      mouse.current = true;
-      v.rs = x.back ? { ...v.rs, anchor: b, pos: a, mode: 'VISUAL' } : { ...v.rs, anchor: a, pos: b, mode: 'VISUAL' };
-      update();
-    }, 0);
-  };
   return (
-    <div className={cx('file-v', !numbersOn() && 'nonum', wrapOn() && 'wrap')} ref={side.ref} onMouseDown={e => { if (v.mode === 'read' && !(e.target as HTMLElement).closest('.ctree, .tool-h')) own(); }}>
+    <div className={cx('file-v', !numbersOn() && 'nonum', wrapOn() && 'wrap')} ref={side.ref}>
       <header className="tool-h">
         <IconButton icon="chev" className="flip" small label="Back" keys="ctrl-o" disabled={nav.hi === 0} onClick={() => histStep(-1)} />
         <IconButton icon="chev" small label="Forward" keys="ctrl-i" disabled={nav.hi >= nav.hist.length - 1} onClick={() => histStep(1)} />
@@ -437,53 +341,30 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
           <Icon name="chev" className="sep" /><span className="crumb now"><LangBadge path={path} />&nbsp;{parts[parts.length - 1]}</span>
         </nav>
         <span className="sp" />
-        {isMd && <Seg text label="Preview or source" value={preview ? 'preview' : 'source'} onChange={x => { if (v.mode === 'edit') stopEdit(); v.md = x; update(); }}
+        {isMd && <Seg text label="Preview or source" value={preview ? 'preview' : 'source'} onChange={x => { v.md = x; update(); }}
           options={[{ v: 'preview', label: 'Preview' }, { v: 'source', label: 'Source' }]} />}
-        <IconButton data-k="more" icon="dots" small label="More actions" onClick={e => openFileMenu(t, e.currentTarget.getBoundingClientRect())} />
         <IconButton data-k="find" icon="search" small label="Find in file" keys="/" onClick={() => find()} />
+        <IconButton data-k="more" icon="dots" small label="More actions" onClick={e => openFileMenu(t, e.currentTarget.getBoundingClientRect())} />
         <IconButton icon="panelR" small on={side.show} aria-pressed={side.show} label="Project files" onClick={side.toggle} />
       </header>
       <div className={cx('cbody', side.show && 'tree')}>
-        <div className={cx('tool-b', focused && v.mode === 'read' && 'rd')} data-read ref={body}>
+        <div className={cx('tool-b', source && 'code')} data-read ref={body} onMouseDown={() => { if (!source) reader.own(); }}>
           {doc.err ? <div className="r-empty"><Icon name="alert" size="xl" /><span>{doc.err}</span></div>
             : doc.binary ? <div className="r-empty bin"><Icon name="file" size="xl" /><span>Binary file, not shown</span></div>
             : doc.disk == null ? <div className="r-empty"><Spinner label="Opening" /></div>
-            : (
-              <div className="ed" ref={edBox} style={v.mode === 'edit' ? undefined : { display: 'none' }}>
-                <pre className="ed-n" aria-hidden="true">{lines.map((_, i) => i + 1).join('\n')}</pre>
-                <VimField key={key} ref={field} tabId={t.id} value={text} onChange={onEdit} mono className="rc-ed file-ed" maxHeight={1e7} startMode="NORMAL"
-                  onLeave={stopEdit} onKey={(k, mode) => {
-                    if (k === 'ctrl-s' || k === 'cmd-s') { void save(); return true; }
-                    if (k === ':' && mode === 'NORMAL') { openCmdline(); return true; }
-                    return false;
-                  }} />
-              </div>
-            )}
-          {showLines && (
-            <div className={cx('src', diffv && 'diffv', mouse.current && sel && 'msel', sel && v.rs.mode !== 'NORMAL' && 'vis')} data-src={`file:${path}`} role="textbox" aria-readonly="true" aria-label={path} aria-multiline="true"
-              onMouseDown={e => { if (e.detail > 1) return; const p = posFromPoint(e); if (p != null) { v.rs = { ...v.rs, pos: p, mode: 'NORMAL' }; update(); } }}
-              onMouseUp={mouseUp}>
-              {[...lines, null].map((_, i) => (<Fragment key={i}>
-                {drows?.gone.get(i)?.map((g, j) => (
-                  <div key={'g' + j} className="dl del" aria-hidden="true"><span className="n" /><span className="c"><CodeLine toks={drows.goneToks.get(i)![j] || [['', g]]} unit={unit} /></span></div>
-                ))}
-                {i < lines.length && <div data-ln={i} className={cx('dl', drows ? drows.added.has(i) && 'add' : marks?.get(i + 1), i === curLine && 'curl', sel && v.rs.mode === 'V-LINE' && starts[i] >= sel[0] && starts[i] <= sel[1] && 'vsel')}>
-                  <span className="n">{i + 1}</span><span className="c"><CodeLine toks={toks[i] || []} unit={unit} paint={paintFor(i)} /></span>
-                </div>}
-              </Fragment>))}
-            </div>
-          )}
-          {v.mode === 'read' && preview && doc.disk != null && (
-            <article className="doc prose" data-src={`file:${path}`} onMouseUp={mouseUp} onMouseOver={hover} onMouseLeave={hover}
-              onClick={e => {
-                const a = (e.target as Element).closest<HTMLElement>('a.mlink');
-                if (!a || getSelection()?.toString()) return;
-                e.preventDefault(); v.lk = -1; v.lkTip = undefined;
-                void follow(a, splitClick(e));
-              }}>
-              <Markdown text={text} />
-            </article>
-          )}
+            : preview ? (
+              <article className="doc prose" data-src={`file:${path}`} onMouseOver={hover} onMouseLeave={hover}
+                onMouseUp={() => { const g = getSelection(); if (g && !g.isCollapsed && body.current?.contains(g.anchorNode)) tsel.show(g.toString()); }}
+                onClick={e => {
+                  const a = (e.target as Element).closest<HTMLElement>('a.mlink');
+                  if (!a || getSelection()?.toString()) return;
+                  e.preventDefault(); v.lk = -1; v.lkTip = undefined;
+                  void follow(a, splitClick(e));
+                }}>
+                <Markdown text={text} />
+              </article>)
+            : <CodeEditor key={key} ref={ed} tabId={t.id} id={key} value={text} onChange={onEdit} path={path} marks={drows ? null : marks} diff={drows}
+                numbers={numbersOn()} wrap={wrapOn()} find={v.find || undefined} className="src" dataSrc={`file:${path}`} onKey={editorKey} onMouseSel={x => tsel.show(x)} />}
         </div>
         {tip && <div className="link-tip" role="status">{tip}</div>}
         {side.show && (<>
@@ -497,5 +378,3 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     </div>
   );
 }
-
-void S;
