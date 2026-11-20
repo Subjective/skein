@@ -28,7 +28,7 @@ export function ThreadStatus({ t }: { t: ThreadMeta }) {
   }
 }
 
-const projectName = (m: string, d: string) => (S.settings as unknown as { names?: Record<string, string> }).names?.[m + ':' + d] || base(d) || d;
+const projectName = (m: string, d: string) => (S.settings as unknown as { names?: Record<string, string> }).names?.[m + ':' + d] || (d === S.machines.find(x => x.id === m)?.home ? '~' : base(d)) || d;
 
 /** Items in sidebar order, for j / k: headings ('fold:<key>') and threads (ids). */
 function navOrder(): string[] {
