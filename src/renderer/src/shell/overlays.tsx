@@ -1,7 +1,7 @@
 // Overlays opened by commands: palette, : line, pane search, workspaces, machines, keyboard sheet, settings.
 // All are the shared Menu or Dialog, so they look and key the same.
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import type { DirEntry, Machine } from '@shared/types';
+import type { DirEntry, Machine, ThreadMeta } from '@shared/types';
 import { ALIASES, COMMANDS, Keymap, parseVimrc, toVimKeys } from '../input/keymap';
 import { kb } from '../input/platform';
 import type { Surface } from '../input/dispatcher';
@@ -83,10 +83,12 @@ const threadRight = (id: string) => { const t = thread(id); if (!t) return undef
 
 export function openPalette(mode: 'all' | 'file' = 'all') {
   if (mode === 'file') { void openFiles(); return; }
-  const th = [...S.threads].filter(t => !t.archived && !t.side).sort((a, b) => b.updatedAt - a.updatedAt);
+  // every thread, as the mockup's: archived ones (last) and side chats too; a side chat opens as a popup
+  const th = [...S.threads].sort((a, b) => Number(!!a.archived) - Number(!!b.archived) || b.updatedAt - a.updatedAt);
+  const where = (t: ThreadMeta) => [machine(t.machine)?.name ?? t.machine, projectName(t.machine, t.dir), t.side && 'side chat', t.archived && 'archived'].filter(Boolean).join(' · ');
   const items: MenuItem<() => void>[] = [
     { head: true, label: 'Threads' },
-    ...th.map(t => ({ label: t.title, hint: `${machine(t.machine)?.name ?? t.machine} · ${projectName(t.machine, t.dir)}`, icon: <Icon name={t.harness} size="hm" />, right: threadRight(t.id), data: () => A.openThread(t.id) })),
+    ...th.map(t => ({ label: t.title, hint: where(t), icon: <Icon name={t.side ? 'chat' : t.harness} size="hm" />, right: threadRight(t.id), data: () => (t.side ? openSide(t.id) : A.openThread(t.id)) })),
     { head: true, label: 'Actions' },
     ...ACTIONS.map(([label, icon, cmd]) => ({ label, icon: <Icon name={icon} />, data: () => run(cmd) })),
   ];
@@ -172,7 +174,7 @@ function parsePath(q: string, m0: string, hosts: boolean): PathQ | null {
 }
 /** One folder up, or from the top back to the list. */
 const upPath = (p: PathQ) => (p.parent.length > 2 ? p.pre + p.parent.slice(0, p.parent.lastIndexOf('/', p.parent.length - 2) + 1) : '');
-const linkDot = (m: Machine) => (m.ssh ? <Dot color={m.link === 'up' ? 'green' : m.link === 'down' ? 'red' : 'amber'} pulse={m.link === 'connecting' || m.link === 'reconnecting'} label={m.link === 'up' ? 'Connected' : m.link === 'down' ? 'Not connected' : m.link === 'auth' ? 'Needs you to sign in' : 'Connecting'} /> : null);
+export const linkDot = (m: Machine) => (m.ssh ? <Dot color={m.link === 'up' ? 'green' : m.link === 'down' ? 'red' : 'amber'} pulse={m.link === 'connecting' || m.link === 'reconnecting'} label={m.link === 'up' ? 'Connected' : m.link === 'down' ? 'Not connected' : m.link === 'auth' ? 'Needs you to sign in' : 'Connecting'} /> : null);
 const isUp = (m: Machine) => !m.ssh || m.link === 'up';
 
 interface Ctl { set: (q: string, ins?: boolean) => void; close: () => void; refresh: () => void }
@@ -319,7 +321,7 @@ export function openAddProject(mid: string, anchor: DOMRect, add: (dir: string) 
 
 // ---------- machines (mockup act.machines) ----------
 const marks = (m: Machine) => (['claude', 'codex'] as const).map(h => <span key={h} className={cx('has', !m.has.includes(h) && 'no')} title={`${harnessName(h)} ${m.has.includes(h) ? 'installed' : 'not found'}`}><Icon name={h} /></span>);
-const sshAddr = (m: Machine) => (m.ssh ? `${m.ssh.user ? m.ssh.user + '@' : ''}${m.ssh.host}` : m.os || '');
+export const sshAddr = (m: Machine) => (m.ssh ? `${m.ssh.user ? m.ssh.user + '@' : ''}${m.ssh.host}` : m.os || '');
 
 /** Machines with their address, which harnesses they have and their link; picking one starts a new thread there. */
 export function openMachines(anchor?: DOMRect | null) {
@@ -361,7 +363,7 @@ const setVimrc = async (text: string) => { const s = await api.app.setSettings({
 // after the leader. The binding is written to the vimrc as an nnoremap line, so the sheet and the file agree.
 interface KRow { label: string; def: string; cmd?: string }
 const KEYS = (): [string, KRow[]][] => [
-  ['Find', [{ label: 'Search threads and actions', def: kb('mod-k') }, { label: 'Search files in the project', def: kb('mod-p') }, { label: 'Search this pane and its thread', def: kb('mod-shift-a') }, { label: 'Command line', def: ':' }]],
+  ['Find', [{ label: 'Search threads and actions', def: kb('mod-k') }, { label: 'Search files in the project', def: kb('mod-p') }, { label: 'Search this pane and its thread', def: kb('mod-shift-a') }, { label: 'Search here: text, or filter the list', def: '/' }, { label: 'Command line', def: ':' }]],
   ['Panes', [{ label: 'Split right', cmd: 'vsplit', def: '|' }, { label: 'Split down', cmd: 'split', def: '\\' }, { label: 'Shell to the right', cmd: 'vshell', def: 'ldr %' },
     { label: 'Shell below', cmd: 'shell', def: 'ldr "' }, { label: 'Zoom pane', cmd: 'zoom', def: 'ldr z' }, { label: 'Focus a pane', def: kb('alt-h') + ' j k l' }]],
   ['Tabs', [{ label: 'New tab', cmd: 'tabnew', def: 'ldr c' }, { label: 'Close tab', cmd: 'q', def: 'ldr q' }, { label: 'Next tab', cmd: 'tabnext', def: 'L' },
@@ -545,7 +547,7 @@ function Settings({ close, section, row: row0 }: { close: () => void; section?: 
   );
 }
 
-async function addHostMenu() {
+export async function addHostMenu() {
   const hosts = await api.machines.sshHosts();
   openMenu<string>({
     modal: true, className: 'pal', search: { placeholder: 'Host from ~/.ssh/config, or user@host' },

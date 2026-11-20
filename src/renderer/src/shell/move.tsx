@@ -10,9 +10,8 @@ import { machine, openLayer, S, thread, toast, update, useApp } from '../state/s
 import { Dialog, useDialogSurface } from '../ui/Dialog';
 import { Button, Icon, Spinner } from '../ui/primitives';
 import { detachThread } from '../views/terminal/TerminalView';
-import { dirMenu } from './Launcher';
-import { openMenu } from './overlays';
-import { projectName } from './meta';
+import { knownDirs, openFolderPicker, openMenu } from './overlays';
+import { base, projectName } from './meta';
 import { threadDrag, type PaneDrag } from './tabdrag';
 
 const reason = (e: unknown) => String((e as Error)?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
@@ -44,8 +43,17 @@ export function moveMenu(id: string, anchor: HTMLElement) {
 export function pickFolder(id: string, mid: string, anchor: HTMLElement) {
   const t = thread(id), m = machine(mid); if (!t || !m) return;
   if (machineBlocked(t, mid)) { openMove(id, mid, '~'); return; }
-  const start = mid === t.machine ? t.dir : projectsOn(mid)[0] || '~';
-  dirMenu({ machine: mid, dir: start }, anchor, d => openMove(id, mid, d), { placeholder: `Folder on ${m.name}` });
+  // the shared folder field (known folders, typed paths, browse), as a new thread's folder chip
+  openFolderPicker(mid, anchor.getBoundingClientRect(), d => openMove(id, mid, d), { place: 'bottom-start', width: 320, exclude: d => mid === t.machine && d === t.dir });
+}
+
+/** A thread dropped on a machine heading: a folder there with the same repo name goes straight to the dialog
+ *  (mockup B19); a machine it can't go to shows why; else the folder field. */
+export function dropOnMachine(id: string, mid: string, anchor: HTMLElement) {
+  const t = thread(id); if (!t) return;
+  const repo = base(t.dir), match = knownDirs(mid).find(d => base(d) === repo && !(mid === t.machine && d === t.dir));
+  if (match) { openMove(id, mid, match); return; }
+  pickFolder(id, mid, anchor);
 }
 
 /** The confirm dialog: from -> to, the reason it can't move if it can't, then Move. */
@@ -176,7 +184,7 @@ export function startThreadDrag(e: React.MouseEvent, t: ThreadMeta) {
     if (!target) return;
     const mid = target.dataset.machine!;
     if (target.matches('.s-d')) openMove(t.id, mid, target.dataset.dir!);
-    else pickFolder(t.id, mid, target);
+    else dropOnMachine(t.id, mid, target);
   };
   addEventListener('mousemove', mv); addEventListener('mouseup', up, true);
 }

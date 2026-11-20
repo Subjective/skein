@@ -9,7 +9,9 @@ import { armLeader, owner } from './keyboard';
 import { pathTo, resize } from '../state/layout';
 import { here, knownDirs, openCmdline, openKeys, openMachines, openPalette, openPaneSearch, openSettings, openWorkspaces } from './overlays';
 import { scrollback } from '../views/terminal/scrollback';
+import { launcherFocus } from './Launcher';
 import { tabHook } from '../views/tools/hooks';
+import { searchSidebar } from './Sidebar';
 import { openTool, saveFile } from '../views/tools/open';
 import { liveTab, quoteSelection } from '../views/chat/threads';
 
@@ -40,7 +42,8 @@ const RUN: Record<string, (args: string[]) => void | boolean> = {
   // the active tab is already a new-thread launcher: just focus it, don't pile up a second one
   tabnew: () => {
     const p = A.focusedPane(), cur = A.currentTab();
-    if (cur.kind === 'new' && !ws().pf) { A.focusPane(p.id); return; }
+    // already on a new tab: back into its composer, in INSERT (the mockup's tabNew)
+    if (cur.kind === 'new' && !ws().pf) { A.focusPane(p.id); requestAnimationFrame(() => launcherFocus.get(cur.id)?.()); return; }
     update(s => { A.addTab(p, A.launcherFor(cur)); ws().pf = null; s.tick++; }); A.save();
   },
   // a new thread to the right; on another machine and folder when named (by id or name)
@@ -85,6 +88,15 @@ const RUN: Record<string, (args: string[]) => void | boolean> = {
   normal: () => toNormal(),
   escape: () => { const t = A.currentTab(); if (t.kind === 'shell' || (t.kind === 'thread' && t.view === 'term')) scrollback(t.id); else toNormal(); },
   swap: () => A.swapNext(),
+  // `/` is always a search where you are (rule 22): surfaces with their own search take it first; here is the rest
+  search: () => {
+    if (S.sideFocus) { searchSidebar(); return; }
+    const t = A.currentTab();
+    const slash = { key: '/', code: 'Slash', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false };
+    if (t.kind === 'thread' && t.view !== 'term') { if (liveTab(t.id)?.enter?.()) { requestAnimationFrame(() => owner().key('/', slash)); return; } }
+    if (t.kind === 'shell' || t.kind === 'thread') { scrollback(t.id); requestAnimationFrame(() => owner().key('/', slash)); return; }
+    toast('Nothing to search here');
+  },
   scrollback: () => { const t = A.currentTab(); if (t.kind === 'thread' && t.view !== 'term' && liveTab(t.id)?.enter?.()) return; scrollback(t.id); },   // a chat tab: its reader
   // ctrl-o from a popup: back to the pane it came from (the popup stays); ctrl-i: to that same popup again
   // (places are kept per popup in state/actions: rule 15)

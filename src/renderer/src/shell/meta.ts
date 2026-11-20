@@ -21,7 +21,7 @@ export function tabMeta(t: Tab): { icon: string; title: string; ssh?: boolean } 
   const m = machine(th?.machine || t.machine);
   const ssh = !!m?.ssh;
   switch (t.kind) {
-    case 'thread': return { icon: th?.harness || 'chat', title: th?.title || 'Thread', ssh };
+    case 'thread': return { icon: th?.side ? 'chat' : th?.harness || 'chat', title: th?.title || 'Thread', ssh };
     case 'shell': return { icon: 'terminal', title: ssh ? (m?.name || 'shell') : S.info.platform === 'mac' ? 'zsh' : S.info.platform === 'win' ? 'PowerShell' : 'bash', ssh };
     case 'changes': return { icon: 'diff', title: 'Changes' };
     case 'files': return { icon: 'folder', title: 'Files' };

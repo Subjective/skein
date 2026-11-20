@@ -110,7 +110,7 @@ export const fakeApi: SkeinBridge = {
       return { ...t };
     },
   },
-  chat: { send: chat.send, interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); } },
+  chat: { send: chat.send, interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); }, follow: () => {} },
   pty: {
     spawn: async spec => {
       const id = 'fake' + ++ptyN; lines.set(id, ''); if (spec.run.kind === 'shell') ran.set(id, { cmd: '', machine: spec.machine, cwd: spec.cwd });

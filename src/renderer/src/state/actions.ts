@@ -120,6 +120,21 @@ export function setView(t: Tab, v?: ViewKind) {
   save();
 }
 
+/** A turn ended (running -> idle). Out of sight (another tab, another window, the app in the background) the reply
+ *  is unread: the sidebar shows the blue dot until you open the thread (mockup app.js:131, 597). */
+export function turnEnded(id: string) {
+  const th = thread(id); if (!th || th.status !== 'idle') return;
+  if (document.hasFocus() && currentTab().thread === id) return;
+  update(() => { th.status = 'unread'; });
+  void api.threads.update(id, { status: 'unread' });
+}
+/** The thread is in front of you: a blue dot clears. */
+export function markRead(id: string) {
+  const th = thread(id); if (!th || th.status !== 'unread') return;
+  update(() => { th.status = 'idle'; });
+  void api.threads.update(id, { status: 'idle' });
+}
+
 export function openThread(id: string, o: { split?: boolean; view?: ViewKind } = {}) {
   const th = thread(id); if (!th) return;
   update(s => {
@@ -195,8 +210,10 @@ export function popOut(tabId?: string) {
   update(s => {
     const w = ws(), p = focusedPane(w), t = tabId ? p.tabs.find(x => x.id === tabId) : activeTab(p);
     if (!t) return;
+    const i = p.tabs.indexOf(t);
     p.tabs = p.tabs.filter(x => x.id !== t.id);
-    if (!p.tabs.length) closePane(p); else if (p.active === t.id) p.active = p.tabs[p.tabs.length - 1].id;
+    // the tab before it becomes active (the mockup's tabClose with alt)
+    if (!p.tabs.length) closePane(p); else if (p.active === t.id) p.active = p.tabs[Math.max(0, i - 1)].id;
     places.set(t.id, { from: w.focus, tab: activeTab(focusedPane(w)).id, place: placeOf(activeTab(focusedPane(w)).id) });
     w.pops.push({ tab: t, from: w.focus }); w.pf = t.id; s.tick++;
   });
@@ -269,13 +286,13 @@ export function dock(id?: string | null) {
 
 // ---------- workspaces ----------
 export function newWorkspace(name: string, machine: string, dir: string) {
-  update(s => { const w = blankWs(machine, dir); w.name = name; s.workspaces.push(w); s.wid = w.id; s.tick++; });
+  update(s => { const w = blankWs(machine, dir); w.name = name; s.workspaces.push(w); s.wid = w.id; s.sideFocus = false; s.sideCursor = null; s.tick++; });
   save();
 }
 /** Switch workspace (mockup WS.go): no field keeps the caret, so it comes up in NORMAL. */
 export function switchWorkspace(id: string) {
   (document.activeElement as HTMLElement | null)?.blur?.();
-  update(s => { const w = s.workspaces.find(x => x.id === id); if (w) { w.usedAt = Date.now(); s.wid = id; s.sideFocus = false; s.tick++; } });
+  update(s => { const w = s.workspaces.find(x => x.id === id); if (w) { w.usedAt = Date.now(); s.wid = id; s.sideFocus = false; s.sideCursor = null; s.tick++; } });
   save();
 }
 export function lastWorkspace() {
