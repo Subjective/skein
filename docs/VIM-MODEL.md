@@ -62,6 +62,11 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 12. **Layout commands are bindable.** Each is a named command (`:vsplit`, `:tabnext`, ...) with a default
     key. Rebinding writes an `nnoremap` line to the vimrc; the vimrc and the keyboard popup always agree.
     A key can mean one thing: binding a key that is already taken replaces that line rather than adding a second.
+    In the keyboard popup (`?`) `j` / `k` move over its one list; `enter` or a click on a rebindable row waits for
+    a key (the leader first makes it a leader map) and writes `nnoremap <key> :<command><CR>`, dropping any other
+    line for that command or that key; `x` (or the row's reset button) removes it so the default is back. The `:`
+    line matches names by prefix (an exact name first, so `:w` saves) and passes what follows as arguments:
+    `:new [machine] [dir]`, `:workspace [name]`. `:find` is file search (`mod-p`), `:files` the Files tool.
 14. **A block can have keys of its own, and they work when the cursor is on it** (`l` / `h` on a tool row,
     `enter` on a file). The one exception is a block that is waiting on you: a request to run something or
     a plan to approve. Its `y` / `n` work from NORMAL anywhere in that thread's tab, because nothing else
@@ -89,7 +94,8 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
     go in as text.
 19. **Every reader takes counts and searches the same way.** A count repeats a motion (`5j`, `3w`, `2}`) and
     `NG` / `Ngg` go to line N (in a diff, the Nth row; in the chat transcript, which has no line numbers, `G`
-    still goes back to the composer). Fields take the same counts, before or after an operator (`2d3w`).
+    goes to the start of the conversation's last line, just above the composer; `i`, `a`, `esc` or `j` from there
+    go into the composer). Fields take the same counts, before or after an operator (`2d3w`).
     `/` searches forwards and `?` backwards: a prompt opens (the shared menu, prefix `/` or `?`), typing
     highlights every match in the reader and lists them nearest first, `enter` jumps to the one picked. After
     that `n` repeats the search in its direction and `N` the other way, each with a count; going past an end
@@ -98,6 +104,21 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
     (rule 2). While a search is active `n` repeats it, even in a thread with a waiting request (rule 14); with
     no search, `n` answers the request. In a reader `?` is the backward search; the keyboard popup's `?` works
     from every other surface.
+20. **A focused popup is modal.** While a temporary surface has the keys (the composer's `/` and `@` lists, any
+    menu, picker, palette or dialog), it gets every key and the global bindings and the leader wait: `ctrl-p` /
+    `ctrl-n` move in a `/` list instead of opening file search, `ctrl-k` moves up a menu instead of opening the
+    palette, and nothing opens behind Settings. Only `ctrl-tab` passes, so the workspace switcher keeps cycling.
+    This holds for every overlay, the ctrl-k palette and ctrl-p file search included: inside them ctrl-k / ctrl-p
+    move up and ctrl-j / ctrl-n move down, so a search never opens on top of itself. A dialog with text fields (the
+    commit message) is modal too. (`input/dispatcher.ts`: a surface marked `local`; `shell/keyboard.ts` marks every
+    overlay's surface local. `input/keyclash.test.ts` fails on a key bound twice, a global that a popup can't
+    override, a terminal global that takes a shell key, or a surface handler a global would always pre-empt.)
+21. **A popup with a search or input field opens in INSERT.** The palette, file search, the `:` line, the workspace
+    menu, the model picker, thread move, the folder picker, the commit filter and go-to-file all start with the caret
+    in the field, so typing filters at once. `ctrl-n` / `ctrl-p` and the arrows move the selection while typing,
+    `esc` drops the field to NORMAL for `j` / `k`, and a second `esc` closes. A popup without a field (a row's ⋯
+    menu, the ctrl-tab switcher while ctrl is held) has nothing to type into and is a plain list. One rule in
+    `ui/Menu.tsx`, not a per-popup choice.
 
 ## 4. Per-surface summary
 
@@ -108,7 +129,7 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 | Mirror bar, handoff card, upload error, SSH dialog buttons, move dialog | List (one row) | NORMAL | rule 16 |
 | SSH sign-in (passphrase, code) | Field | INSERT | `enter` connects; `esc` NORMAL on the buttons, `esc` again cancels |
 | Composer controls (attach, permissions, model, send; machine, directory) | List | NORMAL | `j` from the text's last line; `h` `l` along, `enter` presses, `k` back to the text |
-| Menu search field | Field | INSERT (NORMAL in menus that open on a pick, like a folder's crumbs) | Typing filters the list. In composer menus, moving the pointer over a result selects it. Arrow keys continue from that result and Enter opens it. In NORMAL the field keeps its cursor and is a Field wherever that does not clash with the list: `j` `k` `gg` `G` (with counts) move the list, `enter` picks, `q` / `esc` close; `h` `l` `w` `b` `e` `0` `$` move the field's cursor, `x` `dw` `D` `C` `~` `p` `u` edit it, `i` `a` `I` `A` (and `/`) type again. A menu's own keys come first: a folder field's `h` / `l` go up and into folders, the workspace list's `d` closes a workspace. A menu without a search field keeps `h` / `l` for its items' values (the model picker's effort, rule 3) and `l` picks. |
+| Menu search field | Field | INSERT (NORMAL in menus that open on a pick, like a folder's crumbs) | Typing filters the list. In composer menus, moving the pointer over a result selects it (other menus keep the keyboard's selection under the pointer). Arrow keys continue from that result and Enter or Tab opens it; in NORMAL `space` picks and leaves the menu open; `ctrl-h` / `ctrl-l` are left / right. With nothing to pick, a menu without a search field closes and lets the key through. In NORMAL the field keeps its cursor and is a Field wherever that does not clash with the list: `j` `k` `gg` `G` (with counts) move the list, `enter` picks, `q` / `esc` close; `h` `l` `w` `b` `e` `0` `$` move the field's cursor, `x` `dw` `D` `C` `~` `p` `u` edit it, `i` `a` `I` `A` (and `/`) type again. A menu's own keys come first: a folder field's `h` / `l` go up and into folders, the workspace list's `d` closes a workspace. A menu without a search field keeps `h` / `l` for its items' values (the model picker's effort, rule 3) and `l` picks. |
 | Side chat or subagent popup | Field | INSERT | opens ready to type into its composer |
 | Thread, side chat, subagent, file, diff, scrollback | Reader | NORMAL | entered from the field below, by click, or leader `[`; counts, `/` `?` `n` `N` (rule 19) |
 | Changes (diff + file tree) | Reader + Field | NORMAL | `/` `?` search the diff like any reader; `f` searches the tree, `enter` there goes to the first match; on a file's header `s` stages, `x` reverts (Undo in the toast), `enter` on "N unmodified lines" shows them |
@@ -117,10 +138,10 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 | Rows inside a thread | List | NORMAL | `l` / `h` unfold / fold; `enter` opens |
 | Menus, keyboard popup | List | NORMAL | `esc` closes |
 | Settings | List (two: sections, then the section's rows) | NORMAL | The section list has the keys first: `j` / `k` move over sections (the page follows), `l`, `enter` or `tab` go into its rows. In the rows `j` / `k` move, `h` / `l` lower and raise a row's value (a choice, a switch), `enter` presses; `esc`, `shift-tab`, or `h` on a row with no value go back to the sections; `esc` there closes, `q` closes from either. `H` / `L` mean tabs everywhere and do nothing in this dialog. |
-| Folder fields (workspace menu, a new thread's directory) | List + Field | INSERT | type a path to list that folder; `tab` (or `l` in NORMAL) goes into the folder under the cursor, `h` back up, `enter` chooses it |
-| Sidebar | List (a pane) | NORMAL | leader `h` / `alt-h` from the leftmost pane focuses it (opening it if hidden); `j` `k` move over sections, projects and threads; `h` / `l` fold and unfold (`h` on a thread goes to its project); `enter` / `o` opens in the last pane, `shift-enter` / `O` in a split; `c` new thread in the project, `p` pin, `x` archive, `m` move to another project or machine (a menu of projects on every machine plus Other folder…, then a confirm dialog whose buttons are a row, rule 16; the mouse drags the row onto a project or a machine heading); `l`, leader `l` or `esc` back to the panes |
+| Folder fields (workspace menu, a machine's +, a new thread's directory) | List + Field | INSERT | known folders and the machines to browse; type a path (`~/...`, `/...`, or in the workspace menu `machine:~/...`) to list that folder; `tab` (or `l` / right in NORMAL) goes into the folder under the cursor (on a row with nothing to go into, `tab` moves on), `h` back up, `enter` chooses it |
+| Sidebar | List (a pane) | NORMAL | leader `h` / `alt-h` from the leftmost pane focuses it (opening it if hidden); `j` `k` move over sections, projects and threads; `h` / `l` fold and unfold (`h` on a thread goes to its project); `enter` / `o` opens in the last pane, `shift-enter` / `O` in a split; `c` new thread in the project, `p` pin, `x` archive, `m` move to another project or machine (a menu of projects on every machine plus Other folder…, then a confirm dialog whose buttons are a row, rule 16; the mouse drags the row onto a project or a machine heading); `l`, leader `l` or `esc` back to the panes. A click in the sidebar gives it the keys (opening a thread hands them to the thread); a click in the panes takes them back |
 | Workspaces (a whole layout per project) | Layout | any | `ctrl-tab` most recent first, release to switch; leader `w` or `:workspace` to search, create, rename (`r`), close (`d`) |
-| Panes, tabs, popups | Layout | any | `\|` `\` split, `H` `L` tabs, leader for the rest. `ctrl-o` from a popup goes back to the pane it came from, leaving it open; `ctrl-i` goes forward to it again |
+| Panes, tabs, popups | Layout | any | `\|` `\` split, `H` `L` tabs, `g t` / `g T` tabs, `g v` chat or terminal, `/` the palette, leader for the rest: `o` focuses each popup in turn then the panes, `d` docks the focused popup as a tab, `r` rotates the split, `<` `>` resize side by side and `+` `-` stacked, `esc` reads a terminal's scrollback (elsewhere: NORMAL), `space` NORMAL. `ctrl-w` in NORMAL arms the leader (`ctrl-w v`, `ctrl-w q` ...); `:only` has no default key. `ctrl-o` from a popup goes back to the pane it came from, leaving it open; `ctrl-i` goes forward to that same popup |
 
 ## 5. Keyboard by OS
 
@@ -145,5 +166,8 @@ The Electron build must also drop the default menu accelerators that would swall
 - **One register.** No named registers, no explicit `"+` / `"*`, and `p` in VISUAL does not replace the selection.
 - **Counts stop at the edges they knew before**: `5j` past a reader's last line goes to the field below (rule 7)
   like `j` does, and a count before `G` in the chat transcript is ignored.
+- **App NORMAL `j` / `k` / `enter` / `o`** (moving the sidebar's cursor without focusing the sidebar, as the mockup does)
+  are not built: with nothing to type into, those keys do nothing.
+- **`ctrl-o` / `ctrl-i` always take the key**, even with nothing to jump to (the mockup lets them through then).
 - **The mockup** still has the old behaviour (Settings' `H` / `L`, a model selector with a search field whose
   `h` / `l` change effort, no counts or search in readers); the build follows this document.
