@@ -39,6 +39,8 @@ let ptyN = 0;
 const lines = new Map<string, string>();
 // the shell's last command and the spec it runs under, so `claude` / `codex` typed in a shell is adopted (pty.adopt)
 const ran = new Map<string, { cmd: string; machine: string; cwd: string; thread?: string }>();
+/** Which thread each fake terminal runs. */
+const termOf = new Map<string, string>();
 
 // SSH scenes (G5), chosen with ?ssh= in the URL so other UI tests see no dialogs:
 //   auth: connecting build-07 asks for a key passphrase   code: a verification code   hostkey: a new host key
@@ -113,10 +115,19 @@ export const fakeApi: SkeinBridge = {
       return { ...t };
     },
   },
-  chat: { send: chat.send, interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); }, follow: () => {} },
+  // Claude Code's one writer (core/handoff): chat's first send closes the thread's parked terminal, which resumes later
+  chat: {
+    send: async (id, msg) => {
+      const t = threads.find(x => x.id === id);
+      if (t?.harness === 'claude') for (const [pid, th] of termOf) if (th === id) { termOf.delete(pid); emit({ type: 'pty.exit', id: pid, code: null, handoff: true }); }
+      return chat.send(id, msg);
+    },
+    interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); }, follow: () => {},
+  },
   pty: {
     spawn: async spec => {
       const id = 'fake' + ++ptyN; lines.set(id, ''); if (spec.run.kind === 'shell') ran.set(id, { cmd: '', machine: spec.machine, cwd: spec.cwd });
+      if (spec.thread) termOf.set(id, spec.thread);
       const prompt = spec.run.kind === 'shell' ? 'PS ' + spec.cwd + '> ' : `\x1b[1m${spec.run.kind}\x1b[0m (mock terminal: no harness in a browser)\r\n> `;
       emit({ type: 'pty.data', id, data: prompt });
       return id;
@@ -127,7 +138,7 @@ export const fakeApi: SkeinBridge = {
       if (d === '\x7f') { lines.set(id, (lines.get(id) || '').slice(0, -1)); emit({ type: 'pty.data', id, data: '\b \b' }); return; }
       lines.set(id, (lines.get(id) || '') + d); emit({ type: 'pty.data', id, data: d });
     },
-    resize: () => {}, kill: () => {},
+    resize: () => {}, kill: id => { termOf.delete(id); },
     adopt: async id => {
       const r = ran.get(id), h = r?.cmd.trim().split(/\s+/)[0];
       if (!r || r.thread || (h !== 'claude' && h !== 'codex')) return null;

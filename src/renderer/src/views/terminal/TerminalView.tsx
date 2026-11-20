@@ -39,6 +39,8 @@ export interface TermEntry {
   onAttention?: (text: string) => void;
   /** A line was sent to the program (enter). */
   onEnter?: () => void;
+  /** Closed for a handoff to chat: start again from the view's current spec, without first-launch arguments. */
+  resume?: boolean;
 }
 const cache = new Map<string, TermEntry>();
 export const termOf = (tabId: string) => cache.get(tabId);
@@ -60,7 +62,14 @@ function wire() {
   if (wired) return; wired = true;
   api.on(e => {
     if (e.type === 'pty.data') byPty.get(e.id)?.term.write(e.data);
-    if (e.type === 'pty.exit') { const t = byPty.get(e.id); if (t) { t.exited = e.code; t.ptyId = null; byPty.delete(e.id); t.onExit?.(e.code); update(); } }
+    if (e.type === 'pty.exit') {
+      const t = byPty.get(e.id); if (!t) return;
+      t.ptyId = null; byPty.delete(e.id);
+      // chat took the thread (core/handoff): not an exit. The screen clears, and the next time the view shows it
+      // starts the TUI again, resuming the session with what chat wrote meanwhile
+      if (e.handoff) { t.exited = undefined; t.resume = true; t.term.reset(); update(); return; }
+      t.exited = e.code; t.onExit?.(e.code); update();
+    }
   });
 }
 
@@ -149,6 +158,11 @@ export function useTerminal(tab: Tab, focused: boolean, spec: PtySpec | null, on
     }
     const ro = new ResizeObserver(() => { if (t.el.offsetWidth > 0) { try { t.fit.fit(); } catch { /* hidden */ } } });
     ro.observe(host.current);
+    if (t.resume) {
+      // the thread's program now (an adopted shell's TUI comes back as the TUI itself); a first prompt is not sent again
+      t.spec = { ...spec, run: { ...spec.run, args: undefined } as PtySpec['run'] };
+      t.resume = false;
+    }
     requestAnimationFrame(() => { try { t.fit.fit(); } catch { /* hidden */ } if (t.ptyId === null && t.exited === undefined) void startPty(t); });
     return () => { ro.disconnect(); };
   }, [tab.id, !!spec]); // eslint-disable-line react-hooks/exhaustive-deps

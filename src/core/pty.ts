@@ -86,7 +86,7 @@ const expand = (p?: string) => {
 /** How the terminal manager follows an SSH link: report a drop, wait for the link to come back. */
 export interface PtyLink { whenUp(machine: string): Promise<unknown> }
 
-interface Live { spec: PtySpec; env: Record<string, string>; term?: IPty; kept: boolean; closed: boolean }
+interface Live { spec: PtySpec; env: Record<string, string>; term?: IPty; kept: boolean; closed: boolean; handoff?: boolean }
 
 export class Ptys {
   private ptys = new Map<string, Live>();
@@ -131,7 +131,7 @@ export class Ptys {
   private end(id: string, live: Live, code: number | null, why?: string) {
     if (this.ptys.get(id) === live) this.ptys.delete(id);
     if (why) emit({ type: 'pty.data', id, data: `\r\n${why}\r\n` });
-    emit({ type: 'pty.exit', id, code });
+    emit({ type: 'pty.exit', id, code, ...(live.handoff ? { handoff: true } : {}) });
   }
 
   write(id: string, data: string) { this.ptys.get(id)?.term?.write(data); }
@@ -144,19 +144,24 @@ export class Ptys {
     l.spec.cols = Math.max(2, cols); l.spec.rows = Math.max(1, rows);
     try { l.term?.resize(l.spec.cols, l.spec.rows); } catch { /* exited */ }
   }
-  /** Close on purpose: the program ends, including a persistent remote session. Resolves once that is gone. */
-  kill(id: string): Promise<void> {
+  /** Close on purpose: the program ends, including a persistent remote session. Resolves once that is gone.
+   *  `handoff`: chat takes the thread (core/handoff), so the view starts the program again instead of showing an exit. */
+  kill(id: string, o: { handoff?: boolean } = {}): Promise<void> {
     const l = this.ptys.get(id); if (!l) return Promise.resolve();
-    l.closed = true; this.ptys.delete(id);
-    try { l.term?.kill(); } catch { /* gone */ }
+    l.closed = true; l.handoff = o.handoff; this.ptys.delete(id);
+    // wait for the program to exit (a few seconds at most), so nothing it writes on the way out lands after the
+    // next writer has started
+    const term = l.term;
+    const gone = term ? new Promise<void>(res => { const t = setTimeout(res, 3000); term.onExit(() => { clearTimeout(t); res(); }); }) : Promise.resolve();
+    try { term?.kill(); } catch { /* gone */ }
     const m = this.machine(l.spec.machine);
-    if (l.kept && m.persist && l.spec.thread) return run(m, killLine(l.spec.thread, m.persist)).then(() => undefined, () => undefined);
-    return Promise.resolve();
+    if (l.kept && m.persist && l.spec.thread) return Promise.all([gone, run(m, killLine(l.spec.thread, m.persist)).catch(() => undefined)]).then(() => undefined);
+    return gone;
   }
   /** Is a terminal of this thread open (its program writes the thread's transcript)? */
   hasThread(thread: string) { for (const l of this.ptys.values()) if (l.spec.thread === thread && !l.closed) return true; return false; }
-  /** Close every terminal tied to a thread (it is moving). */
-  async killThread(thread: string) { await Promise.all([...this.ptys].filter(([, l]) => l.spec.thread === thread).map(([id]) => this.kill(id))); }
+  /** Close every terminal tied to a thread (it is moving, or chat takes it over: `handoff`). */
+  async killThread(thread: string, o: { handoff?: boolean } = {}) { await Promise.all([...this.ptys].filter(([, l]) => l.spec.thread === thread).map(([id]) => this.kill(id, o))); }
   /** App quit: let persistent remote sessions keep running, so a turn survives restarting Skein. */
   killAll() { for (const [id, l] of [...this.ptys]) { l.closed = true; this.ptys.delete(id); try { l.term?.kill(); } catch { /* gone */ } } }
 }

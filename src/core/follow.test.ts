@@ -181,22 +181,39 @@ describe('Follower', () => {
     } finally { f.stop(); }
   });
 
-  it('follows a Codex rollout (fixture) the same way', async () => {
+  // Codex: the rollout is only watched; what it holds is read back through the app-server (host.read).
+  it('follows a Codex rollout: re-reads through the host on each write', async () => {
     const sid = '0b5e2a8c-1111-2222-3333-444455556666', dir = join(root, 'codex', 'sessions', '2026', '11', '20');
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `rollout-2026-11-20T10-00-00-${sid}.jsonl`);
     const ev = (payload: object) => J({ type: 'event_msg', payload });
-    writeFileSync(file, [J({ type: 'session_meta', payload: { id: sid, cwd: '/p' } }), ev({ type: 'task_started', turn_id: 'turn1' }),
-      ev({ type: 'item_completed', turn_id: 'turn1', item: { type: 'UserMessage', id: 'i1', content: [{ type: 'text', text: 'list files', text_elements: [] }] } })].join('\n') + '\n');
+    writeFileSync(file, [J({ type: 'session_meta', payload: { id: sid, cwd: '/p' } }), ev({ type: 'task_started', turn_id: 'turn1' })].join('\n') + '\n');
     const t: ThreadMeta = { ...claudeThread(sid), harness: 'codex' }, h = host(t);
+    let held: ThreadEvent[] = [{ t: 'user', id: 'i1', text: 'list files' }];
+    let reads = 0;
+    h.api.read = async () => { reads++; return held; };
     const f = new Follower(t.id, h.api, { throttle: 10, tail: (p, off, sink) => new LocalTail(p, off, sink, { poll: 20, watch: false }) });
     expect((await f.load())!.map(e => e.id)).toEqual(['i1']);
     f.start();
     try {
-      appendFileSync(file, [ev({ type: 'item_completed', turn_id: 'turn1', item: { type: 'AgentMessage', id: 'i2', text: 'Two files.' } }), ev({ type: 'task_complete', turn_id: 'turn1', duration_ms: 2500 })].join('\n') + '\n');
+      // mid-turn, the app-server calls the unfinished turn interrupted: not shown while the rollout says running
+      held = [...held, { t: 'text', id: 'i0', text: 'Working…' }, { t: 'interrupted', id: 'i-turn1' }];
+      appendFileSync(file, ev({ type: 'agent_message', message: 'Working…' }) + '\n');
+      await until(() => h.pushed.some(p => p.e.id === 'i0'));
+      expect(h.pushed.map(p => p.e.id)).not.toContain('i-turn1');
+      held = [held[0], held[1], { t: 'text', id: 'i2', text: 'Two files.' }, { t: 'worked', id: 'w-turn1', ms: 2500 }];
+      appendFileSync(file, ev({ type: 'task_complete', turn_id: 'turn1', duration_ms: 2500 }) + '\n');
       await until(() => h.acts.some(a => a.state === 'idle'));
-      expect(h.pushed.map(p => p.e.id)).toEqual(['i2', 'w-turn1']);
+      expect(h.pushed.map(p => p.e.id)).toEqual(['i0', 'i2', 'w-turn1']);
       expect(h.acts.at(-1)).toEqual({ state: 'idle', ended: true });
+      expect(reads).toBe(3);
+      // a read that fails is logged, not thrown from the timer, and the next write reads again
+      h.api.read = async () => { throw new Error('app-server gone'); };
+      appendFileSync(file, ev({ type: 'task_started', turn_id: 'turn2' }) + '\n');
+      await new Promise(r => setTimeout(r, 120));
+      h.api.read = async () => held;
+      appendFileSync(file, ev({ type: 'task_complete', turn_id: 'turn2' }) + '\n');
+      await until(() => h.acts.filter(a => a.state === 'idle').length === 2);
     } finally { f.stop(); }
   });
 
@@ -213,6 +230,32 @@ describe('Follower', () => {
       appendFileSync(join(pdir, `${sid}.jsonl`), asst('a1', 'u1', 'm1', { type: 'text', text: 'done' }, 'end_turn') + '\n');
       await until(() => h.acts.some(a => a.state === 'idle'));
       expect(h.pushed.map(p => p.e.id)).toContain('m1:0');
+    } finally { fs.dispose(); }
+  });
+});
+
+describe('Follows.turnState (the handoff asks whether the terminal is mid-turn)', () => {
+  let root: string; const env = { ...process.env };
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'skein-state-')); process.env.CLAUDE_CONFIG_DIR = join(root, 'claude'); });
+  afterEach(() => { process.env = { ...env }; rmSync(root, { recursive: true, force: true }); });
+
+  it('reads the transcript as it is now, without moving the live baseline', async () => {
+    const sid = '31111111-2222-3333-4444-555555555555', dir = join(root, 'claude', 'projects', '-p'), file = join(dir, `${sid}.jsonl`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, user('u1', null, 'hi') + '\n');
+    const t: ThreadMeta = { id: 't1', harness: 'claude', sessionId: sid, machine: 'local', dir: '/p', title: 'x', createdAt: 0, updatedAt: 0, status: 'idle' };
+    const pushed: string[] = [];
+    const local = { id: 'local', name: 'This computer', link: 'up' } as unknown as Machine;
+    const fs = new Follows({ machine: () => local, thread: () => t, bySession: () => t, owner: () => 'pty', event: (_t, e) => pushed.push(e.id), activity: () => {} },
+      { watch: false, throttle: 10, tail: (p, off, sink) => new LocalTail(p, off, sink, { poll: 5000, watch: false }) });
+    try {
+      expect(await fs.turnState('t1')).toBe('running');           // no follower yet: a look of its own
+      await fs.history('t1');                                       // now followed, with a slow poll
+      appendFileSync(file, asst('a1', 'u1', 'm1', { type: 'text', text: 'hello' }, 'end_turn') + '\n');
+      expect(await fs.turnState('t1', { fresh: true })).toBe('idle'); // the tail hasn't seen it; a fresh look has
+      expect(await fs.turnState('t1')).toBe('running');           // the tail's view, a poll behind
+      fs.changed(file);                                             // the watcher's kick: the reply still arrives live
+      await until(() => pushed.includes('m1:0'));
     } finally { fs.dispose(); }
   });
 });

@@ -1,7 +1,7 @@
 // Live follow of a thread's transcript, for sessions written by something other than Skein's chat driver: a
 // `claude` or `codex` started in another terminal, or Skein's own terminal view while the chat view mirrors it.
-// The transcript is tailed (core/tail), its lines kept parsed, and the whole thread re-folded with the history
-// parsers on each change; the events that are new or changed since the last fold are pushed as chat events, so
+// The transcript is tailed (core/tail), its lines kept parsed, and the whole thread re-read on each change (Claude:
+// folded with the history parser; Codex: read back through its app-server, host.read); the events that are new or changed since the last fold are pushed as chat events, so
 // ids match history exactly and nothing is sent twice. What the turn is doing (running, or ended) is read from
 // the transcript too, and reported for writes nobody in Skein made, so the sidebar shows them (G13 blue dot).
 import { watch as fsWatch, type FSWatcher } from 'node:fs';
@@ -11,8 +11,8 @@ import { join } from 'node:path';
 import type { Machine, ThreadEvent, ThreadMeta } from '../shared/types';
 import { jsonLines } from './harness/common';
 import { parseClaudeTranscript } from './harness/claude/history';
-import { parseCodexRollout } from './harness/codex/history';
 import { run } from './exec';
+import { log } from './log';
 import { sq } from './shell';
 import { LocalTail, RemoteTail, type TailSink } from './tail';
 
@@ -78,6 +78,8 @@ export interface FollowHost {
   event(thread: string, e: ThreadEvent, replace: boolean): void;
   /** Something outside Skein wrote the transcript. `ended`: the write finished a turn. */
   activity(thread: string, a: { state: TurnState; ended: boolean }): void;
+  /** A Codex thread's events, from its app-server (the rollout file is only watched for changes, not parsed). */
+  read?(t: ThreadMeta): Promise<ThreadEvent[]>;
 }
 
 export interface Located { path: string; text: string }
@@ -173,7 +175,7 @@ export class Follower {
     this.offset = Buffer.byteLength(whole);
     this.entries = jsonLines(whole);
     this.fresh = [];
-    const events = this.fold();
+    const events = await this.fold();
     this.snap = new Map(events.map(e => [e.id, JSON.stringify(e)]));
     this.loaded = true;
     if (following) this.start();
@@ -206,12 +208,26 @@ export class Follower {
 
   private flushTimer() { if (this.timer) { clearTimeout(this.timer); this.timer = null; } }
 
-  /** Fold now (tests; and the end of a throttle window). */
-  refold() {
+  private folding: Promise<void> | null = null;
+  private again = false;
+
+  /** Re-read and push what changed (tests; and the end of a throttle window). One at a time: a change that lands
+   *  while a read is out runs one more read after it. */
+  refold(): Promise<void> {
     this.flushTimer();
+    if (this.folding) { this.again = true; return this.folding; }
+    this.folding = (async () => {
+      do { this.again = false; await this.refoldOnce(); } while (this.again);
+    })().catch(e => log('follow', 'could not read', this.id, (e as Error).message)).finally(() => { this.folding = null; });
+    return this.folding;
+  }
+
+  private async refoldOnce() {
     const t = this.t; if (!t) return;
     const owner = this.host.owner(this.id);
-    const events = this.fold();
+    // the lines this read answers for; any that land while it is out belong to the next one
+    const fresh = this.fresh; this.fresh = [];
+    const events = await this.fold();
     const next = new Map<string, string>();
     for (const e of events) {
       const j = JSON.stringify(e);
@@ -220,7 +236,6 @@ export class Follower {
       if (owner !== 'driver' && this.snap.get(e.id) !== j) this.host.event(this.id, e, this.snap.has(e.id));
     }
     this.snap = next;
-    const fresh = this.fresh; this.fresh = [];
     if (owner || !fresh.length) return;
     const state = this.state();
     this.host.activity(this.id, { state, ended: state === 'idle' && endsTurn(t.harness, fresh) });
@@ -245,9 +260,16 @@ export class Follower {
     return Infinity;
   }
 
-  private fold(): ThreadEvent[] {
+  private async fold(): Promise<ThreadEvent[]> {
     const t = this.t; if (!t) return [];
-    if (t.harness === 'codex') return parseCodexRollout(this.entries).events;
+    if (t.harness === 'codex') {
+      const evs = this.host.read ? await this.host.read(t) : [];
+      // read while another process is mid-turn, the app-server reports that unfinished turn as interrupted; it
+      // is still running, so it gets no interrupted (or worked) row until it really ends
+      const last = this.state() === 'running' ? evs.findLast(e => e.t === 'interrupted') : undefined;
+      const turn = last?.id.slice(2);
+      return turn ? evs.filter(e => e.id !== 'i-' + turn && e.id !== 'w-' + turn) : evs;
+    }
     const h = parseClaudeTranscript(this.entries);
     // a turn that is over has no running tools: the writer was interrupted or killed between a call and its result
     if (claudeTurnState(this.entries) === 'idle') h.fold.settleRunning('done');
@@ -320,6 +342,19 @@ export class Follows {
       // a moment's grace: switching tabs should not restart the ssh tail
       this.drop.set(id, setTimeout(() => { this.drop.delete(id); if (!this.want.get(id)) f.stop(); }, this.o.dropMs ?? 20_000));
     }
+  }
+
+  /** Whether the thread's last turn is still going, from its transcript. 'idle' when there is none. `fresh`: read
+   *  the file now rather than trust a running tail (which can be a poll behind). */
+  async turnState(id: string, o: { fresh?: boolean } = {}): Promise<TurnState> {
+    const f = this.map.get(id);
+    if (f?.following && !o.fresh) return f.state();
+    // a look of its own: the follower's baseline stays where it is, so live pushes miss nothing
+    const t = this.host.thread(id); if (!t) return 'idle';
+    const found = await locate(t, this.host.machine(t.machine)).catch(() => null);
+    if (!found) return 'idle';
+    const entries = jsonLines(found.text.slice(0, found.text.lastIndexOf('\n') + 1));
+    return t.harness === 'claude' ? claudeTurnState(entries) : codexTurnState(entries);
   }
 
   /** Let go of a thread (it moved, or was removed): the next look starts from its record. */
