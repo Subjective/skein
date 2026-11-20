@@ -34,7 +34,9 @@ export interface ShellHooks {
 export function createServices(store: Store, shell: ShellHooks, harnesses: Harnesses = unimplemented) {
   const machines = new Machines(store);
   const threads = new Threads(store);
-  const ptys = new Ptys(id => machines.get(id));
+  const ptys = new Ptys(id => machines.get(id), { whenUp: id => machines.whenUp(id) });
+  // each time an SSH machine comes up, pick up sessions that were started there outside Skein
+  machines.onUp(m => { threads.discover(m.id, m).catch(e => log('ssh', m.id, 'discovery failed', (e as Error).message)); });
   const drivers = new Map<string, ChatDriver>();
   const host = {
     machine: (id: string) => machines.get(id),
@@ -64,7 +66,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       add: async (name, ssh) => machines.add(name, ssh),
       remove: async id => machines.remove(id),
       connect: id => machines.connect(id),
-      answer: async () => { /* SSH prompts: see HANDOFF "Workstreams" (askpass) */ },
+      answer: async (id, value) => machines.answer(id, value),
       sshHosts: async () => machines.sshHosts(),
     },
     fs: {
@@ -76,7 +78,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
     },
     threads: {
       list: async () => threads.list(),
-      discover: async m => threads.discover(m),
+      discover: async m => threads.discover(m, m === 'local' ? undefined : machines.get(m)),
       create: async spec => {
         const t = threads.create(spec);
         if (!harnesses.start) return t;
@@ -120,5 +122,5 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       log: (m, d, n) => git.log(M(m), d, n),
     },
   };
-  return { api, dispose: () => ptys.killAll() };
+  return { api, dispose: () => { ptys.killAll(); machines.dispose(); } };
 }

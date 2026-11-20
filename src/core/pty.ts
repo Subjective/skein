@@ -5,9 +5,10 @@ import { homedir } from 'node:os';
 import type { PtySpec } from '../shared/api';
 import type { Machine } from '../shared/types';
 import { emit } from './events';
-import { loginWrap, sshBase } from './exec';
+import { LINK_FAILED, loginWrap, run, sshBase, sshBin, sshHooks } from './exec';
 import { log } from './log';
 import { sq, sqPath, which } from './shell';
+import { killLine, wrap } from './ssh/persist';
 
 type IPty = import('node-pty').IPty;
 let ptyMod: typeof import('node-pty') | null = null;
@@ -44,7 +45,7 @@ function localShell(): { file: string; args: string[] } {
 }
 
 /** What to spawn for a spec, before node-pty sees it. Exported for tests. */
-export function plan(m: Machine, spec: PtySpec): { file: string; args: string[]; cwd?: string } {
+export function plan(m: Machine, spec: PtySpec): { file: string; args: string[]; cwd?: string; env?: Record<string, string>; kept?: boolean } {
   if (m.ssh) {
     const cd = spec.cwd ? `cd ${sqPath(spec.cwd)} 2>/dev/null; ` : '';
     let line: string;
@@ -56,7 +57,10 @@ export function plan(m: Machine, spec: PtySpec): { file: string; args: string[];
       const argv = harnessArgv(spec.run);
       line = argv.length ? cd + 'exec ' + argv.map(sq).join(' ') : cd + 'exec "$SHELL" -l';
     }
-    return { file: 'ssh', args: [...sshBase(m, { tty: true }), loginWrap(line)] };
+    // a harness thread runs inside a persistent session so a dropped link reattaches (G5)
+    const kept = !!(spec.thread && m.persist && spec.run.kind !== 'shell');
+    if (kept) line = wrap(line, spec.thread!, m.persist!);
+    return { file: sshBin(), args: [...sshBase(m, { tty: true }), loginWrap(line)], env: sshHooks.env(m.id), kept };
   }
   const cwd = expand(spec.cwd);
   const argv = harnessArgv(spec.run, spec.run.kind === 'claude' && !!spec.run.session && claudeTranscriptExists(spec.run.session));
@@ -79,28 +83,71 @@ const expand = (p?: string) => {
   return existsSync(x) ? x : homedir();
 };
 
+/** How the terminal manager follows an SSH link: report a drop, wait for the link to come back. */
+export interface PtyLink { whenUp(machine: string): Promise<unknown> }
+
+interface Live { spec: PtySpec; env: Record<string, string>; term?: IPty; kept: boolean; closed: boolean }
+
 export class Ptys {
-  private ptys = new Map<string, IPty>();
+  private ptys = new Map<string, Live>();
   private n = 0;
-  constructor(private machine: (id: string) => Machine) {}
+  constructor(private machine: (id: string) => Machine, private link?: PtyLink) {}
 
   spawn(spec: PtySpec, env: Record<string, string> = {}): string {
     if (!ptyMod) throw new Error(`Terminals are unavailable: node-pty did not load (${ptyError}). Run pnpm doctor.`);
-    const m = this.machine(spec.machine);
-    const p = plan(m, spec);
     const id = 'pty' + ++this.n;
-    const term = ptyMod.spawn(p.file, p.args, {
-      name: 'xterm-256color', cols: spec.cols || 80, rows: spec.rows || 24, cwd: p.cwd || homedir(),
-      env: { ...process.env, ...TERM_ENV, ...env } as Record<string, string>,
-      useConpty: true,
-    });
-    this.ptys.set(id, term);
-    term.onData(data => emit({ type: 'pty.data', id, data }));
-    term.onExit(({ exitCode }) => { this.ptys.delete(id); emit({ type: 'pty.exit', id, code: exitCode }); });
+    const live: Live = { spec: { ...spec }, env, kept: false, closed: false };
+    this.start(id, live);
+    this.ptys.set(id, live);
     return id;
   }
-  write(id: string, data: string) { this.ptys.get(id)?.write(data); }
-  resize(id: string, cols: number, rows: number) { try { this.ptys.get(id)?.resize(Math.max(2, cols), Math.max(1, rows)); } catch { /* exited */ } }
-  kill(id: string) { const p = this.ptys.get(id); if (p) { this.ptys.delete(id); try { p.kill(); } catch { /* gone */ } } }
-  killAll() { for (const id of [...this.ptys.keys()]) this.kill(id); }
+
+  private start(id: string, live: Live) {
+    const m = this.machine(live.spec.machine);
+    const p = plan(m, live.spec);
+    live.kept = !!p.kept;
+    const term = ptyMod!.spawn(p.file, p.args, {
+      name: 'xterm-256color', cols: live.spec.cols || 80, rows: live.spec.rows || 24, cwd: p.cwd || homedir(),
+      env: { ...process.env, ...TERM_ENV, ...(p.env || {}), ...live.env } as Record<string, string>,
+      useConpty: true,
+    });
+    live.term = term;
+    term.onData(data => emit({ type: 'pty.data', id, data }));
+    term.onExit(({ exitCode }) => {
+      if (live.term !== term) return;
+      live.term = undefined;
+      // the link dropped under a persistent session: the program is still running there, so wait for the
+      // link and reattach under the same id (the view keeps its terminal and shows the reconnecting note)
+      if (live.kept && !live.closed && exitCode === LINK_FAILED && this.link) {
+        log('pty', id, 'link dropped, will reattach');
+        sshHooks.lost(m.id);
+        void this.link.whenUp(m.id).then(() => { if (!live.closed && this.ptys.get(id) === live) { try { this.start(id, live); } catch (e) { this.end(id, live, null, (e as Error).message); } } });
+        return;
+      }
+      this.end(id, live, exitCode);
+    });
+  }
+
+  private end(id: string, live: Live, code: number | null, why?: string) {
+    if (this.ptys.get(id) === live) this.ptys.delete(id);
+    if (why) emit({ type: 'pty.data', id, data: `\r\n${why}\r\n` });
+    emit({ type: 'pty.exit', id, code });
+  }
+
+  write(id: string, data: string) { this.ptys.get(id)?.term?.write(data); }
+  resize(id: string, cols: number, rows: number) {
+    const l = this.ptys.get(id); if (!l) return;
+    l.spec.cols = Math.max(2, cols); l.spec.rows = Math.max(1, rows);
+    try { l.term?.resize(l.spec.cols, l.spec.rows); } catch { /* exited */ }
+  }
+  /** Close on purpose: the program ends, including a persistent remote session. */
+  kill(id: string) {
+    const l = this.ptys.get(id); if (!l) return;
+    l.closed = true; this.ptys.delete(id);
+    try { l.term?.kill(); } catch { /* gone */ }
+    const m = this.machine(l.spec.machine);
+    if (l.kept && m.persist && l.spec.thread) void run(m, killLine(l.spec.thread, m.persist)).catch(() => undefined);
+  }
+  /** App quit: let persistent remote sessions keep running, so a turn survives restarting Skein. */
+  killAll() { for (const [id, l] of [...this.ptys]) { l.closed = true; this.ptys.delete(id); try { l.term?.kill(); } catch { /* gone */ } } }
 }

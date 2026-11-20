@@ -4,6 +4,8 @@
 import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import type { Machine } from '../shared/types';
+import { runScript } from './exec';
 
 export interface Found { harness: 'claude' | 'codex'; sessionId: string; dir: string; title: string; branch?: string; updatedAt: number; createdAt: number }
 
@@ -71,3 +73,44 @@ export function discoverLocal(limit = 150, home = homedir()): Found[] {
 }
 
 const newest = (files: string[], n: number) => files.map(file => ({ file, m: safe(() => statSync(file).mtimeMs, 0) })).sort((a, b) => b.m - a.m).slice(0, n);
+
+// ---- remote machines: one ssh round trip lists the newest transcripts and sends each one's head ----
+
+/** sh script for discovery over SSH. Each file is framed by a \x1e header line: harness, mtime, path. */
+export function remoteDiscoverScript(limit = 60): string {
+  return `C="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
+X="\${CODEX_HOME:-$HOME/.codex}/sessions"
+mt() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
+emit() { printf "\\036%s\\t%s\\t%s\\n" "$1" "$(mt "$2")" "$2"; head -c "$3" "$2"; printf "\\n"; }
+if [ -d "$C" ]; then ls -t "$C"/*/*.jsonl 2>/dev/null | head -n ${limit} | while IFS= read -r f; do emit claude "$f" 32768; done; fi
+if [ -d "$X" ]; then find "$X" -name "rollout-*.jsonl" 2>/dev/null | sort -r | head -n ${limit} | while IFS= read -r f; do emit codex "$f" 65536; done; fi
+true
+`;
+}
+
+/** Parse the script's output. Pure, for tests. */
+export function parseRemoteDiscovery(out: string): Found[] {
+  const found: Found[] = [];
+  for (const chunk of out.split('\x1e')) {
+    const nl = chunk.indexOf('\n');
+    if (nl < 0) continue;
+    const [harness, mtime, path] = chunk.slice(0, nl).split('\t');
+    const body = chunk.slice(nl + 1);
+    const updatedAt = (+mtime || 0) * 1000;
+    if (harness === 'claude') {
+      const h = safe(() => parseClaudeHead(body), null);
+      if (h) found.push({ ...h, sessionId: h.sessionId || (path || '').replace(/^.*\//, '').replace(/\.jsonl$/, ''), updatedAt, createdAt: h.created || updatedAt });
+    } else if (harness === 'codex') {
+      const h = safe(() => parseCodexHead(body), null);
+      if (h) found.push({ ...h, updatedAt, createdAt: h.created || updatedAt });
+    }
+  }
+  return found.filter(f => f.sessionId).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** Discovery on an SSH machine, newest first. Throws when the machine can't be reached. */
+export async function discoverRemote(m: Machine, limit = 60): Promise<Found[]> {
+  const r = await runScript(m, remoteDiscoverScript(limit), { compress: true, timeout: 90000 });
+  if (r.code !== 0) throw new Error(r.stderr.trim().split('\n').pop() || `Could not list sessions on ${m.name}`);
+  return parseRemoteDiscovery(r.stdout);
+}

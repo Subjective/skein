@@ -28,6 +28,42 @@ const kv = new Map<string, unknown>();
 let ptyN = 0;
 const lines = new Map<string, string>();
 
+// SSH scenes (G5), chosen with ?ssh= in the URL so other UI tests see no dialogs:
+//   auth: connecting build-07 asks for a key passphrase   code: a verification code   hostkey: a new host key
+//   drop: linux drops its link after a second and reconnects   (no flag: build-07 stays down)
+const sshScene = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('ssh') : null;
+const setM = (m: Machine, p: Partial<Machine>) => { Object.assign(m, p); emit({ type: 'machine', machine: { ...m } }); };
+const waiting = new Map<string, Machine>();
+async function fakeConnect(id: string): Promise<Machine> {
+  const m = machines.find(x => x.id === id)!;
+  if (!m.ssh) return m;
+  if (m.link === 'up') {
+    if (sshScene === 'drop' && id === 'linux') setTimeout(() => { setM(m, { link: 'reconnecting', persist: 'tmux' }); setTimeout(() => setM(m, { link: 'up' }), 3000); }, 1000);
+    return m;
+  }
+  setM(m, { link: 'connecting', note: undefined });
+  const kind = sshScene === 'auth' ? 'passphrase' : sshScene === 'code' ? 'code' : sshScene === 'hostkey' ? 'hostkey' : null;
+  setTimeout(() => {
+    if (!kind) { setM(m, { link: 'down', note: 'Connection timed out' }); return; }
+    const pid = 'ap-' + Math.random().toString(36).slice(2, 8);
+    waiting.set(pid, m);
+    setM(m, { link: 'auth' });
+    emit({ type: 'auth', prompt: kind === 'hostkey'
+      ? { machine: id, id: pid, kind, secret: false, host: m.ssh!.host, fingerprint: 'ED25519 SHA256:9vVq3b+Kd2h0Lr7XcP1mN8tYw4sQe6uJ5aZ0fG2iH1o', text: `The authenticity of host '${m.ssh!.host}' can't be established.` }
+      : kind === 'code' ? { machine: id, id: pid, kind, secret: false, text: 'Verification code: ' }
+      : { machine: id, id: pid, kind, secret: true, text: "Enter passphrase for key '/home/you/.ssh/id_ed25519': " } });
+  }, 400);
+  return m;
+}
+async function fakeAnswer(pid: string, v: string | null) {
+  const m = waiting.get(pid); if (!m) return;
+  waiting.delete(pid);
+  emit({ type: 'auth.done', id: pid });
+  if (v === null) { setM(m, { link: 'down', note: 'Sign-in cancelled' }); return; }
+  setM(m, { link: 'connecting' });
+  setTimeout(() => setM(m, { link: 'up', note: undefined, persist: 'tmux' }), 600);
+}
+
 export const fakeApi: SkeinBridge = {
   on: fn => { listeners.add(fn); return () => listeners.delete(fn); },
   setTheme: () => {},
@@ -39,7 +75,7 @@ export const fakeApi: SkeinBridge = {
   },
   machines: {
     list: async () => machines, add: async (name, ssh) => { const m: Machine = { id: name, name, ssh, link: 'down', has: [] }; machines.push(m); return m; },
-    remove: async () => {}, connect: async id => machines.find(m => m.id === id)!, answer: async () => {}, sshHosts: async () => ['devbox', 'gpu-01'],
+    remove: async () => {}, connect: async id => fakeConnect(id), answer: async (id, v) => fakeAnswer(id, v), sshHosts: async () => ['devbox', 'gpu-01'],
   },
   fs: {
     list: async (_m, dir) => (dir.split(/[\\/]/).length > 4 ? [] : ['projects', 'repo', 'scratch', '.config', 'notes.md'].map(n => ({ name: n, dir: !n.includes('.') || n === '.config', hidden: n.startsWith('.') }))),
