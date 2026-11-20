@@ -1,0 +1,126 @@
+# Skein: how Vim mode works
+
+One model for every part of the app, so a key means the same thing wherever you are.
+This is the reference for the mockup ([mockups/](../mockups/)) and for the Electron build.
+
+## 1. Five kinds of surface
+
+Every part of the interface is one of these. A new feature picks a kind and inherits its keys.
+
+| Kind | What it is | Examples |
+|---|---|---|
+| **Field** | Text you can edit | Composer, edit-a-message box, a menu's search field, an SSH passphrase, vimrc |
+| **Reader** | Text you can only read | A thread, a side chat, a subagent transcript, a diff, terminal scrollback; a file until you edit it |
+| **Terminal** | A program that owns its own input | A thread's terminal view (the harness TUI), a shell |
+| **List** | Discrete items | Sidebar, any menu, settings, keyboard popup, rows inside a thread |
+| **Layout** | Where things are | Panes, tabs, popups |
+
+## 2. Modes
+
+| Mode | Fields | Readers | Lists | Layout |
+|---|---|---|---|---|
+| NORMAL | block cursor, motions, operators | block cursor, motions | item cursor | acts on the focused pane |
+| INSERT | typing | none | only in a list's search field | none |
+| VISUAL / V-LINE | selection, operators | selection, quote / yank | none | none |
+| TERMINAL | none | none | none | none: every key goes to the program |
+
+Exactly one surface owns the keyboard at a time. The status pill shows that surface's mode. TERMINAL is
+Vim's own name for a `:terminal` window that has the keys; leaving it is the same idea as Vim's `ctrl-w N`.
+
+## 3. Rules that hold everywhere
+
+1. **Plain keys act only in NORMAL.** In INSERT, plain keys type. Anything that must work while typing
+   uses a modifier (`ctrl-k`, `ctrl-p`, `alt-h/j/k/l`) or the leader (`ctrl-space`).
+2. **`esc` steps back exactly one level.** INSERT to NORMAL. VISUAL to NORMAL. From NORMAL, out of the
+   current thing: close the menu, cancel the edit, close the popup, leave the field. One press never does
+   two of these. In a popup that is `esc` `esc` from typing: NORMAL, then closed, and focus returns to the
+   pane the popup was opened from.
+3. **`j` / `k` move between lines or items. `h` / `l` move within a line.** Where there is nothing to
+   move along (a row, a slider, a list item), `h` / `l` fold and unfold it or lower and raise its value.
+4. **`enter` does the main thing to what is under the cursor.** Send, open, pick, toggle.
+5. **`i` / `a` start typing in the nearest place that makes sense.** In a field, INSERT. On one of your
+   own messages, edit it. In a file, edit the file at the cursor (`:w` saves, `esc` from NORMAL goes back to reading). In a reader, the composer below. In a list with a search field, that field.
+6. **Motions are the same wherever there is text.** `h l w b e 0 $ j k`, `v`, `V`, in fields and readers alike.
+   A motion never behaves differently by direction: `j` and `k` both move one line. Coarser steps have
+   their own keys, again the same both ways: `{` `}` by block, `[[` `]]` by your own messages, `gg` to the top.
+7. **Edges lead somewhere.** `k` on a field's first line moves into the reader above it, and so do `[[` and `{`
+   from a composer (`{` only once there is no blank line above the cursor in the composer itself); `j` past a
+   reader's last line returns to the field. Lists stop at their ends; they do not wrap.
+8. **A visual selection stays inside the block it started in** (one message, one tool call's output, one
+   file). Back in NORMAL, `j` / `k` cross blocks again.
+9. **Some things are one unit.** A row in a thread (tool call, subagent, side-chat chip) and a quoted
+   selection in a composer take the cursor as a whole: no sideways movement inside, deleted whole.
+10. **The mouse does what the keys do.** Click a field: INSERT at that spot. Click read-only text: the
+    NORMAL cursor goes there. Double-click: the word, in VISUAL. Drag: VISUAL. Triple-click: V-LINE.
+11. **A terminal belongs to the program running in it.** The harness TUI (or the shell) owns its input line,
+    so in TERMINAL every key goes to the program, `esc` included: `esc` interrupts a turn, `esc` `esc` clears
+    the line or opens the harness's rewind list, `ctrl-c`, `shift-tab` and the TUI's own menus all work as they
+    do in any terminal. Skein keeps back only the leader, `alt-h/j/k/l` and its own modifier shortcuts (on a Mac
+    every cmd key; on Windows, not ctrl-k / ctrl-p / ctrl-o / ctrl-i, which belong to the program there).
+    Leader `[` (or leader `esc`) opens the scrollback as a Reader, like tmux's copy-mode; `i`, `a`, `q`, `esc`
+    or `j` past the last line go back to the program. The vimrc's insert maps (`jk`) do not apply in a terminal.
+12. **Layout commands are bindable.** Each is a named command (`:vsplit`, `:tabnext`, ...) with a default
+    key. Rebinding writes an `nnoremap` line to the vimrc; the vimrc and the keyboard popup always agree.
+    A key can mean one thing: binding a key that is already taken replaces that line rather than adding a second.
+14. **A block can have keys of its own, and they work when the cursor is on it** (`l` / `h` on a tool row,
+    `enter` on a file). The one exception is a block that is waiting on you: a request to run something or
+    a plan to approve. Its `y` / `n` work from NORMAL anywhere in that thread's tab, because nothing else
+    in the thread can proceed until it is answered. In VISUAL `y` is still yank. When several wait at once
+    (parallel subagents), `y` / `n` answer the oldest and the card shows how many are left.
+17. **`u` undoes and `ctrl-r` redoes, in every field.** Each field (composer, edit box, file) keeps its own
+    history for as long as its tab is open. A step is one NORMAL edit (`x`, `dw`, `dd`, `C`, a quote
+    deleted whole) or one whole stretch of INSERT, from entering it to `esc`, as in Vim. In a terminal both
+    keys belong to the program (rule 11).
+15. **Leaving and coming back keeps your place.** Opening a popup remembers where the keyboard was in the
+    pane (the reading cursor, or the composer's mode and position). Closing the popup, or `ctrl-o`, puts it
+    back there; `ctrl-i` returns to where you were in the popup.
+16. **A row of buttons can stand in for a field.** Where a pane has nothing to type into (the chat view of a
+    Claude Code thread its terminal is driving, the terminal of one that is still waiting to open, a failed
+    upload, an SSH dialog's buttons) the row takes the keys: `h` / `l` move, `enter` presses, `esc` presses its
+    way out, `k` reads the thread above, and `i` presses the button that gets you typing (Take back).
+13. **Vim keys off removes the NORMAL layer only.** No modes, `esc` just leaves, and everything stays
+    reachable through modifiers, the leader, arrows and the mouse.
+
+## 4. Per-surface summary
+
+| Surface | Kind | Opens in | Notes |
+|---|---|---|---|
+| Composer, edit box | Field | INSERT | `enter` sends from INSERT or NORMAL |
+| Terminal (TUI or shell) | Terminal | TERMINAL | rule 11; leader `[` for its scrollback |
+| Mirror bar, handoff card, upload error, SSH dialog buttons | List (one row) | NORMAL | rule 16 |
+| SSH sign-in (passphrase, code) | Field | INSERT | `enter` connects; `esc` NORMAL on the buttons, `esc` again cancels |
+| Composer controls (attach, permissions, model, send; machine, directory) | List | NORMAL | `j` from the text's last line; `h` `l` along, `enter` presses, `k` back to the text |
+| Menu search field | Field | INSERT for model, subagent, and side chat searches | Typing filters the list. In composer menus, moving the pointer over a result selects it. Arrow keys continue from that result and Enter opens it. |
+| Side chat or subagent popup | Field | INSERT | opens ready to type into its composer |
+| Thread, side chat, subagent, file, diff, scrollback | Reader | NORMAL | entered from the field below, by click, or leader `[` |
+| Changes (diff + file tree) | Reader + Field | NORMAL | `/` searches the tree, `enter` there goes to the first match; on a file's header `s` stages, `x` reverts (Undo in the toast), `enter` on "N unmodified lines" shows them |
+| Open file | Reader | NORMAL | `ctrl-o` / `ctrl-i` back and forward through files opened in that tab; the path's folders and the tree switch file in place |
+| Rows inside a thread | List | NORMAL | `l` / `h` unfold / fold; `enter` opens |
+| Menus, settings, keyboard popup | List | NORMAL | `esc` closes |
+| Folder fields (workspace menu, a new thread's directory) | List + Field | INSERT | type a path to list that folder; `tab` (or `l` in NORMAL) goes into the folder under the cursor, `h` back up, `enter` chooses it |
+| Sidebar | List (a pane) | NORMAL | leader `h` / `alt-h` from the leftmost pane focuses it (opening it if hidden); `j` `k` move over sections, projects and threads; `h` / `l` fold and unfold (`h` on a thread goes to its project); `enter` / `o` opens in the last pane, `shift-enter` / `O` in a split; `c` new thread in the project, `p` pin, `x` archive, `m` move to another project or machine; `l`, leader `l` or `esc` back to the panes |
+| Workspaces (a whole layout per project) | Layout | any | `ctrl-tab` most recent first, release to switch; leader `w` or `:workspace` to search, create, rename (`r`), close (`d`) |
+| Panes, tabs, popups | Layout | any | `\|` `\` split, `H` `L` tabs, leader for the rest. `ctrl-o` from a popup goes back to the pane it came from, leaving it open; `ctrl-i` goes forward to it again |
+
+## 5. Keyboard by OS
+
+One table, read by the input layer before anything else (`mockups/platform.js`, `?os=mac|win` in the mockup).
+
+| Kind of key | Windows | Mac | Why |
+|---|---|---|---|
+| App commands: search, file search, pane search, quote to chat / side chat | `ctrl-k` `ctrl-p` `ctrl-shift-a` `ctrl-l` `ctrl-shift-s` | `⌘K` `⌘P` `⌘⇧A` `⌘L` `⌘⇧S` | Mac apps use cmd; cmd never reaches a terminal, so on a Mac these work there too |
+| Vim's own ctrl keys: jump list, window prefix, list movement | `ctrl-o` `ctrl-i` `ctrl-w` `ctrl-n/p/j/k` | `⌃O` `⌃I` `⌃W` `⌃N/P/J/K` | they are Vim keys, not app shortcuts; cmd-w keeps its Mac meaning (close tab) |
+| Leader | `ctrl-space` | `⌃Space` | macOS can claim ⌃Space for input sources; Settings offers `ctrl-\` instead |
+| Pane focus | `alt-h/j/k/l` | `⌥H/J/K/L` | read by physical key (`e.code`), since ⌥H types ˙ |
+| Workspaces | `ctrl-tab` | `⌃Tab` | |
+
+The Electron build must also drop the default menu accelerators that would swallow these keys (`ctrl-w`,
+`ctrl-tab`, `ctrl-shift-a`, `cmd-k` in some menus) by building its own application menu (G3).
+
+## 6. Where the mockup does not yet follow this
+
+- **A search field's cursor cannot move** in NORMAL (`h` / `l` there change effort in the model selector).
+- **Settings uses `H` / `L` for sections**, which elsewhere mean previous / next tab.
+- **Readers have no counts and no `/` search.** Fields have no counts or yank / paste (undo and redo are rule 17).
+- **The code has five separate key handlers** (composer, reader, menu, settings, keyboard popup). The
+  build should have one dispatcher and one interface per surface kind, so these rules live in one place.
