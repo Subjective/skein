@@ -15,10 +15,10 @@ export function startTabDrag(e: React.MouseEvent, tab: Tab, fromPane: string) {
   const begin = () => {
     const r = src.getBoundingClientRect();
     lift = src.cloneNode(true) as HTMLElement;
-    Object.assign(lift.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', zIndex: '80', pointerEvents: 'none', boxShadow: 'var(--shadow)' });
-    lift.classList.add('on');
+    Object.assign(lift.style, { left: r.left + 'px', top: r.top + 'px', width: r.width + 'px' });
+    lift.classList.add('on', 'lift');
     document.body.appendChild(lift);
-    hint = document.createElement('div'); hint.className = 'drop'; hint.style.display = 'none'; document.body.appendChild(hint);
+    hint = document.createElement('div'); hint.className = 'drop-hint'; hint.style.display = 'none'; document.body.appendChild(hint);
     src.style.opacity = '.35';
     document.body.classList.add('dragging-tab');
   };
