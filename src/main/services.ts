@@ -9,6 +9,7 @@ import * as files from '../core/files';
 import * as git from '../core/git';
 import { toInbox } from '../core/images';
 import { Machines } from '../core/machines';
+import { machineIO, moveBlocked, moveSession } from '../core/move';
 import { Ptys, ptyAvailable } from '../core/pty';
 import type { Store } from '../core/store';
 import { Threads } from '../core/threads';
@@ -89,6 +90,20 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       },
       update: async (id, patch) => threads.update(id, patch),
       history: async id => { const t = threads.get(id); return harnesses.history(t, M(t.machine)); },
+      move: async (id, machine, dir) => {
+        const t = threads.get(id), from = M(t.machine), to = M(machine);
+        const abs = await files.resolve(to, dir).catch(() => dir);
+        const why = moveBlocked(t, to, abs);
+        if (why) throw new Error(why);
+        // let go of the old place first: the chat driver, and any terminal running the harness there
+        const d = drivers.get(id);
+        if (d) { await d.release(); drivers.delete(id); }
+        harnesses.forget?.(id);
+        await ptys.killThread(id);
+        const r = await moveSession(t, from, to, abs, { ...machineIO, log });
+        log('move', id, `${from.id}:${t.dir} -> ${to.id}:${abs}`, r.copied.map(c => c.join(' -> ')).join('; ') || 'nothing copied');
+        return threads.update(id, { ...r.patch, machine: to.id, dir: abs, status: 'idle' });
+      },
     },
     chat: {
       send: (id, msg) => driver(id).send(msg),

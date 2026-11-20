@@ -2,6 +2,7 @@
 // Data is a small sample; terminals echo what you type.
 import type { SkeinBridge, SkeinEvent } from '@shared/api';
 import type { Machine, Settings, ThreadMeta } from '@shared/types';
+import { moveBlocked } from '@shared/move';
 import { fakeFs, fakeGit } from './fakeRepo';
 import { extraThreads, fakeChat } from './fakeChat';
 
@@ -96,6 +97,16 @@ export const fakeApi: SkeinBridge = {
     },
     update: async (id, patch) => { const t = threads.find(x => x.id === id)!; Object.assign(t, patch); emit({ type: 'thread', thread: t }); return t; },
     history: async id => chat.history(id),
+    // moving copies nothing here: the record follows after a short wait, or the reason it can't comes back
+    move: async (id, machine, dir) => {
+      const t = threads.find(x => x.id === id)!, m = machines.find(x => x.id === machine)!;
+      const why = moveBlocked(t, m, dir);
+      await new Promise(r => setTimeout(r, 250));
+      if (why) throw new Error(why);
+      Object.assign(t, { machine, dir, status: 'idle', updatedAt: Date.now() });
+      emit({ type: 'thread', thread: { ...t } });
+      return { ...t };
+    },
   },
   chat: { send: chat.send, interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); } },
   pty: {

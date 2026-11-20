@@ -80,3 +80,7 @@ textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit;
 @keyframes ind { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 @media (prefers-reduced-motion: reduce) { .t-over .bar.ind i { animation: none; width: 100%; opacity: .5; } }
 @media (prefers-reduced-motion: reduce) { .t-exit, .toasts .toast { animation: none; } .drop-hint { transition: none; } }
+
+/* moving a thread: the row being dragged follows the pointer (the original stays dimmed as .drag-source) */
+#side .row.lift { position: fixed; margin: 0; z-index: 90; pointer-events: none; background: var(--seg-on); color: var(--fg); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .3), 0 0 0 1px var(--line-2); }
+body.dragging-thread { user-select: none; cursor: grabbing; }
