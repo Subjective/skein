@@ -1,13 +1,12 @@
-// Small pieces every tool view shares: the language badge, +/- counts, and a highlighted line of code with
+// Small pieces every tool view shares: the file-type icon, +/- counts, and a highlighted line of code with
 // indent guides, a cursor and a selection painted over its tokens.
 import { memo, type ReactNode } from 'react';
-import { cx, Icon } from '../../ui/primitives';
-import { langOf, type Tok } from './highlight';
+import { cx } from '../../ui/primitives';
+import { FileIcon } from '../../ui/FileIcon';
+import { type Tok } from './highlight';
 
-export const LangBadge = ({ path }: { path: string }) => {
-  const l = langOf(path);
-  return l.badge ? <span className={cx('lang', l.cls)} title={l.name}>{l.badge}</span> : <Icon name="file" className="lang-f" />;
-};
+/** A file's type icon (ui/FileIcon). Kept under this name for the trees, Changes, breadcrumbs and menus. */
+export const LangBadge = ({ path }: { path: string }) => <FileIcon path={path} />;
 
 export const Nums = ({ add, del, small }: { add: number; del: number; small?: boolean }) => (
   <span className={cx('nums', small && 'sm')} aria-label={`${add} added, ${del} removed`}><span className="c-add">+{add}</span><span className="c-del">−{del}</span></span>

@@ -11,6 +11,7 @@ import { findPane, leaves, mkPane, mkTab, splitAt, type Tab } from '../state/lay
 import { S, update, ws } from '../state/store';
 import { reduced } from '../ui/motion';
 import { tabMeta } from './meta';
+import { fileIconHtml } from '../ui/FileIcon';
 
 type Zone = 'c' | 'l' | 'r' | 't' | 'b';
 type Over = { pane: string; bar: true } | { pane: string; zone: Zone } | null;
@@ -41,7 +42,7 @@ export interface PaneDrag {
 /** A drag into the panes. `tab` is the tab that moves (in pane `from`, drawn by `src`), or a new tab when `from` is null. */
 export function paneDrag(o: { tab: Tab; from: string | null; src: HTMLElement | null; dx: number; dy: number; width?: number; outside?: 'popout' | 'none' }): PaneDrag {
   const m = tabMeta(o.tab);
-  const lift = mk(`<div class="tab on lift">${svg(m.icon)}<span class="t">${esc(m.title)}</span></div>`);
+  const lift = mk(`<div class="tab on lift">${o.tab.kind === 'file' && o.tab.path ? fileIconHtml(o.tab.path) : svg(m.icon)}<span class="t">${esc(m.title)}</span></div>`);
   document.body.appendChild(lift);
   const w = o.src ? o.src.getBoundingClientRect().width : o.width || lift.offsetWidth;   // the lifted tab keeps the width it had
   lift.style.width = w + 'px';

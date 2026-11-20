@@ -55,6 +55,8 @@ textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit;
 .toasts .toast { position: static; transform: none; pointer-events: auto; animation: fadeUp .16s ease; }
 
 /* Menus anchored to a control */
+/* a block row the keyboard is on (the model picker's effort track) looks like a hovered row */
+.menu .mx.sel { background: var(--active); border-radius: 7px; border-top-color: transparent; }
 .menu .m-empty { padding: 12px 10px; color: var(--fg-3); font-size: 12.5px; }
 .menu .mi .ml { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu .mi .mh { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: 12px; }
