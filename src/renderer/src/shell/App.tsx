@@ -8,6 +8,7 @@ import { S, update, useApp } from '../state/store';
 import { cx } from '../ui/primitives';
 import { retheme } from '../views/terminal/TerminalView';
 import { Layers, Toasts } from './Layers';
+import { watchAuth } from './AuthDialog';
 import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { Workspace } from './Workspace';
@@ -57,6 +58,7 @@ export async function boot() {
     if (e.type === 'thread.status') { const t = S.threads.find(x => x.id === e.id); if (t && t.status !== e.status) { update(() => { t.status = e.status; }); notifyStatus(t); } }
     if (e.type === 'menu') { if (e.command.startsWith('open:')) import('../state/actions').then(A => A.openThread(e.command.slice(5))); else run(e.command); }
   });
+  watchAuth();
   // existing sessions on this computer, then remote machines in the background
   void api.threads.discover('local').then(found => { if (found.length) update(s => { const known = new Set(s.threads.map(t => t.id)); s.threads = [...s.threads, ...found.filter(t => !known.has(t.id))]; }); });
   for (const m of machines) if (m.ssh) void api.machines.connect(m.id);
