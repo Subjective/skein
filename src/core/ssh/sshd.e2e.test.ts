@@ -80,10 +80,11 @@ describe.skipIf(!runnable).each([['multiplexed (macOS, Linux)', false], ['one co
     const done = machines.connect('e2e');
     await until(() => of('auth').length === 1);
     const hk = of('auth')[0].prompt;
-    expect(hk).toMatchObject({ machine: 'e2e', kind: 'hostkey' });
-    expect(hk.fingerprint).toMatch(/^ED25519 SHA256:/);
-    expect(machines.get('e2e').link).toBe('auth');
+    const link = machines.get('e2e').link;
     machines.answer(hk.id, 'yes');
+    expect(hk, hk.text).toMatchObject({ machine: 'e2e', kind: 'hostkey' });
+    expect(hk.fingerprint, hk.text).toMatch(/^ED25519 SHA256:/);
+    expect(link).toBe('auth');
     await until(() => of('auth').length === 2);
     const pp = of('auth')[1].prompt;
     expect(pp).toMatchObject({ kind: 'passphrase', secret: true });

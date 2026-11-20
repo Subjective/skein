@@ -51,6 +51,7 @@ describe('askpass prompts', () => {
     expect(classify('(me@devbox) Duo two-factor login. Passcode or option (1-3): ')).toMatchObject({ kind: 'code' });
     const hk = classify("The authenticity of host 'devbox (10.0.0.5)' can't be established.\nED25519 key fingerprint is SHA256:abcDEF123.\nThis key is not known by any other names.\nAre you sure you want to continue connecting (yes/no/[fingerprint])? ", 'confirm');
     expect(hk).toMatchObject({ kind: 'hostkey', secret: false, host: 'devbox (10.0.0.5)', fingerprint: 'ED25519 SHA256:abcDEF123' });
+    expect(classify("The authenticity of host 'h' can't be established.\nED25519 key fingerprint is: SHA256:x/Y+z1.\nAre you sure?", 'confirm').fingerprint).toBe('ED25519 SHA256:x/Y+z1');
     expect(classify('Allow use of key id_ed25519?', 'confirm')).toMatchObject({ kind: 'other', secret: false });
   });
 });

@@ -25,7 +25,8 @@ interface Ask { token: string; machine: string; conn: string; prompt: string; ty
 export function classify(text: string, type = ''): Pick<AuthPrompt, 'kind' | 'secret' | 'host' | 'fingerprint'> {
   if (/authenticity of host|continue connecting|known_hosts/i.test(text)) {
     const host = /authenticity of host '([^']+)'/i.exec(text)?.[1];
-    const fp = /key fingerprint is\s+(\S+?)\.?\s*$/im.exec(text)?.[1];
+    // "ED25519 key fingerprint is SHA256:..." (OpenSSH 10 adds a colon after "is")
+    const fp = /\b((?:SHA256|MD5):[^\s.]+(?:\.[^\s.]+)*)/.exec(text)?.[1];
     const alg = /^\s*(\S+) key fingerprint is/im.exec(text)?.[1];
     return { kind: 'hostkey', secret: false, host, fingerprint: fp ? (alg ? `${alg} ${fp}` : fp) : undefined };
   }
