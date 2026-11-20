@@ -9,6 +9,8 @@ export interface ModelDef {
   label: string;
   /** Effort ids this model accepts, lowest first. */
   efforts: string[];
+  /** Offers the Ultracode switch in the model picker. */
+  ultra?: boolean;
 }
 
 export interface Choice { id: string; label: string; hint?: string }
@@ -17,10 +19,10 @@ const E = (...ids: string[]) => ids;
 
 export const MODELS: Record<Harness, ModelDef[]> = {
   claude: [
-    { id: 'opus', label: 'Opus 5.5', efforts: E('low', 'medium', 'high', 'max') },
-    { id: 'sonnet', label: 'Sonnet 5.5', efforts: E('low', 'medium', 'high', 'max') },
+    { id: 'opus', label: 'Opus 5.5', efforts: E('low', 'medium', 'high', 'max'), ultra: true },
+    { id: 'sonnet', label: 'Sonnet 5.5', efforts: E('low', 'medium', 'high', 'max'), ultra: true },
     { id: 'haiku', label: 'Haiku 5.5', efforts: E('low', 'medium', 'high') },
-    { id: 'claude-fable-5-2', label: 'Fable 5.2', efforts: E('low', 'medium', 'high', 'max') },
+    { id: 'claude-fable-5-2', label: 'Fable 5.2', efforts: E('low', 'medium', 'high', 'max'), ultra: true },
   ],
   codex: [
     { id: 'gpt-6.2-sol', label: 'GPT-6.2 Sol', efforts: E('low', 'medium', 'high', 'xhigh') },

@@ -135,6 +135,10 @@ export class Ptys {
   }
 
   write(id: string, data: string) { this.ptys.get(id)?.term?.write(data); }
+  /** A live terminal's spec and its local process id (for an SSH terminal, the ssh client's). */
+  info(id: string): { spec: PtySpec; pid?: number } | undefined { const l = this.ptys.get(id); return l && { spec: l.spec, pid: l.term?.pid }; }
+  /** A shell turned out to run a harness: the terminal now belongs to that thread (moving it closes it too). */
+  tie(id: string, thread: string) { const l = this.ptys.get(id); if (l) l.spec.thread = thread; }
   resize(id: string, cols: number, rows: number) {
     const l = this.ptys.get(id); if (!l) return;
     l.spec.cols = Math.max(2, cols); l.spec.rows = Math.max(1, rows);

@@ -62,7 +62,7 @@ export const loginWrap = (line: string) => `exec "$SHELL" -lc ${sq(line)}`;
 export interface RunResult { code: number | null; stdout: string; stderr: string }
 
 /** Run a shell command line on the machine and collect its output. */
-export function run(m: Machine, line: string, o: { input?: string | Uint8Array; timeout?: number; batch?: boolean } = {}): Promise<RunResult> {
+export function run(m: Machine, line: string, o: { input?: string | Uint8Array; timeout?: number; batch?: boolean; sent?: (pct: number) => void } = {}): Promise<RunResult> {
   if (m.ssh) return collect(spawn(sshBin(), [...sshBase(m, { batch: o.batch }), loginWrap(line)], { windowsHide: true, env: sshEnv(m) }), o, m);
   const win = process.platform === 'win32';
   return collect(spawn(win ? 'powershell.exe' : process.env.SHELL || '/bin/sh', win ? ['-NoProfile', '-NonInteractive', '-Command', line] : ['-c', line], { windowsHide: true }), o);
@@ -75,7 +75,7 @@ export function runScript(m: Machine, script: string, o: { timeout?: number; bat
   return collect(spawn(sshBin(), [...sshBase(m, { batch: o.batch, compress: o.compress }), 'sh -s'], { windowsHide: true, env: sshEnv(m) }), { ...o, input: script }, m);
 }
 
-function collect(p: ChildProcess, o: { input?: string | Uint8Array; timeout?: number }, m?: Machine): Promise<RunResult> {
+function collect(p: ChildProcess, o: { input?: string | Uint8Array; timeout?: number; sent?: (pct: number) => void }, m?: Machine): Promise<RunResult> {
   return new Promise(resolve => {
     let stdout = '', stderr = '', spawnErr = false;
     p.stdout?.setEncoding('utf8'); p.stderr?.setEncoding('utf8');
@@ -89,8 +89,25 @@ function collect(p: ChildProcess, o: { input?: string | Uint8Array; timeout?: nu
       resolve({ code: spawnErr ? -1 : code, stdout, stderr });
     });
     p.stdin?.on('error', () => {});
-    if (o.input != null) p.stdin?.end(o.input); else p.stdin?.end();
+    if (o.input != null && o.sent && p.stdin) feed(p.stdin, typeof o.input === 'string' ? Buffer.from(o.input) : o.input, o.sent);
+    else if (o.input != null) p.stdin?.end(o.input); else p.stdin?.end();
   });
+}
+
+/** Write input in pieces, reporting how much has gone (0-100) as each piece is taken: an upload's progress. */
+function feed(w: NodeJS.WritableStream, data: Uint8Array, sent: (pct: number) => void) {
+  const step = 64 * 1024;
+  let at = 0;
+  const next = () => {
+    while (at < data.length) {
+      const piece = data.subarray(at, at + step); at += piece.length;
+      const ok = w.write(piece);
+      sent(Math.floor((at / data.length) * 100));
+      if (!ok) { w.once('drain', next); return; }
+    }
+    w.end();
+  };
+  next();
 }
 
 /** Plain words for why ssh failed, from its stderr. Pure, for tests. */

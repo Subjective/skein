@@ -3,7 +3,8 @@
 // Every scope Changes shows is a diff between two trees:
 //   H = HEAD's tree, I = the index's tree (`git write-tree`), W = the working tree, new files included
 //   (built in a throwaway index: copy the real one, `git add -A`, `git write-tree`; nothing the user sees changes).
-//   uncommitted H..W, staged H..I, unstaged I..W, last agent turn S..W (S = W when the turn began), commits A^..B.
+//   uncommitted H..W, staged H..I, unstaged I..W, last agent turn S..W (S = W when the turn began), commits A^..B,
+//   all changes M..W (M = where the branch left the trunk: the merge base of HEAD and `base`; H when there is none).
 // Remote machines get one ssh round trip per batch (`multi`), since Windows OpenSSH cannot share connections.
 import { randomBytes } from 'node:crypto';
 import type { Branch, Commit, FileDiff, GitStatus, RepoState, RevertUndo, ScopeCounts, ScopeSpec } from '../shared/api';
@@ -146,6 +147,10 @@ async function sides(m: Machine, root: string, s: ScopeSpec, t?: Awaited<ReturnT
     case 'staged': return t.I ? [t.H, t.I] : 'cached';
     case 'unstaged': return t.I ? [t.I, t.W] : 'files';
     case 'turn': if (!s.base) throw new Error('No agent turn yet'); return [s.base, s.head || t.W];
+    case 'all': {
+      const mb = s.base ? await g(m, root, ['merge-base', 'HEAD', s.base]) : null;
+      return [mb?.code === 0 && mb.stdout.trim() ? mb.stdout.trim() : t.H, t.W];
+    }
     default: return [t.H, t.W];
   }
 }
@@ -154,7 +159,7 @@ const diffArgs = (sd: [string, string] | 'cached' | 'files') => (sd === 'cached'
 export async function changes(m: Machine, root: string, s: ScopeSpec): Promise<FileDiff[]> {
   const t = s.scope === 'commits' ? undefined : await trees(m, root);
   const sd = await sides(m, root, s, t);
-  const work = t && s.scope !== 'turn';
+  const work = t && s.scope !== 'turn' && s.scope !== 'all';
   const [d, st, un] = await multi(m, root, [
     [...DIFF, '-U3', ...diffArgs(sd), ...(s.path ? paths([s.path]) : [])],
     ...(work && t.I ? [['diff', '--name-only', '-M', t.H, t.I], ['diff', '--name-only', '-M', t.I, t.W]] : []),

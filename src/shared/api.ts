@@ -84,7 +84,8 @@ export interface FileDiff {
 }
 /** What Changes compares. turn: `base` is the tree when the agent's turn began, `head` the tree when it ended
  *  (absent while it runs). commits: `base` is the oldest commit of the run, `head` the newest. */
-export type DiffScope = 'uncommitted' | 'staged' | 'unstaged' | 'turn' | 'commits';
+/** 'all': everything this branch changed, committed or not (the trunk's merge base, `base`, to the working tree). */
+export type DiffScope = 'uncommitted' | 'staged' | 'unstaged' | 'turn' | 'all' | 'commits';
 export interface ScopeSpec { scope: DiffScope; base?: string; head?: string; path?: string }
 export interface ScopeCounts { files: number; add: number; del: number }
 export interface RepoState {
@@ -165,6 +166,11 @@ export interface SkeinApi {
     write(id: string, data: string): void;
     resize(id: string, cols: number, rows: number): void;
     kill(id: string): void;
+    /** A shell tab: is a harness TUI running in it now (claude or codex, started by hand)? If so the terminal
+     *  becomes a new thread's (listed in the sidebar), which is returned; its session id follows once the
+     *  harness writes its transcript. `seen` is what the renderer saw (Claude Code's terminal title), used
+     *  where the process tree can't be read (an SSH shell runs its programs on the other machine). */
+    adopt(id: string, seen?: Harness): Promise<ThreadMeta | null>;
   };
   images: {
     /** Save a pasted image into ~/.skein/inbox on the machine (uploading over SSH). Returns its path there. */
@@ -231,7 +237,7 @@ export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
   fs: ['list', 'read', 'write', 'resolve', 'find'],
   threads: ['list', 'discover', 'create', 'update', 'history', 'move'],
   chat: ['send', 'interrupt', 'answer', 'drive'],
-  pty: ['spawn', 'write', 'resize', 'kill'],
+  pty: ['spawn', 'write', 'resize', 'kill', 'adopt'],
   images: ['toInbox'],
   git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files'],
   browser: ['forward', 'keys'],

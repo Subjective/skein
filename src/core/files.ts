@@ -27,9 +27,9 @@ export async function read(m: Machine, path: string): Promise<string> {
   return r.stdout;
 }
 
-export async function write(m: Machine, path: string, text: string | Uint8Array): Promise<void> {
+export async function write(m: Machine, path: string, text: string | Uint8Array, sent?: (pct: number) => void): Promise<void> {
   if (!m.ssh) { const p = expandLocal(path); await mkdir(dirname(p), { recursive: true }); await writeFile(p, text); return; }
-  const r = await run(m, `mkdir -p "$(dirname ${sqPath(path)})" && cat > ${sqPath(path)}`, { input: text });
+  const r = await run(m, `mkdir -p "$(dirname ${sqPath(path)})" && cat > ${sqPath(path)}`, { input: text, sent });
   if (r.code !== 0) throw new Error(r.stderr.trim());
 }
 

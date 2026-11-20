@@ -12,6 +12,8 @@ import { toInbox } from '../core/images';
 import { Machines } from '../core/machines';
 import { machineIO, moveBlocked, moveSession } from '../core/move';
 import { Ptys, ptyAvailable } from '../core/pty';
+import { cwdOf, harnessUnder, listProcs } from '../core/detect';
+import { discoverLocal, discoverRemote } from '../core/discover';
 import type { Store } from '../core/store';
 import { Threads } from '../core/threads';
 
@@ -55,6 +57,26 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
   };
   const M = (id: string) => machines.get(id);
   const forwards = new Forwards(M);
+  // A thread adopted from a shell learns its session id once the harness writes its transcript: look for a new
+  // one of that harness (started after adoption, not known yet, its folder first) until it shows or the terminal ends.
+  const watchSession = (thread: string, ptyId: string, since: number) => {
+    let n = 0;
+    const tick = async () => {
+      const t = threads.list().find(x => x.id === thread);
+      if (!t || t.sessionId || !ptys.info(ptyId) || ++n > 1200) return;
+      const m = M(t.machine);
+      const found = (m.ssh ? await discoverRemote(m, 10).catch(() => []) : discoverLocal(10))
+        .filter(f => f.harness === t.harness && f.createdAt >= since - 5000 && !threads.bySession(f.sessionId))
+        .sort((a, b) => Number(b.dir === t.dir) - Number(a.dir === t.dir) || b.createdAt - a.createdAt)[0];
+      if (found) {
+        log('detect', thread, 'session', found.sessionId);
+        threads.update(thread, { sessionId: found.sessionId, dir: found.dir || t.dir, branch: found.branch, updatedAt: found.updatedAt, ...(t.title === 'New thread' && found.title ? { title: found.title } : {}) });
+        return;
+      }
+      setTimeout(() => void tick(), m.ssh ? 6000 : 3000);
+    };
+    setTimeout(() => void tick(), 3000);
+  };
 
   const api: SkeinApi = {
     app: {
@@ -131,6 +153,23 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       write: (id, data) => ptys.write(id, data),
       resize: (id, c, r) => ptys.resize(id, c, r),
       kill: id => ptys.kill(id),
+      adopt: async (id, seen) => {
+        const p = ptys.info(id);
+        if (!p || p.spec.run.kind !== 'shell' || p.spec.thread) return null;
+        const m = M(p.spec.machine);
+        // this computer's shells: what really runs under the shell; an SSH shell: what the renderer saw
+        const hit = !m.ssh && p.pid ? harnessUnder(await listProcs(), p.pid) : null;
+        const harness = hit?.harness ?? (m.ssh ? seen : undefined);
+        if (!harness) return null;
+        const dir = (hit && cwdOf(hit.pid)) || await files.resolve(m, p.spec.cwd || '~').catch(() => p.spec.cwd);
+        const made = threads.create({ harness, machine: m.id, dir, view: 'term' });
+        // the session id comes from the harness's transcript, not from us (it was started without --session-id)
+        const t = threads.update(made.id, { sessionId: undefined, status: 'idle' });
+        ptys.tie(id, t.id);
+        log('detect', id, `${harness} in a shell on ${m.id}: thread ${t.id}`);
+        watchSession(t.id, id, Date.now());
+        return t;
+      },
     },
     images: { toInbox: (m, png, name) => toInbox(M(m), png, name) },
     git: {

@@ -108,6 +108,8 @@ export interface Settings {
   defaultView: ViewKind;
   notify: 'waiting' | 'replies' | 'off';
   vimrc: string;
+  /** What a new start shows: the last session's workspaces and layouts, or one empty workspace. */
+  launch?: 'restore' | 'empty';
   termFont?: string;
   termFontSize?: number;
 }
