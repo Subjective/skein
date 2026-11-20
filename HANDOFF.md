@@ -68,6 +68,16 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   own (a ControlMaster would keep the forward after we let go), waits until the local port accepts, and the page
   loads from it while the address bar keeps the remote's address, with `<machine> → :<local port>` beside it.
   One forward per machine and port, kept until it dies or the app quits; a failure is a row with Retry.
+- **Live follow and one writer** (2026-11-20, `core/tail.ts`, `core/follow.ts`): a thread's transcript is tailed and
+  re-folded with the history parsers, and new or changed events go out as `chat` pushes with history's ids. This
+  computer: watchers on `~/.claude/projects/*` and `~/.codex/sessions/Y/M/D` wake followers (a 3 s stat poll backs them
+  up), for every known session written while Skein runs. SSH: one `tail -c +N -F` per file, only while a chat view
+  shows it (`chat.follow`, 20 s grace). Writes during Skein's own driver turn are not pushed (the driver sends them);
+  Skein's terminal writes are (the G4 mirror now updates live). Writes by anyone else set `ThreadMeta.external`: the
+  thread shows running / idle from the transcript (end_turn, interrupt, task_complete; 10 min without writes is
+  idle), so the blue dot follows, and the chat is read-only with Take over (`i` / `a` too); `chat.send` refuses
+  meanwhile. It clears on Take over, when a Skein terminal opens it, or when no TUI for it runs any more (Linux:
+  session id in the command line or same folder; macOS / Windows / SSH: id match or 30 quiet minutes).
 - **Closing VIM-MODEL section 6** (2026-11-20; rules 18 and 19, section 4's Menu search field and Settings rows):
   - After `esc`, a menu's search field is a Field in NORMAL: it keeps the focus (read-only) and its block cursor, and runs
     `vimtext`. The list keeps `j` `k` `gg` `G` `enter` `q` (counts move the list: `3j`); everything else goes to the
@@ -112,6 +122,14 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
     thread from it hands them to the thread (the mockup keeps them in the sidebar, which would swallow typing).
   - Toasts: one at a time, rich text, an inline action (Undo) that also dismisses it.
   - Folder rows have no "has sub-folders" chevron: it would need a listing per row, slow over SSH.
+  - One folder field everywhere (`openFolderPicker`): a machine's +, a new thread's folder chip and Move's "Other
+    folder…". A new thread's machine and folder menus open above their chips. Picking a machine keeps the folder
+    when that machine knows it, else takes its most recent one; a machine without the harness switches the model
+    and says which. A thread dropped on a machine heading with a same-named repo goes straight to the Move dialog.
+  - App NORMAL `j` / `k` / `enter` / `o` drive the sidebar cursor without focusing the sidebar (`cursorKey`); a
+    chat's own app-NORMAL keys come first. The palette lists archived threads and side chats; popping a tab out
+    activates the tab before it; switching or creating a workspace clears the sidebar cursor; a dragged project
+    shows its folder and name under the pointer.
 
 ## Read first
 
