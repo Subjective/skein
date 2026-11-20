@@ -34,6 +34,8 @@ let settings: Settings = { theme: 'dark', vim: true, leader: 'ctrl-space', sideV
 const kv = new Map<string, unknown>();
 let ptyN = 0;
 const lines = new Map<string, string>();
+// the shell's last command and the spec it runs under, so `claude` / `codex` typed in a shell is adopted (pty.adopt)
+const ran = new Map<string, { cmd: string; machine: string; cwd: string; thread?: string }>();
 
 // SSH scenes (G5), chosen with ?ssh= in the URL so other UI tests see no dialogs:
 //   auth: connecting build-07 asks for a key passphrase   code: a verification code   hostkey: a new host key
@@ -111,17 +113,25 @@ export const fakeApi: SkeinBridge = {
   chat: { send: chat.send, interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); } },
   pty: {
     spawn: async spec => {
-      const id = 'fake' + ++ptyN; lines.set(id, '');
+      const id = 'fake' + ++ptyN; lines.set(id, ''); if (spec.run.kind === 'shell') ran.set(id, { cmd: '', machine: spec.machine, cwd: spec.cwd });
       const prompt = spec.run.kind === 'shell' ? 'PS ' + spec.cwd + '> ' : `\x1b[1m${spec.run.kind}\x1b[0m (mock terminal: no harness in a browser)\r\n> `;
       emit({ type: 'pty.data', id, data: prompt });
       return id;
     },
     write: (id, d) => {
+      if (d === '\r' && ran.has(id)) ran.get(id)!.cmd = lines.get(id) || '';
       if (d === '\r') { emit({ type: 'pty.data', id, data: '\r\n' + (lines.get(id) ? 'mock: ' + lines.get(id) + '\r\n' : '') + '> ' }); lines.set(id, ''); return; }
       if (d === '\x7f') { lines.set(id, (lines.get(id) || '').slice(0, -1)); emit({ type: 'pty.data', id, data: '\b \b' }); return; }
       lines.set(id, (lines.get(id) || '') + d); emit({ type: 'pty.data', id, data: d });
     },
     resize: () => {}, kill: () => {},
+    adopt: async id => {
+      const r = ran.get(id), h = r?.cmd.trim().split(/\s+/)[0];
+      if (!r || r.thread || (h !== 'claude' && h !== 'codex')) return null;
+      const t = await fakeApi.threads.create({ harness: h, machine: r.machine, dir: r.cwd, view: 'term' });
+      r.thread = t.id; if (h === 'claude') t.drive = 'term'; emit({ type: 'thread', thread: { ...t } });
+      return t;
+    },
   },
   // a forward "succeeds" on the port itself (the page loads from this computer); a machine that is down fails
   browser: {

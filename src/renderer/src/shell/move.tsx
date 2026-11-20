@@ -13,6 +13,7 @@ import { detachThread } from '../views/terminal/TerminalView';
 import { dirMenu } from './Launcher';
 import { openMenu } from './overlays';
 import { projectName } from './meta';
+import { threadDrag, type PaneDrag } from './tabdrag';
 
 const reason = (e: unknown) => String((e as Error)?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
@@ -126,7 +127,9 @@ function MoveDialog({ id, to, dir, close }: { id: string; to: string; dir: strin
   );
 }
 
-// ---------- the mouse: drag a thread row onto a project or a machine heading ----------
+// ---------- the mouse: drag a thread row onto a project or a machine heading, or into the panes ----------
+// Over the sidebar the row moves the thread (projects and machine headings); over the panes it is a tab, as a
+// dragged tab is (shell/tabdrag.ts): onto a tab bar, a pane's middle or an edge, it opens the thread there.
 
 const TARGETS = '#side .s-d[data-machine], #side .s-h[data-machine]';
 
@@ -135,7 +138,7 @@ export function startThreadDrag(e: React.MouseEvent, t: ThreadMeta) {
   if (e.button !== 0 || t.archived || (e.target as HTMLElement).closest('button')) return;
   const x0 = e.clientX, y0 = e.clientY;
   const src = e.currentTarget as HTMLElement;
-  let lift: HTMLElement | null = null, over: HTMLElement | null = null;
+  let lift: HTMLElement | null = null, over: HTMLElement | null = null, pane: PaneDrag | null = null, inPanes = false;
   const mark = (el: HTMLElement | null) => { if (over === el) return; over?.classList.remove('drop-into'); over = el; over?.classList.add('drop-into'); };
   const mv = (ev: MouseEvent) => {
     if (!lift && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
@@ -151,13 +154,20 @@ export function startThreadDrag(e: React.MouseEvent, t: ThreadMeta) {
       document.body.classList.add('dragging-thread');
     }
     lift.style.transform = `translate(${ev.clientX - x0}px, ${ev.clientY - y0}px)`;
+    // into the panes: the row becomes a tab there
+    const work = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest('#work');
+    if (work) { pane ||= threadDrag(t.id); pane.show(true); inPanes = pane.track(ev.clientX, ev.clientY); lift.style.visibility = 'hidden'; mark(null); return; }
+    if (pane) { pane.show(false); inPanes = false; }
+    lift.style.visibility = '';
     const hit = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>(TARGETS) ?? null;
     // its own project is not a place to move to
     mark(hit && hit.matches('.s-d') && hit.dataset.machine === t.machine && hit.dataset.dir === t.dir ? null : hit);
   };
-  const up = () => {
+  const up = (ev: MouseEvent) => {
     removeEventListener('mousemove', mv); removeEventListener('mouseup', up, true);
     if (!lift) return; // a click
+    if (pane) { if (inPanes) pane.drop(ev.clientX, ev.clientY); else pane.cancel(); }
+    if (inPanes) mark(null);
     lift.remove(); src.classList.remove('drag-source'); document.body.classList.remove('dragging-thread');
     // the click that ends a drag does not open the thread
     const swallow = (ev: Event) => { ev.stopPropagation(); ev.preventDefault(); };

@@ -3,6 +3,7 @@
 import type { ThreadMeta, ViewKind } from '@shared/types';
 import { api } from '../api';
 import { openFile as openFileTab } from '../views/tools/open';
+import { tabPlace, tabRestore } from '../views/tools/hooks';
 import {
   activeTab, allTabs, findPane, leaves, mkPane, mkTab, neighbour, removePane, resize as resizeTree, splitAt, swap as swapPanes,
   type Pane, type Rect, type Tab, type Workspace,
@@ -27,7 +28,7 @@ export function focusPane(id: string) { update(s => { const w = ws(); w.focus = 
 export function focusDir(d: 'h' | 'j' | 'k' | 'l') {
   if (S.sideFocus) { if (d === 'l') sideFocus(false); return; }
   const w = ws();
-  if (w.pf) { if (d === 'h' || d === 'l' || d === 'j' || d === 'k') update(() => { w.pf = null; }); return; }
+  if (w.pf) return;   // a popup has no neighbours: ldr o cycles popups, ctrl-o goes back to the pane
   const n = neighbour(rects(), w.focus, d);
   if (!n && d === 'h') return sideFocus(true);
   if (n) focusPane(n);
@@ -55,6 +56,17 @@ export const launcherFor = (from?: Tab) => mkTab('new', from ? ctxOf(from) : { m
 export const shellFor = (from?: Tab) => mkTab('shell', from ? ctxOf(from) : { machine: ws().machine, dir: ws().dir });
 
 export function addTab(p: Pane, t: Tab) { p.tabs.push(t); p.active = t.id; ws().focus = p.id; }
+
+/** Tools and files open next to what you're on: in the pane to the right if there is one, else a new split. */
+export function openBeside(t: Tab) {
+  update(s => {
+    const w = ws(), g = focusedPane(w), n = neighbour(rects(), g.id, 'l'), right = n && findPane(w.tree, n);
+    if (right) addTab(right, t);
+    else { const p = mkPane(t); w.tree = splitAt(w.tree, g.id, 'row', p); w.focus = p.id; }
+    w.pf = null; w.zoom = false; s.sideFocus = false; s.tick++;
+  });
+  save();
+}
 
 export function split(dir: 'row' | 'col', tab?: Tab) {
   update(s => {
@@ -158,33 +170,99 @@ export function swapNext() {
   const f = focusedPane(w), n = ls[(ls.indexOf(f) + 1) % ls.length];
   update(() => { swapPanes(f, n); w.focus = n.id; }); save();
 }
-export function resizePane(delta: number) {
-  update(() => { const w = ws(); resizeTree(w.tree, w.focus, 'row', delta); }); save();
+/** Grow or shrink the focused pane: across (row: ldr < >) or up and down (col: ldr + -). */
+export function resizePane(delta: number, axis: 'row' | 'col' = 'row') {
+  update(s => { const w = ws(); resizeTree(w.tree, w.focus, axis, delta); s.tick++; }); save();
+}
+// ---------- popups ----------
+// Rule 15: opening a popup remembers where the keyboard was in the pane (a tab's `place` hook: the reading cursor,
+// or the composer's mode and position); closing it, or ctrl-o, puts it back; ctrl-i returns to where you were in
+// the popup. Places live here, not in the saved layout.
+const places = new Map<string, { from?: string; tab?: string; place?: unknown; own?: unknown }>();
+let backTo: string | null = null;   // the popup ctrl-o left, for ctrl-i
+const placeOf = (tabId: string) => { try { return tabPlace(tabId); } catch { return undefined; } };
+function restoreLater(tabId: string | undefined, place: unknown) {
+  if (!tabId || place === undefined) return;
+  requestAnimationFrame(() => requestAnimationFrame(() => tabRestore(tabId, place)));
+}
+/** Note where the keyboard is before a popup takes it (every way a popup opens calls this). */
+export function notePlace(popupTab: string) {
+  const w = ws(), t = w.pf ? w.pops.find(x => x.tab.id === w.pf)?.tab : activeTab(focusedPane(w));
+  places.set(popupTab, { from: w.focus, tab: t?.id, place: t ? placeOf(t.id) : undefined });
 }
 
-// ---------- popups ----------
 export function popOut(tabId?: string) {
   update(s => {
     const w = ws(), p = focusedPane(w), t = tabId ? p.tabs.find(x => x.id === tabId) : activeTab(p);
     if (!t) return;
     p.tabs = p.tabs.filter(x => x.id !== t.id);
     if (!p.tabs.length) closePane(p); else if (p.active === t.id) p.active = p.tabs[p.tabs.length - 1].id;
+    places.set(t.id, { from: w.focus, tab: activeTab(focusedPane(w)).id, place: placeOf(activeTab(focusedPane(w)).id) });
     w.pops.push({ tab: t, from: w.focus }); w.pf = t.id; s.tick++;
   });
   save();
 }
+/** Close a popup (inside an update). Focused, the keys go back to where they were before it opened. */
 export function closePopup(id: string) {
-  const w = ws(), p = w.pops.find(x => x.tab.id === id);
+  const w = ws(), p = w.pops.find(x => x.tab.id === id), pl = places.get(id);
   w.pops = w.pops.filter(x => x.tab.id !== id);
-  if (w.pf === id) { w.pf = null; if (p?.from && findPane(w.tree, p.from)) w.focus = p.from; }
+  places.delete(id); if (backTo === id) backTo = null;
+  if (w.pf === id) {
+    w.pf = null;
+    if (p?.from && findPane(w.tree, p.from)) w.focus = p.from;
+    restoreLater(pl?.tab, pl?.place);
+  }
 }
-/** Put a popup back as a tab in the pane it came from (alt + x on its close button). */
-export function dock(id: string) {
+/** esc with nothing left to step out of in a popup closes it (rule 2), as its x does. */
+export function closeFocusedPopup(): boolean {
+  const w = ws(); if (!w.pf) return false;
+  const id = w.pf;
+  update(s => { closePopup(id); s.tick++; });
+  save();
+  return true;
+}
+/** ctrl-o from a popup: back to the pane it came from (the popup stays), at the place you left there. */
+/** ctrl-o / ctrl-i only act when there is somewhere to go; otherwise the key goes on (mockup keys.js 296-301). */
+export const canPopBack = () => { const w = ws(); return !!w.pf && w.pops.some(x => x.tab.id === w.pf); };
+export const canPopForward = () => { const w = ws(); return !w.pf && !!backTo && w.pops.some(x => x.tab.id === backTo); };
+export function popBack(): boolean {
+  const w = ws(), p = w.pf ? w.pops.find(x => x.tab.id === w.pf) : null; if (!p) return false;
+  const pl = places.get(p.tab.id) || {};
+  pl.own = placeOf(p.tab.id); places.set(p.tab.id, pl);
+  backTo = p.tab.id;
+  update(s => { w.pf = null; if (p.from && findPane(w.tree, p.from)) w.focus = p.from; s.sideFocus = false; s.tick++; });
+  restoreLater(pl.tab, pl.place);
+  return true;
+}
+/** ctrl-i: forward to the popup ctrl-o left, at its own place. */
+export function popForward(): boolean {
+  const w = ws(), p = backTo ? w.pops.find(x => x.tab.id === backTo) : null; if (!p || w.pf) return false;
+  const pl = places.get(p.tab.id) || {};
+  const t = activeTab(focusedPane(w));
+  pl.tab = t.id; pl.from = w.focus; pl.place = placeOf(t.id); places.set(p.tab.id, pl);
+  backTo = null;
+  update(s => { w.pf = p.tab.id; s.sideFocus = false; s.tick++; });
+  restoreLater(p.tab.id, pl.own);
+  return true;
+}
+/** ldr o: each popup in turn, then back to the panes. */
+export function popNext() {
+  const w = ws(); if (!w.pops.length) return;
+  const i = w.pops.findIndex(x => x.tab.id === w.pf), nx = w.pops[i + 1];
+  if (nx && !places.has(nx.tab.id)) notePlace(nx.tab.id);
+  update(s => { w.pf = nx ? nx.tab.id : null; s.sideFocus = false; s.tick++; });
+  if (!nx && i >= 0) { const pl = places.get(w.pops[i].tab.id); restoreLater(pl?.tab, pl?.place); }
+}
+/** Put a popup back as a tab in the focused pane (alt + its x, or ldr d for the focused one). */
+export function dock(id?: string | null) {
+  id ??= ws().pf; if (!id) return;
   update(s => {
     const w = ws(), p = w.pops.find(x => x.tab.id === id); if (!p) return;
+    places.delete(id);   // docked, the keys stay with the tab: no place to put back
     closePopup(id);
-    const g = (p.from && findPane(w.tree, p.from)) || focusedPane(w);
-    addTab(g, p.tab); s.tick++;
+    const f = focusedPane(w);
+    if (f.tabs.length === 1 && f.tabs[0].kind === 'new') f.tabs = [];   // the launcher popping out left behind
+    addTab(f, p.tab); w.pf = null; s.tick++;
   });
   save();
 }
@@ -194,7 +272,12 @@ export function newWorkspace(name: string, machine: string, dir: string) {
   update(s => { const w = blankWs(machine, dir); w.name = name; s.workspaces.push(w); s.wid = w.id; s.tick++; });
   save();
 }
-export function switchWorkspace(id: string) { update(s => { const w = s.workspaces.find(x => x.id === id); if (w) { w.usedAt = Date.now(); s.wid = id; s.tick++; } }); save(); }
+/** Switch workspace (mockup WS.go): no field keeps the caret, so it comes up in NORMAL. */
+export function switchWorkspace(id: string) {
+  (document.activeElement as HTMLElement | null)?.blur?.();
+  update(s => { const w = s.workspaces.find(x => x.id === id); if (w) { w.usedAt = Date.now(); s.wid = id; s.sideFocus = false; s.tick++; } });
+  save();
+}
 export function lastWorkspace() {
   const other = [...S.workspaces].filter(w => w.id !== S.wid).sort((a, b) => b.usedAt - a.usedAt)[0];
   if (other) { ws().usedAt = Date.now() - 1; switchWorkspace(other.id); }

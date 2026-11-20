@@ -7,8 +7,9 @@ import { machine, thread, useApp, ws } from '../state/store';
 import { cx, Icon } from '../ui/primitives';
 import { currentMode } from './keyboard';
 import { run } from './commands';
+import { wsWaiting } from './switcher';
 
-const LEADER: [string, string][] = [['v', 'split →'], ['s', 'split ↓'], ['%', 'shell →'], ['"', 'shell ↓'], ['c', 'new tab'], ['q', 'close tab'], ['t', 'chat ⇄ term'], ['z', 'zoom'], ['w', 'workspaces'], ['hjkl', 'focus'], ['HJKL', 'move'], ['<>', 'resize'], ['[', 'scrollback']];
+const LEADER: [string, string][] = [['v', 'split →'], ['s', 'split ↓'], ['%', 'shell →'], ['"', 'shell ↓'], ['c', 'new tab'], ['q', 'close tab'], ['t', 'chat ⇄ term'], ['z', 'zoom'], ['w', 'workspaces'], ['hjkl', 'focus'], ['HJKL', 'move'], ['<>', 'resize'], ['x', 'swap'], ['esc', 'normal']];
 
 export function StatusBar() {
   const s = useApp();
@@ -19,7 +20,7 @@ export function StatusBar() {
   return (
     <div id="status">
       {s.settings.vim && <span className={cx('vim', mode === 'INSERT' && 'ins', mode === 'TERMINAL' && 'trm', mode.startsWith('V') && 'vis')} role="status" aria-live="polite" aria-label={`Mode ${mode}`}>{mode}</span>}
-      <button className="wsb" title={`Workspaces · ${kb('ctrl-tab')} goes to the last one`} onClick={() => run('workspaces')}>{ws().name}</button>
+      <button className="wsb" title={`Workspaces · ${kb('ctrl-tab')} goes to the last one`} onClick={() => run('workspace')}>{ws().name}{s.workspaces.some(x => x.id !== s.wid && wsWaiting(x)) && <i className="wdot" />}</button>
       {s.leader
         ? <span className="lead">{LEADER.map(([k, l]) => <span key={k}><kbd>{k}</kbd>{l}</span>)}</span>
         : <span className="loc"><Icon name={m?.ssh ? 'host' : 'laptop'} /><span>{m?.name}</span><span className="dim">{dir && tildify(m?.id, dir)}</span>{th?.branch && <><Icon name="branch" /><span className="dim">{th.branch}</span></>}</span>}

@@ -1,19 +1,26 @@
-// Overlays opened by commands: palette, : line, pane search, workspaces, keyboard sheet, settings.
+// Overlays opened by commands: palette, : line, pane search, workspaces, machines, keyboard sheet, settings.
 // All are the shared Menu or Dialog, so they look and key the same.
-import { useEffect, useState } from 'react';
-import { COMMANDS, Keymap } from '../input/keymap';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import type { DirEntry, Machine } from '@shared/types';
+import { ALIASES, COMMANDS, Keymap, parseVimrc, toVimKeys } from '../input/keymap';
 import { kb } from '../input/platform';
 import type { Surface } from '../input/dispatcher';
 import { api } from '../api';
 import * as A from '../state/actions';
-import { allTabs } from '../state/layout';
-import { machine, openLayer, S, thread, toast, update, useApp, ws } from '../state/store';
+import { allTabs, mkTab, type Tab, type Workspace } from '../state/layout';
+import { machine, openLayer, S, thread, toast, topLayer, update, useApp, ws } from '../state/store';
 import { fuzzyTop } from '../ui/fuzzy';
 import { Menu, type MenuItem, type MenuProps } from '../ui/Menu';
 import { Dialog, useDialogSurface } from '../ui/Dialog';
-import { cx, Icon, IconButton, Switch } from '../ui/primitives';
-import { harnessName, tabMeta } from './meta';
-import { run } from './commands';
+import { cx, Dot, Icon, IconButton, Spinner, Switch } from '../ui/primitives';
+import { base, harnessName, projectName, tabMeta, tildify } from './meta';
+import { commandNames, run } from './commands';
+import { WsMini, wsRow, wsWaiting } from './switcher';
+import { ThreadStatus } from './Sidebar';
+import { captureKeys } from './keyboard';
+import { log } from '../views/chat/state';
+import { openSide, openSub } from '../views/chat/threads';
+import { openTool } from '../views/tools/open';
 
 /** Open any menu as an overlay. */
 export function openMenu<D>(p: Omit<MenuProps<D>, 'onClose'> & { onClose?: () => void }) {
@@ -21,12 +28,27 @@ export function openMenu<D>(p: Omit<MenuProps<D>, 'onClose'> & { onClose?: () =>
   return close;
 }
 
-const ago = (t: number) => { const m = (Date.now() - t) / 60000; return m < 1 ? 'now' : m < 60 ? `${Math.round(m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
+const ago = (t: number) => { const m = (Date.now() - t) / 60000; return m < 1 ? '' : m < 60 ? `${Math.round(m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
+const rectOf = (sel: string) => document.querySelector(sel)?.getBoundingClientRect() ?? null;
 
 /** Where the focused tab works: its thread's folder, or the tab's or workspace's. */
-function here(): { machine: string; dir: string } {
+export function here(): { machine: string; dir: string } {
   const t = A.currentTab(), th = t.thread ? thread(t.thread) : undefined, w = ws();
   return th ? { machine: th.machine, dir: th.dir } : { machine: t.machine || w.machine, dir: t.dir || w.dir };
+}
+
+/** Folders the app knows on a machine, most recent first: ones with threads, projects, workspaces and folders
+ *  picked before. A folder you have used is known from then on (the mockup's Dirs.use). */
+const used: Record<string, string[]> = {};
+export function knownDirs(m: string): string[] {
+  const th = S.threads.filter(t => t.machine === m && !t.side).sort((a, b) => b.updatedAt - a.updatedAt).map(t => t.dir);
+  const wsd = [...S.workspaces].sort((a, b) => b.usedAt - a.usedAt).filter(w => w.machine === m).map(w => w.dir);
+  return [...new Set([...(used[m] || []), ...th, ...(S.projects[m] || []), ...wsd])].filter(d => d && d !== '~');
+}
+const useDir = (m: string, d: string) => { used[m] = [d, ...(used[m] || []).filter(x => x !== d)].slice(0, 30); void api.app.save('dirs', used); };
+/** Folders picked before, kept across restarts. Called once at boot. */
+export async function loadDirs() {
+  try { const v = (await api.app.load('dirs')) as Record<string, string[]> | undefined; if (v && typeof v === 'object') for (const [m, l] of Object.entries(v)) if (Array.isArray(l)) used[m] = l.filter(x => typeof x === 'string'); } catch { /* none kept */ }
 }
 
 const found = new Map<string, { at: number; list: string[] }>();
@@ -38,63 +60,281 @@ async function openFiles() {
     catch (e) { return toast(`Couldn't list files in ${dir}: ${(e as Error).message}`, { icon: 'alert' }, 5000); }
   }
   const list = hit.list;
-  const base = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+  const mc = machine(m);
   openMenu<string>({
     modal: true, className: 'pal files', ranked: true, empty: list.length ? 'No matching files' : 'No files here',
-    search: { placeholder: `Search files in ${dir}` },
+    search: { placeholder: `Search files in ${mc?.ssh ? mc.name + ':' : ''}${tildify(m, dir)}` },
     items: q => fuzzyTop(q, list, 60).map(p => ({ label: base(p), hint: p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '', icon: <Icon name="file" />, data: p })),
     onPick: it => { if (it.data) A.openFile(m, dir, it.data); },
   });
 }
 
+// ---------- palette (mockup palette() and ACTIONS) ----------
+/** The palette's actions, as the mockup lists them. Each runs a command, so keys and vimrc maps agree. */
+const ACTIONS: [string, string, string][] = [
+  ['New thread', 'compose', 'tabnew'], ['Split right', 'splitR', 'vsplit'], ['Split down', 'splitD', 'split'],
+  ['Shell to the right', 'terminal', 'vshell'], ['Show thread as chat / terminal', 'chat', 'view'],
+  ['Open changes beside', 'diff', 'changes'], ['Open files beside', 'file', 'files'], ['Open browser beside', 'globe', 'browser'],
+  ['Zoom pane', 'zoom', 'zoom'], ['Close tab', 'x', 'q'],
+  ['Workspaces', 'layers', 'workspace'], ['Machines', 'host', 'machines'], ['Settings', 'sliders', 'settings'], ['Keyboard shortcuts', 'keyboard', 'keys'],
+];
+/** A thread's state on the right of a row, as in the sidebar: spinner, shield, dot, else its age. */
+const threadRight = (id: string) => { const t = thread(id); if (!t) return undefined; return t.status === 'idle' ? <span className="age">{ago(t.updatedAt)}</span> : <ThreadStatus t={t} />; };
+
 export function openPalette(mode: 'all' | 'file' = 'all') {
   if (mode === 'file') { void openFiles(); return; }
-  const items = (q: string): MenuItem<() => void>[] => {
-    const th = [...S.threads].filter(t => !t.archived && !t.side).sort((a, b) => b.updatedAt - a.updatedAt);
-    const out: MenuItem<() => void>[] = [{ head: true, label: 'Threads' }];
-    for (const t of th.slice(0, q ? 200 : 8)) out.push({ label: t.title, hint: `${machine(t.machine)?.name ?? t.machine} · ${t.dir}`, icon: <Icon name={t.harness} />, right: <span className="age">{ago(t.updatedAt)}</span>, data: () => A.openThread(t.id) });
-    out.push({ head: true, label: 'Actions' });
-    const acts: [string, string, string][] = [['New thread', 'compose', 'tabnew'], ['Workspaces', 'layers', 'workspaces'], ['Settings', 'sliders', 'settings'], ['Keyboard shortcuts', 'keyboard', 'keys'], ['Split right', 'splitR', 'vsplit'], ['Split down', 'splitD', 'split'], ['Shell', 'terminal', 'vshell'], ['Browser', 'globe', 'browser']];
-    const km = keymap();
-    for (const [label, icon, cmd] of acts) { const b = km.keysFor(cmd)[0]; out.push({ label, icon: <Icon name={icon} />, kbd: b ? kb(b.layer === 'leader' ? 'ldr ' + b.keys : b.keys) : undefined, data: () => run(cmd) }); }
-    return out;
-  };
+  const th = [...S.threads].filter(t => !t.archived && !t.side).sort((a, b) => b.updatedAt - a.updatedAt);
+  const items: MenuItem<() => void>[] = [
+    { head: true, label: 'Threads' },
+    ...th.map(t => ({ label: t.title, hint: `${machine(t.machine)?.name ?? t.machine} · ${projectName(t.machine, t.dir)}`, icon: <Icon name={t.harness} size="hm" />, right: threadRight(t.id), data: () => A.openThread(t.id) })),
+    { head: true, label: 'Actions' },
+    ...ACTIONS.map(([label, icon, cmd]) => ({ label, icon: <Icon name={icon} />, data: () => run(cmd) })),
+  ];
   openMenu<() => void>({ modal: true, className: 'pal', search: { placeholder: 'Search threads and actions' }, items, onPick: it => it.data?.(), empty: 'No matches' });
 }
 
-export function openCmdline() {
+// ---------- : line (mockup cmdline()) ----------
+/** A small menu docked above the status bar, its field at the bottom. Names match by prefix; whatever follows
+ *  the name is its arguments (`new linux ~/repo`). Every command runs through run(), like a key or a vimrc map. */
+export function openCmdline(v = '') {
   const names = Object.keys(COMMANDS);
+  const all = commandNames();
   openMenu<string>({
-    modal: true, className: 'pal', search: { prefix: ':' },
-    // exact name first, then names it starts, then names that contain it (so `:w` enter runs w)
+    className: 'cmd', anchor: rectOf('#status'), place: 'top-start', width: 420, search: { prefix: ':', value: v }, ranked: true,
     items: q => {
-      const w = q.trim().split(' ')[0], rank = (n: string) => (n === w ? 0 : n.startsWith(w) ? 1 : 2);
-      return names.filter(n => !w || n.startsWith(w) || n.includes(w)).sort((a, b) => (w ? rank(a) - rank(b) : 0)).map(n => ({ label: n, hint: COMMANDS[n], data: n }));
+      const typed = q.trim(), w = typed.split(/\s+/)[0] || '';
+      const hit = names.filter(n => (n.includes(' ') ? n.startsWith(typed) || typed.startsWith(n) || n.startsWith(w) && typed === w : n.startsWith(w)));
+      if (hit.length || !w) return hit.sort((a, b) => +(b === w) - +(a === w)).map(n => ({ label: n, hint: COMMANDS[n], data: n }));   // :w is w, not workspace
+      // another name for a command (tabclose), or a tab number
+      if (all.includes(w) || ALIASES[w]) return [{ label: w, hint: COMMANDS[ALIASES[w] || w] || '', data: w }];
+      if (/^\d+$/.test(w)) return [{ label: w, hint: `Tab ${w}`, data: w }];
+      return [];
     },
-    onPick: (it, q) => run(it.data || q),
+    onPick: (it, q) => {
+      const t = q.trim().replace(/\s+/g, ' '), n = it.data!;
+      run(t === n || t.startsWith(n + ' ') ? t : [n, ...t.split(' ').slice(1)].join(' '));
+    },
   });
 }
 
-export function openPaneSearch() {
-  const w = ws();
-  const items: MenuItem<() => void>[] = allTabs(w).map(({ tab, pane }) => {
+// ---------- pane search (mockup act.tabSearch) ----------
+type Run = () => void;
+/** The pane's dropdown, also mod-shift-a: the thread in this pane (its side chats and subagents), its tabs wherever
+ *  they are open in this workspace, the tools it has not opened yet, and what you can do to the pane. */
+export function openPaneSearch(anchor?: DOMRect | null) {
+  const w = ws(), g = A.focusedPane(w), cur = A.currentTab(w);
+  const at = anchor || rectOf(`.pane[data-pane="${CSS.escape(g.id)}"] [aria-label="Search this pane"]`);
+  const th = cur.thread ? thread(cur.thread) : undefined;
+  const sid = th ? (th.side && th.parent ? th.parent.id : th.id) : undefined, s = sid ? thread(sid) : undefined;
+  const ofThread = (t: Tab) => (t.thread && (t.thread === sid || thread(t.thread)?.parent?.id === sid)) || (!!s && (t.kind === 'shell' || t.kind === 'file' || t.kind === 'browser') && t.machine === s.machine && t.dir === s.dir);
+  const tabs = s ? allTabs(w).filter(x => ofThread(x.tab)) : allTabs(w);
+  const has = (k: string) => tabs.some(x => x.tab.kind === k);
+  const mine: MenuItem<Run>[] = !s ? [] : [{ head: true, label: s.title },
+    ...S.threads.filter(x => x.side && x.parent?.id === s.id && !x.archived).map(c => ({ label: c.title, icon: <Icon name="chat" />, hint: 'side chat', right: c.status === 'idle' ? undefined : <ThreadStatus t={c} />, data: () => openSide(c.id) })),
+    ...log(s.id).events.flatMap(e => (e.t === 'sub' ? [{ label: e.name, icon: <Icon name="agent" />, hint: 'subagent', right: e.status === 'running' ? <Spinner /> : undefined, data: () => openSub(s, e.id) }] : []))];
+  const tabRows: MenuItem<Run>[] = tabs.map(({ tab, pane }) => {
     const m = tabMeta(tab);
-    return { label: m.title, icon: <Icon name={m.icon} />, hint: pane ? '' : 'popup', on: tab.id === A.currentTab().id, data: () => (pane ? A.activate(pane.id, tab.id) : update(() => { w.pf = tab.id; })) };
+    return { label: m.title, icon: <Icon name={m.icon} />, right: tab.kind === 'thread' && tab.thread ? threadRight(tab.thread) : undefined, on: tab.id === cur.id,
+      data: () => (pane ? A.activate(pane.id, tab.id) : update(x => { w.pf = tab.id; x.tick++; })) };
   });
-  openMenu<() => void>({ modal: true, className: 'pal', search: { placeholder: 'Search tabs in this workspace' }, items, onPick: it => it.data?.() });
+  const more: MenuItem<Run>[] = !s ? [] : [
+    ...([['changes', 'diff', 'Changes'], ['files', 'folder', 'Files'], ['browser', 'globe', 'Browser']] as const).filter(([k]) => !has(k)).map(([k, i, label]) => ({ label, icon: <Icon name={i} />, data: () => openTool(k, cur) })),
+    { label: 'Shell', icon: <Icon name="terminal" />, hint: tildify(s.machine, s.dir), data: () => { update(x => { A.addTab(g, mkTab('shell', { machine: s.machine, dir: s.dir })); x.tick++; }); A.save(); } },
+  ];
+  const pane: MenuItem<Run>[] = [
+    { label: 'Split right', icon: <Icon name="splitR" />, data: () => run('vsplit') },
+    { label: 'Split down', icon: <Icon name="splitD" />, data: () => run('split') },
+    { label: 'Shell to the right', icon: <Icon name="terminal" />, data: () => run('vshell') },
+    { label: w.zoom ? 'Unzoom' : 'Zoom pane', icon: <Icon name="zoom" />, data: () => run('zoom') },
+    { label: 'Close pane', icon: <Icon name="x" />, data: () => { update(x => { A.closePane(g); x.tick++; }); A.save(); } },
+  ];
+  openMenu<Run>({
+    anchor: at, modal: !at, place: 'bottom-end', width: 320, className: at ? undefined : 'pal', search: { placeholder: s ? 'Search this thread' : 'Search tabs' },
+    items: [...mine, { head: true, label: 'Tabs' }, ...tabRows, ...more, { head: true, label: 'Pane' }, ...pane],
+    onPick: it => it.data?.(),
+  });
 }
 
-export function openWorkspaces() {
-  const items = (q: string): MenuItem<string>[] => [
-    ...[...S.workspaces].sort((a, b) => b.usedAt - a.usedAt).map(w => ({ label: w.name, hint: `${machine(w.machine)?.name ?? ''} ${w.dir}`, on: w.id === S.wid, data: w.id, icon: <Icon name="layers" /> })),
-    ...(q.trim() && !S.workspaces.some(w => w.name === q.trim()) ? [{ label: `Create “${q.trim()}”`, icon: <Icon name="plus" />, data: 'new:' + q.trim() }] : []),
-  ];
-  openMenu<string>({
-    modal: true, className: 'wsw', search: { placeholder: 'Switch or create a workspace' }, items, normal: S.workspaces.length > 1,
-    onPick: it => { if (it.data?.startsWith('new:')) A.newWorkspace(it.data.slice(4), ws().machine, ws().dir); else if (it.data) A.switchWorkspace(it.data); },
-    keys: (k, it) => {
-      if (k === 'd' && it?.data && S.workspaces.length > 1) { update(s => { s.workspaces = s.workspaces.filter(w => w.id !== it.data); if (s.wid === it.data) s.wid = s.workspaces[0].id; }); A.save(); return true; }
+// ---------- folders (mockup Dirs) ----------
+// Wherever a folder is chosen the field works the same way: nothing typed lists a few known folders and the
+// machines to browse; text filters them; a path (~/..., /..., or machine:~/... where machines are allowed) lists
+// that folder as you type. tab (l in NORMAL) goes into the folder under the cursor, h goes back up, enter picks.
+interface DAct { dir?: { m: string; dir: string }; into?: string; run?: () => void; none?: boolean; ws?: string; make?: string }
+type DRow = MenuItem<DAct>;
+interface PathQ { m: Machine; pre: string; parent: string; leaf: string }
+function parsePath(q: string, m0: string, hosts: boolean): PathQ | null {
+  const x = /^(?:(.+?):)?\s*(~|~\/.*|\/.*)$/.exec(q.trim());
+  if (!x || (x[1] && !hosts)) return null;
+  const m = x[1] ? S.machines.find(mm => [mm.id, mm.name].some(n => n.toLowerCase() === x[1].trim().toLowerCase())) : machine(m0);
+  if (!m) return null;
+  const p = x[2] === '~' ? '~/' : x[2], parent = p.slice(0, p.lastIndexOf('/') + 1);
+  return { m, pre: x[1] ? x[1] + ':' : '', parent, leaf: p.slice(parent.length) };
+}
+/** One folder up, or from the top back to the list. */
+const upPath = (p: PathQ) => (p.parent.length > 2 ? p.pre + p.parent.slice(0, p.parent.lastIndexOf('/', p.parent.length - 2) + 1) : '');
+const linkDot = (m: Machine) => (m.ssh ? <Dot color={m.link === 'up' ? 'green' : m.link === 'down' ? 'red' : 'amber'} pulse={m.link === 'connecting' || m.link === 'reconnecting'} label={m.link === 'up' ? 'Connected' : m.link === 'down' ? 'Not connected' : m.link === 'auth' ? 'Needs you to sign in' : 'Connecting'} /> : null);
+const isUp = (m: Machine) => !m.ssh || m.link === 'up';
+
+interface Ctl { set: (q: string, ins?: boolean) => void; close: () => void; refresh: () => void }
+interface DirPickerProps {
+  close: () => void; anchor: DOMRect | null; place: MenuProps['place']; width: number; className?: string;
+  placeholder?: string; prefix?: string; value?: string; m0: string; hosts: boolean;
+  rows: (q: string, path: PathQ | null, dirRows: (p: PathQ) => DRow[]) => DRow[];
+  pick: (d: DAct, ctl: Ctl) => void;
+  keys?: (k: string, it: DRow | undefined, ctl: Ctl, q: string) => boolean;
+}
+function DirPicker(p: DirPickerProps) {
+  const [st, setSt] = useState({ gen: 0, q: p.value || '', ins: true });
+  const [ver, setVer] = useState(0);
+  const cache = useRef(new Map<string, DirEntry[] | 'loading' | 'error'>()).current;
+  const lastQ = useRef(st.q);
+  const typing = () => topLayer()?.surface?.mode() === 'INSERT';
+  const ctl: Ctl = { set: (q, ins) => setSt(s => ({ gen: s.gen + 1, q, ins: ins ?? typing() })), close: p.close, refresh: () => setVer(n => n + 1) };
+  const dirRows = (pq: PathQ): DRow[] => {
+    const m = pq.m;
+    if (!isUp(m)) return [{ head: true, label: m.name }, { label: 'Not connected', icon: <Icon name="host" />, hint: 'open Machines to reconnect', right: <i className="wdot down" />, data: { run: () => openMachines() } }];
+    const at = pq.parent.length > 1 ? pq.parent.slice(0, -1) : pq.parent, key = m.id + '\0' + at, got = cache.get(key);
+    if (got === undefined) {
+      cache.set(key, 'loading');
+      api.fs.list(m.id, at).then(l => cache.set(key, l), () => cache.set(key, 'error')).finally(() => setVer(n => n + 1));
+    }
+    const ents = Array.isArray(got) ? got : [];
+    const here: DRow[] = pq.parent.length > 2 && !pq.leaf && Array.isArray(got) ? [{ label: base(at), icon: <Icon name="folder" />, hint: 'this folder', data: { dir: { m: m.id, dir: at } } }] : [];
+    const sub: DRow[] = ents.filter(e => e.dir && (!e.hidden || pq.leaf.startsWith('.')) && e.name.toLowerCase().startsWith(pq.leaf.toLowerCase()))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(e => ({ label: e.name, icon: <Icon name="folder" />, hint: pq.parent + e.name, data: { dir: { m: m.id, dir: pq.parent + e.name }, into: pq.pre + pq.parent + e.name + '/' } }));
+    const busy = got === undefined || got === 'loading';
+    return [{ head: true, label: `${m.name} · ${pq.parent}` }, ...here, ...sub, ...(here.length + sub.length || busy ? [] : [{ label: 'No folder here', data: { none: true } }])];
+  };
+  const items = useCallback((q: string) => { lastQ.current = q; return p.rows(q, parsePath(q, p.m0, p.hosts), dirRows); }, [ver]); // eslint-disable-line react-hooks/exhaustive-deps
+  const into = (d: DAct | undefined) => { if (!d?.into) return false; if (d.dir) ctl.set(d.into); else ctl.set(d.into, true); return true; };
+  return (
+    <Menu<DAct> key={st.gen} anchor={p.anchor} modal={!p.anchor} place={p.place} width={p.width} className={cx(p.className, !p.anchor && 'pal')} ranked keep tabMoves normal={!st.ins}
+      search={{ placeholder: p.placeholder, prefix: p.prefix, value: st.q }} items={items} onClose={p.close}
+      onPick={it => {
+        const d = it.data; if (!d || d.none) return;
+        if (d.run) { p.close(); d.run(); return; }
+        if (d.into && !d.dir) { into(d); return; }
+        if (d.dir) useDir(d.dir.m, d.dir.dir);
+        p.pick(d, ctl);
+      }}
+      keys={(k, it) => {
+        const q = lastQ.current, pq = parsePath(q, p.m0, p.hosts);
+        if ((k === 'tab' || k === 'l' || k === 'right') && into(it?.data)) return true;
+        if ((k === 'h' || k === 'left') && pq) { ctl.set(upPath(pq)); return true; }
+        return p.keys?.(k, it, ctl, q) ?? false;
+      }} />
+  );
+}
+
+// ---------- workspaces (mockup WS.menu, WS.rename) ----------
+const closeWorkspace = (id: string) => {
+  if (S.workspaces.length < 2) return;
+  if (id === S.wid) A.switchWorkspace([...S.workspaces].filter(w => w.id !== id).sort((a, b) => b.usedAt - a.usedAt)[0].id);
+  update(s => { s.workspaces = s.workspaces.filter(w => w.id !== id); s.tick++; });
+  A.save();
+};
+const wsAnchor = () => rectOf('#status .wsb');
+
+/** The one place to find, make and manage workspaces: type to filter or to name a new one; folders and machines
+ *  as everywhere (a path may start with a machine, "linux:~/repo/"); r renames and d closes the one under the cursor. */
+export function openWorkspaces(q0 = '') {
+  openLayer(close => <DirPicker close={close} anchor={wsAnchor()} place="top-start" width={420} className="ws dirs" placeholder="Workspace, folder or path" value={q0}
+    m0={ws().machine} hosts
+    rows={(q, pq, dirRows) => {
+      if (pq) return dirRows(pq);
+      const name = q.trim(), lq = name.toLowerCase(), hit = (...t: string[]) => !lq || t.join(' ').toLowerCase().includes(lq);
+      const many = S.workspaces.length > 1;
+      const acts = (w: Workspace) => (
+        <span className="wact">
+          <button type="button" title="Rename · r" aria-label="Rename" onMouseDown={e => { e.preventDefault(); e.stopPropagation(); close(); renameWorkspace(w); }}><Icon name="pencil" /></button>
+          <button type="button" title="Close workspace · d" aria-label="Close workspace" onMouseDown={e => { e.preventDefault(); e.stopPropagation(); closeWorkspace(w.id); close(); openWorkspaces(q); }}><Icon name="x" /></button>
+        </span>);
+      const known = S.machines.flatMap(m => knownDirs(m.id).map(dir => ({ m, dir }))).filter(x => !S.workspaces.some(w => w.machine === x.m.id && w.dir === x.dir) && hit(x.dir, x.m.name));
+      const have = S.workspaces.some(w => w.name.toLowerCase() === lq);
+      const c = here();
+      const rows: DRow[] = [
+        { head: true, label: 'Workspaces' },
+        ...[...S.workspaces].sort((a, b) => b.usedAt - a.usedAt).filter(w => hit(w.name, w.dir, machine(w.machine)?.name ?? '')).map(w => {
+          const r = wsRow(w);
+          return { ...r, hint: `${machine(w.machine)?.name ?? w.machine} · ${tildify(w.machine, w.dir)}`, right: <>{wsWaiting(w) && <i className="wdot" title="A thread here is waiting for you" />}{many && acts(w)}</>, data: { ws: w.id } };
+        }),
+        { head: true, label: name ? 'Folders' : 'Recent folders' },
+        ...known.slice(0, name ? 8 : 4).map(x => ({ label: base(x.dir), icon: <Icon name="folder" />, hint: `${x.m.name} · ${tildify(x.m.id, x.dir)}`, data: { dir: { m: x.m.id, dir: x.dir } } })),
+        { head: true, label: 'Browse' },
+        ...S.machines.filter(m => hit(m.name)).map(m => ({ label: m.name, icon: <Icon name={m.ssh ? 'host' : 'laptop'} />, hint: isUp(m) ? '~/' : 'not connected', right: m.ssh ? <i className={cx('wdot', isUp(m) ? 'up' : 'down')} /> : undefined, data: { into: m.name + ':~/' } })),
+        ...(name ? [] : [{ label: 'Add a machine', icon: <Icon name="plus" />, data: { run: () => openMachines() } }]),
+        ...(name && !have ? [{ head: true, label: 'New' }, { label: `New workspace “${name}”`, icon: <Icon name="plus" />, hint: 'in ' + tildify(c.machine, c.dir), data: { make: name } }] : []),
+      ];
+      return rows;
+    }}
+    keys={(k, it, ctl, q) => {
+      const id = it?.data?.ws; if (!id) return false;
+      const w = S.workspaces.find(x => x.id === id); if (!w) return false;
+      if (k === 'r') { ctl.close(); renameWorkspace(w); return true; }
+      if (k === 'd') { closeWorkspace(id); ctl.close(); openWorkspaces(q); return true; }
       return false;
+    }}
+    pick={(d, ctl) => {
+      ctl.close();
+      if (d.ws) { A.switchWorkspace(d.ws); return; }
+      if (d.dir) { const hit = S.workspaces.find(w => w.machine === d.dir!.m && w.dir === d.dir!.dir); if (hit) A.switchWorkspace(hit.id); else A.newWorkspace(base(d.dir.dir), d.dir.m, d.dir.dir); return; }
+      if (d.make) { const c = here(); A.newWorkspace(d.make, c.machine, c.dir); }
+    }} />);
+}
+
+export function renameWorkspace(w: Workspace) {
+  const a = wsAnchor();
+  openMenu<string>({
+    anchor: a, modal: !a, place: 'top-start', width: 400, className: cx('ws', !a && 'pal'), search: { prefix: 'Rename', value: w.name }, ranked: true,
+    items: q => [{ label: q.trim() || w.name, icon: <WsMini tree={w.tree} />, hint: `${machine(w.machine)?.name ?? w.machine} · ${tildify(w.machine, w.dir)}`, data: w.id }],
+    onPick: (_, q) => { const n = q.trim(); if (n) update(s => { w.name = n; s.tick++; }); A.save(); openWorkspaces(); },
+  });
+}
+
+// ---------- a folder on one machine (mockup act.addProject, act.pickDir, Move.pickDir) ----------
+/** The Dirs field for one machine: known folders (filtered as you type), the machine to browse, or a typed path.
+ *  A machine's + (new project), a new thread's folder chip and Move's "Other folder…" all use it. */
+export function openFolderPicker(mid: string, anchor: DOMRect | null, pick: (dir: string) => void,
+  o: { place?: MenuProps['place']; width?: number; current?: string; exclude?: (dir: string) => boolean; recent?: boolean } = {}) {
+  const m = machine(mid); if (!m) return;
+  openLayer(close => <DirPicker close={close} anchor={anchor} place={o.place || 'bottom-start'} width={o.width || 320} className="dirs" placeholder={`Folder or path on ${m.name}`} m0={mid} hosts={false}
+    rows={(q, pq, dirRows) => {
+      if (pq) return dirRows(pq);
+      const mm = machine(mid)!;
+      if (!isUp(mm)) return dirRows({ m: mm, pre: '', parent: '~/', leaf: '' });
+      const lq = q.trim().toLowerCase();
+      const dirs = knownDirs(mid).filter(d => !o.exclude?.(d) && tildify(mid, d).toLowerCase().includes(lq)).slice(0, lq || !o.recent ? 8 : 5);
+      return [{ head: true, label: o.recent && !lq ? 'Recent folders' : 'Folders' }, ...dirs.map(d => ({ label: tildify(mid, d), icon: <Icon name="folder" />, on: o.current === d, data: { dir: { m: mid, dir: d } } })),
+        { head: true, label: 'Browse' }, { label: mm.name, icon: <Icon name={mm.ssh ? 'host' : 'laptop'} />, hint: '~/', data: { into: '~/' } }];
+    }}
+    pick={(d, ctl) => { if (!d.dir) return; ctl.close(); pick(d.dir.dir); }} />);
+}
+
+/** A machine's +: a folder with no threads yet becomes a project in the sidebar. */
+export function openAddProject(mid: string, anchor: DOMRect, add: (dir: string) => void) {
+  const known = (d: string) => S.threads.some(t => t.machine === mid && t.dir === d) || (S.projects[mid] || []).includes(d);
+  openFolderPicker(mid, anchor, add, { exclude: known });
+}
+
+// ---------- machines (mockup act.machines) ----------
+const marks = (m: Machine) => (['claude', 'codex'] as const).map(h => <span key={h} className={cx('has', !m.has.includes(h) && 'no')} title={`${harnessName(h)} ${m.has.includes(h) ? 'installed' : 'not found'}`}><Icon name={h} /></span>);
+const sshAddr = (m: Machine) => (m.ssh ? `${m.ssh.user ? m.ssh.user + '@' : ''}${m.ssh.host}` : m.os || '');
+
+/** Machines with their address, which harnesses they have and their link; picking one starts a new thread there. */
+export function openMachines(anchor?: DOMRect | null) {
+  const a = anchor || rectOf('#side .mbtn') || rectOf('#status');
+  openMenu<string>({
+    anchor: a, modal: !a, place: 'top-start', width: 330, className: cx('mach', !a && 'pal'),
+    items: [{ head: true, label: 'Machines' },
+      ...S.machines.map(m => ({ label: m.name, icon: <Icon name={m.ssh ? 'host' : 'laptop'} />, hint: sshAddr(m), right: <>{marks(m)}{linkDot(m)}</>, data: m.id })),
+      { label: 'Add SSH host', icon: <Icon name="plus" />, hint: 'from ~/.ssh/config', data: '' }],
+    onPick: it => {
+      if (!it.data) { void addHostMenu(); return; }
+      const m = machine(it.data)!, p = A.focusedPane();
+      update(s => { A.addTab(p, mkTab('new', { machine: m.id, dir: knownDirs(m.id)[0] || '~' })); ws().pf = null; s.sideFocus = false; s.tick++; });
+      A.save();
+      if (m.ssh && m.link !== 'up') void api.machines.connect(m.id);
     },
   });
 }
@@ -106,38 +346,109 @@ export function keymap(): Keymap {
   return km;
 }
 
-// ---------- keyboard sheet ----------
-const SHEET: [string, string[]][] = [
-  ['Anywhere', ['palette', 'files', 'panesearch', 'cmdline', 'keys', 'sidebar']],
-  ['Tabs', ['tabnew', 'tabclose', 'tabnext', 'tabprev', 'view', 'popout']],
-  ['Panes', ['vsplit', 'split', 'vshell', 'shell', 'zoom', 'only', 'swap', 'focus h', 'focus l', 'resize -', 'resize +']],
-  ['Terminals and workspaces', ['scrollback', 'workspaces', 'wsnext', 'back', 'forward']],
+// ---------- vimrc ----------
+/** The vimrc as a tab beside the current pane (an open one is reused). */
+export function openVimrc() {
+  const hit = allTabs(ws()).find(x => x.tab.kind === 'vimrc');
+  if (hit?.pane) A.activate(hit.pane.id, hit.tab.id);
+  else if (hit) update(s => { ws().pf = hit.tab.id; s.tick++; });
+  else A.split('row', mkTab('vimrc'));
+}
+const setVimrc = async (text: string) => { const s = await api.app.setSettings({ vimrc: text }); update(st => { st.settings = s; }); };
+
+// ---------- keyboard sheet (mockup Keys) ----------
+// One short list. Rows whose action is a command can be rebound: enter (or a click), then the new key, optionally
+// after the leader. The binding is written to the vimrc as an nnoremap line, so the sheet and the file agree.
+interface KRow { label: string; def: string; cmd?: string }
+const KEYS = (): [string, KRow[]][] => [
+  ['Find', [{ label: 'Search threads and actions', def: kb('mod-k') }, { label: 'Search files in the project', def: kb('mod-p') }, { label: 'Search this pane and its thread', def: kb('mod-shift-a') }, { label: 'Command line', def: ':' }]],
+  ['Panes', [{ label: 'Split right', cmd: 'vsplit', def: '|' }, { label: 'Split down', cmd: 'split', def: '\\' }, { label: 'Shell to the right', cmd: 'vshell', def: 'ldr %' },
+    { label: 'Shell below', cmd: 'shell', def: 'ldr "' }, { label: 'Zoom pane', cmd: 'zoom', def: 'ldr z' }, { label: 'Focus a pane', def: kb('alt-h') + ' j k l' }]],
+  ['Tabs', [{ label: 'New tab', cmd: 'tabnew', def: 'ldr c' }, { label: 'Close tab', cmd: 'q', def: 'ldr q' }, { label: 'Next tab', cmd: 'tabnext', def: 'L' },
+    { label: 'Previous tab', cmd: 'tabprev', def: 'H' }, { label: 'Chat or terminal', cmd: 'view', def: 'ldr t' }]],
+  ['Workspaces', [{ label: 'Switch workspace, most recent first', def: kb('ctrl-tab') }, { label: 'Search, create and manage', cmd: 'workspace', def: 'ldr w' }]],
+  ['Threads', [{ label: 'Move in the sidebar', def: 'j k' }, { label: 'Open thread', def: 'enter' }, { label: 'Allow or deny a request', def: 'y n' },
+    { label: 'Add selection to chat', def: kb('mod-l') }, { label: 'Add selection to a side chat', def: kb('mod-shift-s') }]],
+  ['Terminal', [{ label: 'Read the scrollback', def: 'ldr [' }, { label: 'Back to the program', def: 'i' }]],
+  ['Editing', [{ label: 'Undo', def: 'u' }, { label: 'Redo', def: kb('ctrl-r') }]],
+  ['Changes and files', [{ label: 'Search the file tree', def: 'f' }, { label: 'Stage the file under the cursor', def: 's' }, { label: 'Revert it (with Undo)', def: 'x' },
+    { label: 'Show folded lines', def: 'enter' }, { label: 'Back, forward in an open file', def: kb('ctrl-o') + ' ' + kb('ctrl-i') }]],
 ];
-/** Reader keys are Vim's own, not keymap commands, so the sheet lists them as they are. */
-const READER: [string, string[]][] = [
-  ['Move, with a count', ['h j k l', 'w b', '3j']], ['Top, bottom', ['gg', 'G']], ['Search, backwards', ['/', '?']],
-  ['Next, previous match', ['n', 'N']], ['Select, lines', ['v', 'V']], ['Copy', ['y']],
-];
+const same = (a: string, b: string) => a === b || ALIASES[a] === b || ALIASES[b] === a;
+/** The key the vimrc gives a command, if it gives one ('ldr x' for a leader map). */
+function boundIn(vimrc: string, cmd: string): string | null {
+  const rc = parseVimrc(vimrc);
+  const l = rc.leader.filter(b => same(b.command, cmd)).pop(), n = rc.normal.filter(b => same(b.command, cmd)).pop();
+  return l ? 'ldr ' + l.keys : n ? n.keys : null;
+}
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const mapsTo = (cmd: string, l: string) => [cmd, ...Object.keys(ALIASES).filter(a => same(a, cmd))].some(c => new RegExp('^\\s*nnoremap\\s+\\S+\\s+:' + esc(c) + '<CR>', 'i').test(l));
+
 export function openKeys() {
   openLayer(close => <KeysSheet close={close} />);
 }
 function KeysSheet({ close }: { close: () => void }) {
-  const k = keymap();
-  useDialogSurface({ onEsc: close });
-  const fmt = (c: string) => k.keysFor(c).slice(0, 2).map(b => kb(b.layer === 'leader' ? `ldr ${b.keys}` : b.keys).replace('ldr', kb(S.settings.leader)));
+  const s = useApp();
+  const groups = useState(KEYS)[0], rows = groups.flatMap(([, rs]) => rs);
+  const [i, setI] = useState(0);
+  const [cap, setCap] = useState<{ row: KRow; lead: boolean } | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const edit = (n: number) => { setI(n); const r = rows[n]; if (r?.cmd) setCap({ row: r, lead: false }); };
+  const reset = (n: number) => { setI(n); const r = rows[n]; if (r?.cmd) void setVimrc(S.settings.vimrc.split('\n').filter(l => !mapsTo(r.cmd!, l)).join('\n')); };
+  // write the binding to the vimrc, replacing any line for this action or this key
+  const bind = (r: KRow, key: string, lead: boolean) => {
+    const lhs = (lead ? '<leader>' : '') + toVimKeys(key);
+    const taken = (l: string) => { const m = /^\s*nnoremap\s+(\S+)\s/i.exec(l); return !!m && m[1] === lhs; };
+    const lines = S.settings.vimrc.replace(/\n+$/, '').split('\n').filter(l => !mapsTo(r.cmd!, l) && !taken(l));
+    lines.push(`nnoremap ${lhs} :${r.cmd}<CR>`, '');
+    void setVimrc(lines.join('\n'));
+  };
+  // waiting for the new key: it takes every key first, the leader included
+  useEffect(() => {
+    if (!cap) return;
+    captureKeys(e => {
+      if (e.key === 'Escape') { setCap(null); return true; }
+      if (e.ctrlKey && e.code === (S.settings.leader === 'ctrl-\\' ? 'Backslash' : 'Space')) { setCap({ ...cap, lead: true }); return true; }
+      if (e.key.length !== 1 || e.ctrlKey || e.altKey || e.metaKey || e.key === ' ') return true;
+      bind(cap.row, e.key, cap.lead); setCap(null); return true;
+    });
+    return () => captureKeys(null);
+  }, [cap]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { list.current?.querySelector('.k-row.cur')?.scrollIntoView({ block: 'nearest' }); }, [i]);
+  useDialogSurface({
+    onEsc: close,
+    key: k => {
+      if (k === 'q' || k === '?') { close(); return true; }
+      if (k === 'j' || k === 'down') { setI(Math.min(rows.length - 1, i + 1)); return true; }
+      if (k === 'k' || k === 'up') { setI(Math.max(0, i - 1)); return true; }
+      if (k === 'g') { setI(0); return true; }
+      if (k === 'G') { setI(rows.length - 1); return true; }
+      if (k === 'enter') { edit(i); return true; }
+      if (k === 'x' || k === 'backspace') { reset(i); return true; }
+      return k.length === 1;
+    },
+  }, [i, rows.length]);
+  const chips = (str: string) => str.split(' ').map((x, n) => <kbd key={n}>{x}</kbd>);
+  let n = -1;
   return (
-    <Dialog onClose={close} className="keys" label="Keyboard shortcuts">
-      <div className="kcols">
-        {SHEET.map(([h, cmds]) => (
-          <section key={h}><h4>{h}</h4>
-            {cmds.map(c => <div key={c}><span>{COMMANDS[c]}</span><span className="kk">{fmt(c).map(x => <kbd key={x}>{x}</kbd>)}</span></div>)}
-          </section>
-        ))}
-        <section><h4>Reading a thread, file, diff or scrollback</h4>
-          {READER.map(([l, ks]) => <div key={l}><span>{l}</span><span className="kk">{ks.map(x => <kbd key={x}>{x}</kbd>)}</span></div>)}
-        </section>
+    <Dialog onClose={close} className="keys2" label="Keyboard">
+      <header><h3>Keyboard</h3><span className="sp" />
+        <button type="button" className="btn sm" title="Bindings live in the vimrc" onClick={() => { close(); openVimrc(); }}><Icon name="sliders" />vimrc</button>
+        <IconButton icon="x" label="Close" small onClick={close} />
+      </header>
+      <div className="k-list" ref={list}>
+        {groups.map(([g, rs]) => <Fragment key={g}><h4>{g}</h4>
+          {rs.map(r => {
+            const at = ++n, set = r.cmd ? boundIn(s.settings.vimrc, r.cmd) : null, capping = cap?.row.label === r.label;
+            return (
+              <div key={r.label} className={cx('k-row', s.settings.vim && at === i && 'cur', r.cmd && 'can')} onClick={r.cmd ? () => edit(at) : undefined}>
+                <span className="kl">{r.label}</span>
+                {set && !capping && <button type="button" className="k-x" title={`Back to ${r.def}`} aria-label={`Back to ${r.def}`} onClick={e => { e.stopPropagation(); reset(at); }}><Icon name="retry" /></button>}
+                <span className={cx('kk', capping && 'cap', set && 'set')}>{capping ? <>{cap!.lead && chips('ldr')}<i>press a key</i></> : chips(set || r.def)}</span>
+              </div>);
+          })}
+        </Fragment>)}
       </div>
-      <p className="dim">Plain keys act in NORMAL only. {kb(S.settings.leader)} is the leader. Bindings come from your vimrc (Settings, Vim).</p>
     </Dialog>
   );
 }
@@ -145,39 +456,44 @@ function KeysSheet({ close }: { close: () => void }) {
 // ---------- settings ----------
 interface Row { label: string; desc?: string; seg?: [string, string][]; get?: () => string; set?: (v: string) => void; sw?: () => boolean; toggle?: () => void; btn?: string; run?: () => void; extra?: React.ReactNode }
 
-export function openSettings(section?: string) { openLayer(close => <Settings close={close} section={section} />); }
+const SECTIONS = ['General', 'Appearance', 'Vim', 'Notifications', 'Machines'];
+export function openSettings(section?: string, row?: number) { openLayer(close => <Settings close={close} section={section} row={row} />); }
 const setSetting = async (patch: Partial<typeof S.settings>) => { const s = await api.app.setSettings(patch); update(st => { st.settings = s; }); };
 
 // Keys (VIM-MODEL section 4, Settings): two lists side by side. The section list has the keys first: j / k move
 // over sections (the page follows), l / enter / tab go into the section's rows. In the rows, j / k move,
 // h / l lower and raise a row's value (a choice, a switch), enter presses it, and esc, shift-tab, or h on a row
 // with no value go back to the section list. esc there closes. H / L (tabs elsewhere) do nothing in this dialog.
-function Settings({ close, section }: { close: () => void; section?: string }) {
+function Settings({ close, section, row: row0 }: { close: () => void; section?: string; row?: number }) {
   const s = useApp();
-  const [sec, setSec] = useState(() => Math.max(0, ['General', 'Vim', 'Notifications', 'Machines'].indexOf(section || '')));
-  const [row, setRow] = useState(0);
-  const [col, setCol] = useState<'nav' | 'rows'>('nav');
+  const [sec, setSec] = useState(() => Math.max(0, SECTIONS.indexOf(section || '')));
+  const [row, setRow] = useState(row0 ?? 0);
+  const [col, setCol] = useState<'nav' | 'rows'>(row0 != null ? 'rows' : 'nav');
   const sections: [string, string, Row[]][] = [
     ['General', 'sliders', [
+      { label: 'New threads open as', desc: 'Any thread can be switched from its tab', seg: [['chat', 'Chat'], ['term', 'Terminal']], get: () => s.settings.defaultView, set: v => setSetting({ defaultView: v as never }) },
+      { label: 'Sidebar', desc: 'How threads are listed', seg: [['grouped', 'By folder'], ['recent', 'Recent']], get: () => s.settings.sideView, set: v => setSetting({ sideView: v as never }) },
+      { label: 'On launch', desc: 'Workspaces, layouts, popups, drafts and reading positions', seg: [['restore', 'Restore'], ['empty', 'Start empty']], get: () => s.settings.launch || 'restore', set: v => setSetting({ launch: v as never }) },
+    ]],
+    ['Appearance', 'sun', [
       { label: 'Theme', seg: [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], get: () => s.settings.theme, set: v => setSetting({ theme: v as never }) },
-      { label: 'Threads open as', desc: 'You can switch any tab between the two', seg: [['chat', 'Chat'], ['term', 'Terminal']], get: () => s.settings.defaultView, set: v => setSetting({ defaultView: v as never }) },
-      { label: 'Sidebar', seg: [['grouped', 'By machine'], ['recent', 'Most recent']], get: () => s.settings.sideView, set: v => setSetting({ sideView: v as never }) },
     ]],
     ['Vim', 'keyboard', [
       { label: 'Vim keys', desc: 'Modal editing in composers, menus and read-only text', sw: () => s.settings.vim, toggle: () => setSetting({ vim: !s.settings.vim }) },
-      { label: 'vimrc', desc: 'Insert maps and key bindings', btn: 'Edit', run: () => { close(); const p = A.focusedPane(); update(() => A.addTab(p, { id: 'vimrc-' + Date.now(), kind: 'vimrc' })); } },
+      { label: 'vimrc', desc: '~/.config/skein/vimrc', btn: 'Edit', run: () => { close(); openVimrc(); } },
       { label: 'Leader', desc: s.info.platform === 'mac' ? 'macOS may take ⌃Space for input sources' : 'Pane and tab commands, also inside terminals', seg: [['ctrl-space', kb('ctrl-space')], ['ctrl-\\', kb('ctrl-\\')]], get: () => s.settings.leader, set: v => setSetting({ leader: v as never }) },
     ]],
     ['Notifications', 'bell', [
       { label: 'Notify me', desc: 'When Skein is in the background or the thread is out of sight', seg: [['waiting', 'Waiting on me'], ['replies', 'Every reply'], ['off', 'Never']], get: () => s.settings.notify, set: v => setSetting({ notify: v as never }) },
+      { label: 'A thread counts as read', desc: 'once its tab has been on screen and focused' },
     ]],
     ['Machines', 'host', [
       ...s.machines.map(m => ({
-        label: m.name, desc: m.ssh ? `${m.ssh.user ? m.ssh.user + '@' : ''}${m.ssh.host}${m.note && m.link !== 'up' ? ' · ' + m.note : ''}` : m.os,
-        extra: <span className="s-meta">{(['claude', 'codex'] as const).map(h => <span key={h} className={cx('has', !m.has.includes(h) && 'no')} title={`${harnessName(h)} ${m.has.includes(h) ? 'installed' : 'not found'}`}><Icon name={h} /></span>)}</span>,
-        btn: m.ssh ? (m.link === 'up' ? 'Refresh' : 'Connect') : undefined, run: () => void api.machines.connect(m.id),
+        label: m.name, desc: m.ssh ? `${sshAddr(m)}${m.note && m.link !== 'up' ? ' · ' + m.note : ''}` : m.os,
+        extra: <span className="s-meta">{marks(m)}{linkDot(m) || <span className="dot" style={{ visibility: 'hidden' }} />}</span>,
+        btn: m.ssh && m.link !== 'up' ? 'Connect' : undefined, run: () => void api.machines.connect(m.id),
       })),
-      { label: 'Add SSH host', desc: 'From ~/.ssh/config', btn: 'Add', run: () => addHostMenu() },
+      { label: 'Add SSH host', desc: 'from ~/.ssh/config', btn: 'Add', run: () => addHostMenu() },
     ]],
   ];
   const rows = sections[sec][2];
@@ -220,7 +536,7 @@ function Settings({ close, section }: { close: () => void; section?: string }) {
             <div className="s-txt"><b>{x.label}</b>{x.desc && <span>{x.desc}</span>}</div>
             {x.extra}
             {x.seg ? <div className="seg txt">{x.seg.map(([v, n]) => <button key={v} className={cx(x.get?.() === v && 'on')} onClick={() => x.set?.(v)}>{n}</button>)}</div>
-              : x.sw ? <Switch on={x.sw()} onChange={() => x.toggle?.()} label={x.label} />
+              : x.sw ? <Switch large on={x.sw()} onChange={() => x.toggle?.()} label={x.label} />
               : x.btn ? <button className="btn sm" onClick={() => x.run?.()}>{x.btn}</button> : null}
           </div>
         ))}
@@ -246,4 +562,3 @@ async function addHostMenu() {
 }
 
 export type { Surface };
-export function useOverlayEffect() { useEffect(() => {}, []); }

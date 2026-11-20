@@ -6,15 +6,16 @@ import { kb } from '../input/platform';
 import type { Surface } from '../input/dispatcher';
 import { api } from '../api';
 import * as A from '../state/actions';
-import { mkTab } from '../state/layout';
-import { S, toast, update, useApp } from '../state/store';
+import { allTabs, mkTab } from '../state/layout';
+import { S, toast, update, useApp, ws } from '../state/store';
 import { cx, Dot, Icon, IconButton, Spinner } from '../ui/primitives';
 import { animate, MOTION } from '../ui/motion';
 import { run } from './commands';
 import { projectName } from './meta';
-import { dirMenu } from './Launcher';
 import { moveMenu, startThreadDrag } from './move';
-import { openMenu, openSettings } from './overlays';
+import { openAddProject, openMachines, openMenu, openSettings } from './overlays';
+import { showAuth } from './AuthDialog';
+import { pending, useChat } from '../views/chat/state';
 
 const LINK: Record<Machine['link'], ['green' | 'amber' | 'red', boolean, string]> = {
   up: ['green', false, 'Connected'], connecting: ['amber', true, 'Connecting'], reconnecting: ['amber', true, 'Reconnecting'], auth: ['amber', false, 'Needs you to sign in'], down: ['red', false, 'Not connected'],
@@ -25,12 +26,18 @@ export function ThreadStatus({ t }: { t: ThreadMeta }) {
   switch (t.status) {
     case 'running': return <Spinner />;
     case 'unread': return <Dot color="blue" label="Unread reply" />;
-    case 'wait': return <span className="thread-state" role="img" aria-label="Waiting on you" title="Waiting on you"><Icon name="shield" /></span>;
+    case 'wait': return <WaitIcon id={t.id} />;
     case 'error': return <span className="thread-state" role="img" aria-label="Turn failed" title="Turn failed"><Icon name="alert" /></span>;
     default: return null;
   }
 }
 
+/** Waiting on you: an approval (a plan's own wording when it is a plan), from the thread's pending requests. */
+function WaitIcon({ id }: { id: string }) {
+  useChat();
+  const plan = pending(id).some(e => e.request.kind === 'plan'), label = plan ? 'Awaiting plan approval' : 'Awaiting approval';
+  return <span className="thread-state" role="img" aria-label={label} title={label}><Icon name="shield" /></span>;
+}
 
 /** Items in sidebar order, for j / k: headings ('fold:<key>') and threads (ids). */
 function navOrder(): string[] {
@@ -63,18 +70,17 @@ function newIn(machine: string, dir: string) {
   update(s => { A.addTab(p, mkTab('new', { machine, dir })); s.sideFocus = false; s.tick++; });
 }
 
-/** A machine's +: a folder with no threads yet becomes a project in the sidebar. */
+/** A machine's +: a folder with no threads yet becomes a project in the sidebar (Folders, or Browse the machine). */
 function addProject(mid: string, el: HTMLElement) {
-  const m = S.machines.find(x => x.id === mid); if (!m) return;
-  dirMenu({ machine: mid, dir: '~' }, el, d => {
+  openAddProject(mid, el.getBoundingClientRect(), d => {
     const k = mid + ':' + d;
     update(s => {
       if (!S.threads.some(t => t.machine === mid && t.dir === d) && !(s.projects[mid] || []).includes(d)) s.projects = { ...s.projects, [mid]: [...(s.projects[mid] || []), d] };
       s.collapsed = { ...s.collapsed, ['h:' + mid]: false, [k]: false }; s.sideCursor = 'fold:' + k;
     });
     A.save();
-    toast(`Added ${projectName(mid, d)}`, { icon: 'folder' });
-  }, { placeholder: `Folder or path on ${m.name}` });
+    toast(<span>Added <b>{projectName(mid, d)}</b></span>, { icon: 'folder' });
+  });
 }
 function machineActions(mid: string, el: HTMLElement) {
   const k = 'h:' + mid;
@@ -82,7 +88,7 @@ function machineActions(mid: string, el: HTMLElement) {
     anchor: el.getBoundingClientRect(), place: 'bottom-start', width: 200,
     items: [
       { label: S.collapsed[k] ? 'Expand section' : 'Collapse section', icon: <Icon name="tree" />, data: () => fold(k) },
-      { label: 'Machine settings', icon: <Icon name="sliders" />, data: () => openSettings('Machines') },
+      { label: 'Machine settings', icon: <Icon name="sliders" />, data: () => openSettings('Machines', Math.max(0, S.machines.findIndex(m => m.id === mid))) },
     ],
     onPick: it => it.data?.(),
   });
@@ -175,10 +181,48 @@ const sideSurface: Surface = {
       }
       case 'esc': A.sideFocus(false); return true;
     }
-    return k.length === 1;
+    return false;   // the app's NORMAL layer gets the rest (: H L | \ ?); the dispatcher drops what nobody takes
   },
 };
 export const sidebarSurface = sideSurface;
+
+/** Fold or unfold under a heading: its chevron turns from where it was (the mockup's redrawDisclosure). */
+function turn(head: HTMLElement, change: () => void) {
+  const ch = head.querySelector('.ch'); const from = ch && getComputedStyle(ch).transform;
+  change();
+  requestAnimationFrame(() => { if (ch && from) animate(ch, [{ transform: from }, { transform: getComputedStyle(ch).transform }], MOTION.base); });
+}
+
+/** A click in the sidebar gives it the keys (a click in the panes takes them back); the cursor is re-picked
+ *  when it is on nothing visible: the thread on screen, else the first row. */
+function takeKeys() {
+  if (S.sideFocus) return;
+  const order = navOrder();
+  update(s => {
+    s.sideFocus = true;
+    if (!s.sideCursor || !order.includes(s.sideCursor)) { const t = A.currentTab(); s.sideCursor = t.thread && order.includes(t.thread) ? t.thread : order[0] ?? null; }
+    s.tick++;
+  });
+}
+
+/** A new thread's row, or one just moved, flashes (.fresh) for a few seconds. */
+const fresh = new Set<string>();
+let seen: Map<string, string> | null = null;
+function noticeFresh() {
+  const now = new Map(S.threads.filter(t => !t.side).map(t => [t.id, t.machine + '\0' + t.dir]));
+  if (seen) for (const t of S.threads) {
+    if (t.side || t.discovered || t.archived) continue;
+    const was = seen.get(t.id);
+    if (was === undefined || was !== now.get(t.id)) {
+      fresh.add(t.id);
+      setTimeout(() => { fresh.delete(t.id); update(); }, 3000);
+    }
+  }
+  seen = now;
+}
+
+/** Open in some tab of this workspace (the row is tinted). */
+const shown = (id: string) => allTabs(ws()).some(x => x.tab.kind === 'thread' && x.tab.thread === id);
 
 let rowClick: ReturnType<typeof setTimeout> | undefined;
 function Row({ t, d, sfx }: { t: ThreadMeta; d?: number; sfx?: boolean }) {
@@ -190,13 +234,15 @@ function Row({ t, d, sfx }: { t: ThreadMeta; d?: number; sfx?: boolean }) {
   const editing = s.sideEdit === 'thread:' + t.id;
   useEffect(() => { if (cur && s.sideFocus) ref.current?.scrollIntoView({ block: 'nearest' }); }, [cur, s.sideFocus]);
   return (
-    <div ref={ref} className={cx('row', ft.kind === 'thread' && ft.thread === t.id && 'foc', cur && 'cur')} style={{ ['--d' as string]: d || 0 }} data-thread={t.id}
+    <div ref={ref} className={cx('row', shown(t.id) && 'vis', fresh.has(t.id) && 'fresh', ft.kind === 'thread' && ft.thread === t.id && 'foc', cur && 'cur')} style={{ ['--d' as string]: d || 0 }} data-thread={t.id}
       title={`${t.title} · ${m?.name ?? t.machine} ${t.dir}`}
       onClick={e => {
         // a double-click renames, so a plain click waits to see if a second one follows (as the mockup does)
         clearTimeout(rowClick);
         if (editing || e.detail > 1) return;
-        if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || !e.detail) { A.openThread(t.id, { split: e.shiftKey }); return; }
+        // any modifier opens it in a split; opening hands the keys to the thread
+        const mod = e.shiftKey || e.altKey || e.ctrlKey || e.metaKey;
+        if (mod || !e.detail) { A.openThread(t.id, { split: mod }); return; }
         rowClick = setTimeout(() => A.openThread(t.id), 350);
       }}
       onDoubleClick={() => { clearTimeout(rowClick); if (!t.archived) update(x => { x.sideEdit = 'thread:' + t.id; }); }}
@@ -217,17 +263,13 @@ function Head({ k, label, m }: { k: string; label: string; m?: Machine }) {
   const s = useApp();
   const ref = useRef<HTMLDivElement>(null);
   const cur = s.sideFocus && s.sideCursor === 'fold:' + k;
-  const toggle = () => {
-    const ch = ref.current?.querySelector('.ch'); const from = ch && getComputedStyle(ch).transform;
-    fold(k);
-    requestAnimationFrame(() => { if (ch && from) animate(ch, [{ transform: from }, { transform: getComputedStyle(ch).transform }], MOTION.base); });
-  };
+  const toggle = () => { if (ref.current) turn(ref.current, () => fold(k)); };
   return (
     <div ref={ref} className={cx('s-h', s.collapsed[k] && 'shut', cur && 'cur')} onClick={toggle} title={m ? (m.ssh ? 'Remote machine (SSH)' : 'Local machine') : undefined} data-machine={m?.id}>
       <span>{label}</span>
       {m && <Icon name={m.ssh ? 'host' : 'laptop'} className="machine-kind" />}
       {m?.ssh && (m.link === 'auth' || m.link === 'down'
-        ? <button className="mlink" title={m.note || LINK[m.link][2]} onClick={e => { e.stopPropagation(); void api.machines.connect(m.id); }}><Dot color={LINK[m.link][0]} label={LINK[m.link][2]} /></button>
+        ? <button className="mlink" title={m.link === 'auth' ? `Sign in to ${m.name}` : m.note || LINK[m.link][2]} aria-label={m.link === 'auth' ? `Sign in to ${m.name}` : `Connect to ${m.name}`} onClick={e => { e.stopPropagation(); if (m.link !== 'auth' || !showAuth(m.id)) void api.machines.connect(m.id); }}><Dot color={LINK[m.link][0]} label={LINK[m.link][2]} /></button>
         : <Dot color={LINK[m.link][0]} pulse={LINK[m.link][1]} label={LINK[m.link][2]} />)}
       <Icon name="chev" className="ch" />
       {m && <span className="machine-actions" onClick={e => e.stopPropagation()}>
@@ -243,17 +285,32 @@ function Group({ k, children }: { k: string; children: React.ReactNode }) {
   return <div className="sidebar-group" inert={!!s.collapsed[k]}><div>{children}</div></div>;
 }
 
+/** The sidebar's width: drag its right edge (200 px to 60% of the window). Kept on this computer. */
+const WKEY = 'skein.sidebarWidth';
+const setWidth = (px: number) => document.getElementById('app')?.style.setProperty('--sidebar-width', px + 'px');
+function resizeSide(e: React.PointerEvent<HTMLDivElement>) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  const h = e.currentTarget, side = h.parentElement!, w0 = side.getBoundingClientRect().width, x0 = e.clientX, id = e.pointerId;
+  h.setPointerCapture(id);
+  let w = w0;
+  h.onpointermove = ev => { if (ev.pointerId !== id) return; w = Math.round(Math.min(innerWidth * 0.6, Math.max(200, w0 + ev.clientX - x0))); setWidth(w); };
+  h.onlostpointercapture = () => { h.onpointermove = null; h.onlostpointercapture = null; try { localStorage.setItem(WKEY, String(w)); } catch { /* not kept */ } };
+}
+
 export function Sidebar() {
   const s = useApp();
+  if (s.threads.length || seen) noticeFresh();   // threads change in place, so compare every render (cheap)
+  useEffect(() => { try { const w = +(localStorage.getItem(WKEY) || 0); if (w >= 200) setWidth(Math.min(w, innerWidth * 0.6)); } catch { /* default width */ } }, []);
   const live = s.threads.filter(t => !t.archived && !t.side);
   const pinned = live.filter(t => t.pinned), rest = live.filter(t => !t.pinned), archived = s.threads.filter(t => t.archived && !t.side);
   return (
-    <aside id="side" className={cx(s.sideFocus && 'focus')} onMouseDown={() => { if (!s.sideFocus) update(x => { x.sideFocus = false; }); }}>
+    <aside id="side" className={cx(s.sideFocus && 'focus')} onMouseDown={e => { if (!(e.target as HTMLElement).closest('input, .s-top, .s-nav, .s-foot, .side-resize')) takeKeys(); }}>
       <div className="s-top">
         <IconButton icon="sidebar" label="Hide sidebar" keys="ldr b" onClick={() => run('sidebar')} />
         <IconButton icon="search" label="Search" keys="mod-k" onClick={() => run('palette')} />
         <span className="sp" />
-        <IconButton icon={s.settings.sideView === 'grouped' ? 'tree' : 'clock'} label={s.settings.sideView === 'grouped' ? 'Grouped by machine and folder' : 'Most recently active'}
+        <IconButton icon={s.settings.sideView === 'grouped' ? 'tree' : 'clock'} label={s.settings.sideView === 'grouped' ? 'Grouped by machine and folder' : 'Most recently active'} title={`${s.settings.sideView === 'grouped' ? 'Grouped by machine and folder' : 'Most recently active'} · click to switch`}
           onClick={async () => { const v = await api.app.setSettings({ sideView: s.settings.sideView === 'grouped' ? 'recent' : 'grouped' }); update(x => { x.settings = v; }); }} />
       </div>
       <div className="s-nav"><button className="nav" onClick={() => run('tabnew')}><Icon name="compose" /><span>New thread</span></button></div>
@@ -286,15 +343,16 @@ export function Sidebar() {
               </div>
             );
           })}
-        {archived.length > 0 && <div className={cx('s-arch', s.archiveOpen && 'expanded')} onClick={() => update(x => { x.archiveOpen = !x.archiveOpen; })}><Icon name="chev" className="ch" /><span>Archived</span></div>}
+        <div className={cx('s-arch', s.archiveOpen && 'expanded')} onClick={e => turn(e.currentTarget, () => update(x => { x.archiveOpen = !x.archiveOpen; }))}><Icon name="chev" className="ch" /><span>Archived</span></div>
         {s.archiveOpen && archived.map(t => <Row key={t.id} t={t} sfx />)}
       </div>
       <div className="s-foot">
-        <button className="mbtn" title="Machines" aria-label="Machines" onClick={() => run('settings')}><Icon name="host" /></button>
+        <button className="mbtn" title="Machines" aria-label="Machines" onClick={e => openMachines(e.currentTarget.getBoundingClientRect())}><Icon name="host" /></button>
         <span className="sp" />
         <IconButton icon="keyboard" label="Keyboard" keys="?" onClick={() => run('keys')} />
         <IconButton icon="sliders" label="Settings" onClick={() => run('settings')} />
       </div>
+      <div className="side-resize" title="Drag to resize sidebar" onPointerDown={resizeSide} />
     </aside>
   );
 }
