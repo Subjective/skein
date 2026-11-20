@@ -53,13 +53,14 @@ export interface CodexModel {
   supportedReasoningEfforts?: { reasoningEffort: string; description?: string }[]; defaultReasoningEffort?: string;
 }
 /** What managed policy allows (protocol/v2/ConfigRequirements.ts), as much as we read. */
-export interface CodexRequirements { allowedApprovalPolicies?: unknown[] | null; allowedSandboxModes?: string[] | null }
+export interface CodexRequirements { allowedApprovalPolicies?: unknown[] | null; allowedApprovalsReviewers?: string[] | null; allowedSandboxModes?: string[] | null }
 
 /** The approval preset each Codex permission choice sets (driver.ts codexPerm uses the same pairs). */
-const CODEX_PRESET: Record<string, { approval: string; sandbox: string }> = {
-  'read-only': { approval: 'on-request', sandbox: 'read-only' },
-  auto: { approval: 'on-request', sandbox: 'workspace-write' },
-  'full-access': { approval: 'never', sandbox: 'danger-full-access' },
+const CODEX_PRESET: Record<string, { approval: string; sandbox: string; reviewer: string }> = {
+  auto: { approval: 'on-request', sandbox: 'workspace-write', reviewer: 'user' },
+  'auto-review': { approval: 'on-request', sandbox: 'workspace-write', reviewer: 'auto_review' },
+  'full-access': { approval: 'never', sandbox: 'danger-full-access', reviewer: 'user' },
+  'read-only': { approval: 'on-request', sandbox: 'read-only', reviewer: 'user' },
 };
 
 export function codexOptions(models: CodexModel[], req?: CodexRequirements | null): HarnessOptions {
@@ -79,7 +80,8 @@ export function codexOptions(models: CodexModel[], req?: CodexRequirements | nul
   rows.sort((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault));
   const okApproval = (a: string) => !req?.allowedApprovalPolicies || req.allowedApprovalPolicies.includes(a);
   const okSandbox = (s: string) => !req?.allowedSandboxModes || req.allowedSandboxModes.includes(s);
-  const perms = PERMS.codex.filter(p => { const x = CODEX_PRESET[p.id]; return !x || (okApproval(x.approval) && okSandbox(x.sandbox)); });
+  const okReviewer = (r: string) => !req?.allowedApprovalsReviewers || req.allowedApprovalsReviewers.includes(r);
+  const perms = PERMS.codex.filter(p => { const x = CODEX_PRESET[p.id]; return !x || (okApproval(x.approval) && okSandbox(x.sandbox) && okReviewer(x.reviewer)); });
   return { models: rows, perms: perms.length ? perms : PERMS.codex, efforts, source: 'harness' };
 }
 

@@ -6,6 +6,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Harness, ThreadMeta } from '@shared/types';
+import { snapEffort } from '@shared/models';
 import type { Mode, Surface } from '../../input/dispatcher';
 import { registerTab } from '../../input/surfaces';
 import { tokAt } from '../../input/vimtext';
@@ -15,6 +16,7 @@ import * as A from '../../state/actions';
 import { openMenu } from '../../shell/overlays';
 import { harnessName } from '../../shell/meta';
 import { Menu, type MenuItem } from '../../ui/Menu';
+import { placeBy } from '../../ui/place';
 import { animate, MOTION } from '../../ui/motion';
 import { Chip, cx, Icon, IconButton, SendButton } from '../../ui/primitives';
 import { FileIcon } from '../../ui/FileIcon';
@@ -118,11 +120,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const items = useMemo((): MenuItem<string>[] => {
     if (!pop) return [];
     if (pop.kind === 'slash') {
-      // the harness's commands, then the thread's own (side chats, subagents), then its skills under a heading
+      // nothing typed: three sections, the harness's commands, Skein's own (side chats, subagents) and the skills.
+      // Typing: one list of what matches, each row tagged with where it comes from (Josh, 2026-11-20)
       const hit = (c: Slash) => slashHit(c, pop.q) && !(p.bare && c.cmd === '/model');
-      const row = (c: Slash): MenuItem<string> => ({ label: c.cmd, display: c.display, hint: c.hint, icon: <Icon name={c.icon} />, data: c.cmd });
-      const cmds = [...slashes.commands, ...(!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : [])].filter(hit), skills = slashes.skills.filter(hit);
-      return [...cmds.map(row), ...(skills.length ? [{ head: true, label: 'Skills' }, ...skills.map(row)] : [])];
+      const typed = pop.q.replace(/^[/$]/, '') !== '';
+      const row = (tag?: string) => (c: Slash): MenuItem<string> => ({ label: c.cmd, display: c.display, hint: c.hint, icon: <Icon name={c.icon} />, data: c.cmd, ...(typed && tag ? { right: <span className="src">{tag}</span> } : {}) });
+      const cmds = slashes.commands.filter(hit), ours = (!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : []).filter(hit), skills = slashes.skills.filter(hit);
+      const part = (label: string, xs: Slash[], tag?: string): MenuItem<string>[] => (xs.length ? [...(typed ? [] : [{ head: true, label }]), ...xs.map(row(tag))] : []);
+      return [...part(harnessName(h), cmds), ...part('Skein', ours, 'Skein'), ...part('Skills', skills, 'Skill')];
     }
     const base = pop.q.slice(atDir.length).toLowerCase();
     if (files.dir !== atDir) return [];
@@ -355,6 +360,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // the layer behind the text paints quote chips
   const paintBk = () => { const b = bk.current, el = field.current?.el(); if (b && el) b.scrollTop = el.scrollTop; };
   useEffect(paintBk);
+  // the textarea also scrolls on its own (the wheel, typing past the bottom, a motion revealing the cursor): the layer follows
+  useEffect(() => { const el = field.current?.el(); if (!el) return; el.addEventListener('scroll', paintBk); return () => el.removeEventListener('scroll', paintBk); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const th = p.thread, ctx = th.ctx;
   const hasText = !!p.draft.text.trim() || p.draft.images.length > 0;
@@ -405,8 +412,11 @@ function ContextUsage({ button, ctx, model, onClose }: { button: HTMLElement; ct
     const el = ref.current as (HTMLElement & { showPopover?(): void; hidePopover?(): void }) | null; if (!el) return;
     try { el.showPopover?.(); } catch { /* already open */ }
     const r = button.getBoundingClientRect();
-    el.style.left = Math.max(8, Math.min(innerWidth - el.offsetWidth - 8, r.right - el.offsetWidth)) + 'px';
-    el.style.top = Math.max(8, r.top - el.offsetHeight - 6) + 'px';
+    // above the ring when there is room (an edit box near the top of the window has none: then below it)
+    const at = placeBy(r, el.offsetWidth, el.offsetHeight, 'top', 'end');
+    el.style.left = at.left + 'px';
+    el.style.top = (at.side === 'top' ? r.top - 6 - Math.min(el.offsetHeight, at.maxHeight ?? Infinity) : r.bottom + 6) + 'px';
+    if (at.maxHeight != null) { el.style.maxHeight = at.maxHeight + 'px'; el.style.overflow = 'auto'; }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useDialogSurface({ onEsc: onClose, key: k => { if (k === 'enter' || k === 'space' || k === 'q') { onClose(); return true; } return false; } });
   return (
@@ -438,11 +448,27 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
   const put = (n: ModelChoice) => { cur.current = n; setV(n); target.set(n); };
   useChat(); // the harness's list arrives as a chat bump
   const opts = target.groups.map(h => harnessOptions(h, target.machine));
+  // the model under the cursor (j / k or the pointer) when it is not the picked one: the effort track previews its
+  // levels, with the effort it would get (snapEffort), and h / l set that; picking it takes the previewed effort
+  const [pv, setPv] = useState<{ h: Harness; id: string; effort: string } | null>(null);
+  const pvRef = useRef(pv); pvRef.current = pv;
   const stops = () => modelDef(cur.current.h, cur.current.model, target.machine).efforts;
   const effortTo = (j: number) => { const es = stops(), e = es[Math.max(0, Math.min(es.length - 1, j))]; if (e !== cur.current.effort) put({ ...cur.current, effort: e }); };
-  const effortBy = (d: number) => effortTo(Math.max(0, stops().indexOf(cur.current.effort)) + d);
+  const effortBy = (d: number) => {
+    const p = pvRef.current;
+    if (!p) return effortTo(Math.max(0, stops().indexOf(cur.current.effort)) + d);
+    const ps = modelDef(p.h, p.id, target.machine).efforts, e = ps[Math.max(0, Math.min(ps.length - 1, ps.indexOf(p.effort) + d))];
+    if (e && e !== p.effort) setPv({ ...p, effort: e });
+  };
+  const onCursor = (it: MenuItem<Row> | undefined) => {
+    const r = it?.data;
+    if (!it || r?.k !== 'model' || it.on) { if (pvRef.current) setPv(null); return; }
+    if (pvRef.current?.h === r.h && pvRef.current.id === r.id) return;
+    setPv({ h: r.h, id: r.id, effort: snapEffort(cur.current.effort, modelDef(r.h, r.id, target.machine)) });
+  };
   const m = machine(target.machine), has = (h: Harness) => !m || m.has.includes(h);
-  const def = modelDef(v.h, v.model, target.machine), es = def.efforts, ei = Math.max(0, es.indexOf(v.effort));
+  const def = modelDef(v.h, v.model, target.machine);
+  const shown = pv ? modelDef(pv.h, pv.id, target.machine) : def, es = shown.efforts, ei = Math.max(0, es.indexOf(pv ? pv.effort : v.effort));
   // one function per state, so the menu re-lists only when the choice changes (not on every app render)
   const items = useMemo(() => (q: string): MenuItem<Row>[] => {
     const match = (s: string) => !q || s.toLowerCase().includes(q.toLowerCase());
@@ -455,27 +481,28 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
     // a search that matches no model lists nothing (the menu says so): the effort row and Ultracode are never what
     // the cursor lands on, so enter picks nothing
     if (q && !out.some(it => it.data?.k === 'model')) return [];
-    if (es.length) out.push({ label: 'Effort', block: <EffortTrack stops={es.map(e => effortLabel(e))} i={ei} onTo={effortTo} />, data: { k: 'effort' } });
-    if (def.ultra) out.push({ label: 'Ultracode', right: <span className={cx('sw', v.ultra && 'on')} />, data: { k: 'ultra' } });
+    if (es.length) out.push({ label: 'Effort', block: <EffortTrack stops={es.map(e => effortLabel(e))} i={ei} onTo={effortTo} preview={!!pv} />, data: { k: 'effort' }, pin: true });
+    if (def.ultra) out.push({ label: 'Ultracode', right: <span className={cx('sw', v.ultra && 'on')} />, data: { k: 'ultra' }, pin: true });
     return out;
-  }, [v, ...opts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [v, pv, ...opts]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Menu<Row> items={items} ranked anchor={anchor} place="top-end" width={300} className="model" search={{ placeholder: 'Search models' }} empty="No matching models"
-      keep={it => it.data?.k !== 'model' && it.data?.k !== 'effort'} arrows onClose={close} wrap={{ last: it => it.data?.k === 'effort' }}
+      keep={it => it.data?.k !== 'model' && it.data?.k !== 'effort'} arrows onClose={close} wrap={{ last: it => it.data?.k === 'effort' }} onCursor={onCursor}
       keys={k => { const d = k === 'h' || k === 'left' ? -1 : k === 'l' || k === 'right' ? 1 : 0; if (!d) return false; effortBy(d); return true; }}
       onPick={it => {
         const r = it.data; if (!r) return;
         if (r.k === 'install') { void navigator.clipboard?.writeText(INSTALL[r.h]).catch(() => {}); toast(`Copied ${INSTALL[r.h]}`, { icon: 'copy' }); return; }
         if (r.k === 'ultra') { put({ ...cur.current, ultra: !cur.current.ultra }); return; }
         if (r.k === 'effort') return;   // enter on the effort row: the current model and effort stand (h / l already set it)
-        const d = modelDef(r.h, r.id, target.machine);
-        put({ h: r.h, model: r.id, effort: d.efforts.includes(cur.current.effort) ? cur.current.effort : d.effort && d.efforts.includes(d.effort) ? d.effort : d.efforts[d.efforts.length - 1] ?? '', ultra: d.ultra ? cur.current.ultra : false });
+        const d = modelDef(r.h, r.id, target.machine), p = pvRef.current;
+        put({ h: r.h, model: r.id, effort: p && p.h === r.h && p.id === r.id ? p.effort : snapEffort(cur.current.effort, d), ultra: d.ultra ? cur.current.ultra : false });
+        setPv(null);
       }} />
   );
 }
 
 /** Effort as a stepped track: a stop per level, the label row under it; click or drag to a stop. */
-function EffortTrack({ stops, i, onTo }: { stops: string[]; i: number; onTo(j: number): void }) {
+function EffortTrack({ stops, i, onTo, preview }: { stops: string[]; i: number; onTo(j: number): void; preview?: boolean }) {
   const trk = useRef<HTMLDivElement>(null);
   const to = useRef(onTo); to.current = onTo;
   const pct = (j: number) => (stops.length > 1 ? (j / (stops.length - 1)) * 100 : 0);
@@ -487,7 +514,7 @@ function EffortTrack({ stops, i, onTo }: { stops: string[]; i: number; onTo(j: n
     addEventListener('pointermove', mv); addEventListener('pointerup', up); at(e.clientX);
   };
   return (
-    <div className="eff">
+    <div className={cx('eff', preview && 'pv')} title={preview ? 'The effort this model gets when you pick it' : undefined}>
       <div className="eh"><span>Effort</span><b>{stops[i]}</b></div>
       <div className="trk" ref={trk} data-n={stops.length} role="slider" aria-label="Effort" aria-valuemin={0} aria-valuemax={stops.length - 1} aria-valuenow={i} aria-valuetext={stops[i]} onPointerDown={down}>
         <i className="fill" style={{ width: pct(i) + '%' }} />

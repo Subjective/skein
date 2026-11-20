@@ -116,6 +116,36 @@ await test('reader: G goes to the last line and stays in the reader', async p =>
   assert.ok(gap < 60, `scrolled to the last line (${gap})`);
 });
 
+await test('reader: k from the composer never scrolls; leader [ goes back to where the cursor was', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const th = p.locator('.pane.focus .thread');
+  const cur = () => p.evaluate(() => { const h = [...(CSS.highlights.get('vcur') || [])][0]; const s = document.querySelector('.pane.focus .thread').getBoundingClientRect(); const r = h ? h.getBoundingClientRect() : document.querySelector('.pane.focus .rowcur')?.getBoundingClientRect(); return r && { top: r.top - s.top, bottom: s.bottom - r.bottom }; });
+  await composer(p).press('Escape');
+  await p.keyboard.press('g'); await p.keyboard.press('g'); await settle(p);
+  await p.keyboard.press('q'); await settle(p);
+  // the cursor it left (the top line) is still on screen: k goes back to it
+  await p.keyboard.press('k'); await settle(p);
+  assert.ok((await th.evaluate(e => e.scrollTop)) < 50, 'still at the top');
+  assert.ok((await cur()).top < 80, 'on the line it left');
+  await p.keyboard.press('q'); await settle(p);
+  // scrolled away from it: k takes the bottom line on screen, and the transcript stays put
+  const mid = await th.evaluate(e => { e.scrollTop = Math.round((e.scrollHeight - e.clientHeight) / 2); return e.scrollTop; });
+  await settle(p);
+  await p.keyboard.press('k'); await settle(p, 300);
+  assert.equal(await th.evaluate(e => e.scrollTop), mid, 'k did not scroll');
+  const c = await cur();
+  assert.ok(c && c.bottom >= 20 && c.bottom < 140, `on the bottom line on screen (${JSON.stringify(c)})`);
+  await p.keyboard.press('q'); await settle(p);
+  // leader [ goes back to that line, scrolling to it
+  await th.evaluate(e => { e.scrollTop = 0; });
+  await settle(p);
+  await p.keyboard.press('Control+Space'); await p.keyboard.press('[');
+  await settle(p, 300);
+  assert.ok((await th.evaluate(e => e.scrollTop)) > 50, 'scrolled back to it');
+  const d = await cur();
+  assert.ok(d && d.top >= 0 && d.bottom >= 0, 'the cursor is on screen');
+});
+
 await test('requests: 1 of 3, y allows the oldest, n denies the next, buttons answer the last', async p => {
   await openChat(p, 'Plan image paste over SSH');
   await p.locator('.pane.focus .appr .count', { hasText: '1 of 3' }).waitFor();
@@ -160,6 +190,33 @@ await test('edit from the reader: x on your message edits it in NORMAL', async p
   await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'NORMAL' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
   assert.equal(await box.inputValue(), 'y PowerShell profile takes two seconds to load. Trim it.');
   assert.equal(await mode(p), 'NORMAL');
+});
+
+await test('edit from the reader and a double-click: the cursor lands on the same character in the Markdown source', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).fill('Intro line\n- **bold** item');
+  await composer(p).press('Enter');
+  const mine = p.locator('.pane.focus .m-user', { hasText: 'Intro line' });
+  await mine.waitFor();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .live'));
+  await composer(p).press('Escape');
+  await p.keyboard.press('['); await p.keyboard.press('['); await settle(p);
+  await p.keyboard.press('j'); await p.keyboard.press('0'); await settle(p);
+  await p.keyboard.press('x');
+  const box = p.locator('.pane.focus .m-edit textarea');
+  await box.waitFor();
+  await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'NORMAL' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
+  assert.equal(await box.inputValue(), 'Intro line\n- **old** item', 'x took the b, past the bullet and the stars');
+  await p.keyboard.press('Escape');
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
+  // a double-click on "item" selects that word in the edit box
+  const li = mine.locator('li');
+  const at = await li.evaluate(el => { const t = el.lastChild; const r = document.createRange(); const i = t.textContent.indexOf('item'); r.setStart(t, i + 1); r.setEnd(t, i + 2); const b = r.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+  await p.mouse.dblclick(at.x, at.y);
+  await box.waitFor();
+  await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'VISUAL', null, { timeout: 2000 }).catch(() => {});
+  const [a, z] = await box.evaluate(el => [el.selectionStart, el.selectionEnd]);
+  assert.equal('Intro line\n- **bold** item'.slice(a, z), 'item');
 });
 
 await test('error row: Retry now retries the turn', async p => {
@@ -273,8 +330,8 @@ await test('Codex pickers: its approval presets and its models with their own ef
   await p.locator('.pane.focus .cf .chip[title="Permissions"]').click();
   const menu = p.locator('.menu').last();
   await menu.waitFor();
-  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Read Only', 'Default', 'Full Access']);
-  assert.equal(await menu.locator('.mi:has(.i-check) .ml').innerText(), 'Default', 'no mode set: Codex\'s Default preset');
+  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Ask for approval', 'Approve for me', 'Full Access', 'Read Only'], 'Codex\'s /permissions menu, in its order');
+  assert.equal(await menu.locator('.mi:has(.i-check) .ml').innerText(), 'Ask for approval', 'no mode set: Codex\'s workspace preset, you approving');
   await menu.locator('.mi', { hasText: 'Full Access' }).click();
   await p.locator('.pane.focus .cf .chip', { hasText: 'Full Access' }).waitFor();
   await p.locator('.pane.focus .cf .chip[title="Model and effort"]').click();
@@ -537,9 +594,12 @@ await test('model picker: the effort track is a row j / k reach (wrapping), h / 
   await keys(p, 'h'); assert.equal(await eff(), 'Medium');
   await keys(p, 'j'); assert.equal(await sel(), 'GPT-6.2 Sol', 'j off the last row wraps to the top');
   await keys(p, 'k'); assert.equal(await sel(), 'effort', 'k from the top wraps to the effort row');
+  await keys(p, 'l'); assert.equal(await eff(), 'High');
   await keys(p, 'k'); assert.equal(await sel(), 'GPT-6.2 Astra');
-  await keys(p, 'l'); assert.equal(await eff(), 'High', 'h / l work from a model row too');
+  // on a model that is not picked, h / l set the effort it would get; the picked one keeps its own
+  await keys(p, 'h'); assert.equal(await eff(), 'Medium', 'h / l work from a model row too');
   await keys(p, 'j'); assert.equal(await sel(), 'effort');
+  assert.equal(await eff(), 'High', 'back on the picked model, its own effort');
   await p.keyboard.press('Enter');
   await menu.waitFor({ state: 'detached' });
   const chip = (await p.locator('.pane.focus .cf .chip[title="Model and effort"]').innerText()).replace(/\s+/g, ' ').trim();
@@ -552,6 +612,33 @@ await test('model picker: the effort track is a row j / k reach (wrapping), h / 
   await p.keyboard.press('Enter');
   await menu.waitFor({ state: 'detached' });
   assert.equal((await p.locator('.pane.focus .cf .chip[title="Model and effort"]').innerText()).replace(/\s+/g, ' ').trim(), 'GPT-6.2 Astra High');
+});
+
+await test('model picker: the effort track shows the levels of the model under the cursor; picking snaps the effort', async p => {
+  await p.locator('#side').getByText('New thread').first().click();
+  await p.locator('.pane.focus .newp textarea:visible').waitFor();
+  await p.locator('.pane.focus .newp .chip[title="Model and effort"]:visible').click();
+  const menu = p.locator('.menu.model');
+  await menu.waitFor();
+  await p.keyboard.press('Escape');                     // NORMAL
+  const labels = () => menu.locator('.eff .et span').allInnerTexts();
+  const eff = () => menu.locator('.eff .eh b').innerText();
+  const sel = () => menu.evaluate(m => m.querySelector('.mi.sel .ml')?.textContent);
+  assert.deepEqual(await labels(), ['Low', 'Medium', 'High', 'X-High', 'Max'], 'Claude: its five levels');
+  for (let i = 0; i < 4; i++) await keys(p, 'l');
+  assert.equal(await eff(), 'Max');
+  while ((await sel()) !== 'GPT-6.2 Sol') await keys(p, 'j');
+  assert.deepEqual(await labels(), ['Low', 'Medium', 'High', 'X-High'], 'a Codex model under the cursor: its levels');
+  assert.equal(await eff(), 'X-High', 'Max is not one: the nearest it has');
+  assert.ok(await menu.locator('.eff.pv').count(), 'shown as a preview');
+  await keys(p, 'j');
+  assert.deepEqual(await labels(), ['Low', 'Medium', 'High'], 'GPT-6.2 Astra');
+  assert.equal(await eff(), 'High');
+  await keys(p, 'k');
+  await p.keyboard.press('Enter');
+  await menu.waitFor({ state: 'detached' });
+  const chip = (await p.locator('.pane.focus .newp .chip[title="Model and effort"]:visible').innerText()).replace(/\s+/g, ' ').trim();
+  assert.equal(chip, 'GPT-6.2 Sol X-High');
 });
 
 await test('model picker on a machine without the harness: dimmed rows and Install copies', async p => {
@@ -1027,6 +1114,42 @@ await test('reader yank: V y in a code block copies it with its fences; v y copi
   assert.equal(got, 'build it on a replica first', JSON.stringify(got));
 });
 
+await test('edit box: a long message scrolls with the NORMAL cursor (j, G, gg), and the block cursor stays drawn', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await p.locator('.pane.focus .m-user').first().click();
+  const box = p.locator('.pane.focus .m-edit textarea');
+  await box.waitFor();
+  await box.fill(Array.from({ length: 30 }, (_, i) => (i % 5 === 3 ? '' : `line ${i}`)).join('\n'));
+  await box.press('Escape');
+  // the cursor's line is inside the box: the selection (a character) or the drawn block (a line end, an empty line)
+  const seen = () => box.evaluate(el => {
+    const r = el.getBoundingClientRect(), hc = el.closest('.taw').querySelector('.hc i');
+    if (hc) { const b = hc.getBoundingClientRect(); return b.top >= r.top - 1 && b.bottom <= r.bottom + 1; }
+    const lh = parseFloat(getComputedStyle(el).lineHeight), line = el.value.slice(0, el.selectionStart).split('\n').length - 1;
+    const y = 4 + line * lh - el.scrollTop;   // no line here wraps
+    return y >= 0 && y + lh <= el.clientHeight + 1;
+  });
+  assert.ok(await box.evaluate(el => el.scrollHeight > el.clientHeight), 'the box scrolls');
+  await keys(p, 'G');
+  assert.ok(await box.evaluate(el => el.scrollTop > 0), 'G scrolled down');
+  assert.ok(await seen(), 'G: cursor in view');
+  await keys(p, 'g g');
+  assert.equal(await box.evaluate(el => el.scrollTop), 0);
+  for (let i = 0; i < 25; i++) { await p.keyboard.press('j'); assert.ok(await seen(), `j ${i + 1}: cursor in view`); }
+  for (let i = 0; i < 25; i++) { await p.keyboard.press('k'); assert.ok(await seen(), `k ${i + 1}: cursor in view`); }
+});
+
+await test('a long link wraps inside your message bubble and inside a reply', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await composer(p).fill('see https://example.com/' + 'averyverylongsegment'.repeat(14) + ' please');
+  await composer(p).press('Enter');
+  const u = p.locator('.pane.focus .m-user', { hasText: 'please' });
+  await u.waitFor();
+  const fits = await u.evaluate(el => { const col = el.closest('[data-read]').getBoundingClientRect(), r = el.getBoundingClientRect(); return el.scrollWidth <= el.clientWidth && r.right <= col.right + 1; });
+  assert.ok(fits, 'the bubble holds the link');
+  assert.equal(await p.locator('.pane.focus .prose').first().evaluate(el => getComputedStyle(el).overflowWrap), 'anywhere');
+});
+
 await test('handoff: after chat sends, the terminal starts again and resumes (one writer at a time)', async p => {
   // the terminal drives: show it, so its TUI runs
   await p.locator('#side').getByText('Migrate ETL config to TOML', { exact: true }).first().click();
@@ -1064,4 +1187,89 @@ await test('send refused (the terminal is mid-turn): the message comes back to t
   await composer(p).press('Enter');
   await p.locator('.toast', { hasText: 'Claude Code is still running a turn in the terminal.' }).waitFor();
   assert.equal(await composer(p).inputValue(), 'Also show seconds');
+});
+
+await test('reader: gg scrolls the transcript all the way to the top, G all the way to the bottom', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).press('Escape');
+  const sc = () => p.locator('.pane.focus .thread').evaluate(t => ({ top: t.scrollTop, max: t.scrollHeight - t.clientHeight }));
+  assert.ok((await sc()).max > 40, 'the thread scrolls');
+  await keys(p, 'g g');
+  assert.equal((await sc()).top, 0, 'gg: at the very top');
+  await keys(p, 'G');
+  const s = await sc();
+  assert.ok(s.max - s.top <= 1, `G: at the very bottom (${s.top} of ${s.max})`);
+});
+
+await test('/ menu: sections when nothing is typed; one list with source tags while typing', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).pressSequentially('/');
+  const menu = p.locator('.composer-menu');
+  await menu.waitFor();
+  const heads = await menu.locator('.mi.head').allInnerTexts();
+  assert.deepEqual(heads.map(h => h.trim()), ['Claude Code', 'Skein', 'Skills']);
+  await composer(p).pressSequentially('si');
+  await p.waitForFunction(() => !document.querySelector('.composer-menu .mi.head'));
+  assert.equal(await menu.locator('.mi', { hasText: 'Side chat' }).first().locator('.src').innerText(), 'Skein');
+});
+
+await test('your message keeps its line breaks and renders Markdown', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await composer(p).fill('first line\nsecond line\n\n- one\n- **two**\n\nsee `code` here');
+  await composer(p).press('Enter');
+  const u = p.locator('.pane.focus .m-user', { hasText: 'second line' });
+  await u.waitFor();
+  assert.equal(await u.locator('br').count(), 1, 'the single line break is kept');
+  assert.equal(await u.locator('li').count(), 2);
+  assert.equal(await u.locator('strong, b').first().innerText(), 'two');
+  assert.equal(await u.locator('code').innerText(), 'code');
+});
+
+await test('a triple click selects the whole paragraph, not one wrapped line, and stops at its end', async p => {
+  await p.setViewportSize({ width: 1000, height: 800 });
+  await openChat(p, 'Fix session-restore race');
+  const para = p.locator('.pane.focus .m-asst p').filter({ hasText: 'The restore path reads lastActive' }).first();
+  await para.scrollIntoViewIfNeeded();
+  const r = await para.boundingBox();
+  assert.ok(r.height > 30, 'the paragraph wraps');
+  await p.mouse.click(r.x + 30, r.y + 8, { clickCount: 3 });
+  await settle(p, 200);
+  assert.equal(await mode(p), 'VISUAL');
+  assert.equal(await p.evaluate(() => getSelection().toString()), await para.innerText());
+});
+
+await test('popups fit the window: the model picker of an edit box near the top opens below its button', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await p.locator('.pane.focus .m-user').first().click();
+  await p.locator('.pane.focus .m-edit textarea').waitFor();
+  const chip = p.locator('.pane.focus .m-edit .chip[title="Model and effort"]');
+  const c = await chip.boundingBox();
+  await chip.click();
+  const menu = p.locator('.menu.model');
+  await menu.waitFor();
+  const m = await menu.boundingBox();
+  assert.ok(m.y >= c.y + c.height, `below the button (${m.y} vs ${c.y + c.height})`);
+  assert.ok(m.y + m.height <= 800 && m.x >= 0 && m.x + m.width <= 1280, 'inside the window');
+});
+
+await test('the transcript fades out above the composer', async p => {
+  await openChat(p, 'Fix session-restore race');
+  assert.match(await p.locator('.pane.focus .chat > .thread').evaluate(t => getComputedStyle(t).maskImage || getComputedStyle(t).webkitMaskImage), /linear-gradient/);
+});
+
+await test('Markdown tables render as tables: alignment, formatting in cells, sideways scroll when wide', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  const wide = 'x'.repeat(30);
+  await composer(p).fill(`before\n| Name | Count | Note |\n|:-----|------:|:----:|\n| **a** | 1 | \`code\` |\n| b \\| c | 22 | ${wide} ${wide} ${wide} ${wide} |\nafter`);
+  await composer(p).press('Enter');
+  const u = p.locator('.pane.focus .m-user', { hasText: 'after' });
+  await u.waitFor();
+  const t = u.locator('table');
+  assert.deepEqual(await t.locator('th').allInnerTexts(), ['Name', 'Count', 'Note']);
+  assert.equal(await t.locator('tbody tr').count(), 2);
+  assert.equal(await t.locator('tbody tr').first().locator('td b').innerText(), 'a');
+  assert.equal(await t.locator('tbody tr').nth(1).locator('td').first().innerText(), 'b | c', 'an escaped pipe stays in its cell');
+  assert.equal(await t.locator('td').nth(1).evaluate(e => getComputedStyle(e).textAlign), 'right');
+  assert.equal(await u.locator('p').first().innerText(), 'before', 'the paragraph above ends where the table starts');
+  assert.equal(await u.locator('.tbl').evaluate(e => getComputedStyle(e).overflowX), 'auto');
 });

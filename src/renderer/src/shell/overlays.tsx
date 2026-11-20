@@ -355,7 +355,8 @@ export function openMachines(anchor?: DOMRect | null) {
   openMenu<string>({
     anchor: a, modal: !a, place: 'top-start', width: 330, className: cx('mach', !a && 'pal'),
     items: [{ head: true, label: 'Machines' },
-      ...S.machines.map(m => ({ label: m.name, icon: <Icon name={m.ssh ? 'host' : 'laptop'} />, hint: sshAddr(m), right: <>{marks(m)}{linkDot(m)}</>, data: m.id })),
+      // the link's dot beside the name; the harness marks in one column at the right, lined up on every row
+      ...S.machines.map(m => ({ label: m.name, display: <><span className="mn">{m.name}</span>{linkDot(m)}</>, icon: <Icon name={m.ssh ? 'host' : 'laptop'} />, hint: sshAddr(m), right: marks(m), data: m.id })),
       { label: 'Add SSH host', icon: <Icon name="plus" />, hint: 'from ~/.ssh/config', data: '' }],
     onPick: it => {
       if (!it.data) { void addHostMenu(); return; }

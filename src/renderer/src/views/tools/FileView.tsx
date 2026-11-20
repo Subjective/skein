@@ -31,6 +31,9 @@ import { fileNav, openFile, readText } from './open';
 import { ProjectTree, toggleDir, useLister, type TreeState } from './ProjectTree';
 import { ctxOf, join, refreshNow, useRepo, viewState } from './repo';
 import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
+import { dragEdge, TREE_EDGE } from '../../ui/resize';
+
+const resizeTree = dragEdge(TREE_EDGE);
 
 interface Doc { disk?: string; err?: string; binary?: boolean; gen: number; base?: string | null; baseGen?: number; loading?: boolean }
 /** Loaded files and unsaved text, by machine + folder + path. Unsaved text outlives the tab, for this session. */
@@ -302,7 +305,8 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     const out: Paint[] = [];
     const s = starts[i], e = s + lines[i].length;
     if (findRe && lines[i]) { findRe.lastIndex = 0; let m; while ((m = findRe.exec(lines[i]))) { out.push({ from: m.index, to: m.index + Math.max(1, m[0].length), cls: 'hit' }); if (!m[0]) findRe.lastIndex++; } }
-    if (sel && sel[0] <= e && sel[1] >= s) out.push({ from: Math.max(0, sel[0] - s), to: Math.min(lines[i].length + 1, sel[1] - s), cls: 'vs' });
+    // VISUAL paints the characters; V-LINE shades whole rows (.vsel) instead, so the text is not shaded twice
+    if (sel && v.rs.mode === 'VISUAL' && sel[0] <= e && sel[1] >= s) out.push({ from: Math.max(0, sel[0] - s), to: Math.min(lines[i].length + 1, sel[1] - s), cls: 'vs' });
     if (focused && i === curLine && v.mode === 'read') out.push({ from: v.rs.pos - s, to: v.rs.pos - s + 1, cls: 'vc' });
     return out.length ? out : undefined;
   };
@@ -365,7 +369,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
               </div>
             )}
           {showLines && (
-            <div className={cx('src', mouse.current && sel && 'msel')} data-src={`file:${path}`} role="textbox" aria-readonly="true" aria-label={path} aria-multiline="true"
+            <div className={cx('src', mouse.current && sel && 'msel', sel && v.rs.mode !== 'NORMAL' && 'vis')} data-src={`file:${path}`} role="textbox" aria-readonly="true" aria-label={path} aria-multiline="true"
               onMouseDown={e => { if (e.detail > 1) return; const p = posFromPoint(e); if (p != null) { v.rs = { ...v.rs, pos: p, mode: 'NORMAL' }; update(); } }}
               onMouseUp={mouseUp}>
               {lines.map((_, i) => (
@@ -377,11 +381,12 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
           )}
           {v.mode === 'read' && preview && doc.disk != null && <article className="doc prose" data-src={`file:${path}`} onMouseUp={mouseUp}><Markdown text={text} /></article>}
         </div>
-        {side.show && (
+        {side.show && (<>
+          <div className="tree-resize" title="Drag to resize" onPointerDown={resizeTree} />
           <aside className="ctree" aria-label="Project files">
             <ProjectTree l={lister} st={v.ts} active={path} label="Project files" onOpen={n => { if (n.dir) toggleDir(lister, v.ts, n.rel); else openFile(ctx, n.rel, { from: t }); }} />
           </aside>
-        )}
+        </>)}
       </div>
       {tsel.bar}
     </div>

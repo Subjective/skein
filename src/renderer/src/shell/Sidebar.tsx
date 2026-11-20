@@ -16,6 +16,7 @@ import { moveMenu, startThreadDrag } from './move';
 import { openAddProject, openMachines, openMenu, openSettings } from './overlays';
 import { showAuth } from './AuthDialog';
 import { pending, useChat } from '../views/chat/state';
+import { dragEdge, restoreEdge, SIDEBAR_EDGE } from '../ui/resize';
 
 const LINK: Record<Machine['link'], ['green' | 'amber' | 'red', boolean, string]> = {
   up: ['green', false, 'Connected'], connecting: ['amber', true, 'Connecting'], reconnecting: ['amber', true, 'Reconnecting'], auth: ['amber', false, 'Needs you to sign in'], down: ['red', false, 'Not connected'],
@@ -332,17 +333,7 @@ function Group({ k, children }: { k: string; children: React.ReactNode }) {
 }
 
 /** The sidebar's width: drag its right edge (200 px to 60% of the window). Kept on this computer. */
-const WKEY = 'skein.sidebarWidth';
-const setWidth = (px: number) => document.getElementById('app')?.style.setProperty('--sidebar-width', px + 'px');
-function resizeSide(e: React.PointerEvent<HTMLDivElement>) {
-  if (e.button !== 0) return;
-  e.preventDefault();
-  const h = e.currentTarget, side = h.parentElement!, w0 = side.getBoundingClientRect().width, x0 = e.clientX, id = e.pointerId;
-  h.setPointerCapture(id);
-  let w = w0;
-  h.onpointermove = ev => { if (ev.pointerId !== id) return; w = Math.round(Math.min(innerWidth * 0.6, Math.max(200, w0 + ev.clientX - x0))); setWidth(w); };
-  h.onlostpointercapture = () => { h.onpointermove = null; h.onlostpointercapture = null; try { localStorage.setItem(WKEY, String(w)); } catch { /* not kept */ } };
-}
+const resizeSide = dragEdge(SIDEBAR_EDGE);
 
 export function Sidebar() {
   const s = useApp();
@@ -350,7 +341,7 @@ export function Sidebar() {
   // ages ("3m", "2h") move on by themselves: redraw twice a minute
   const [, tick] = useState(0);
   useEffect(() => { const i = setInterval(() => tick(n => n + 1), 30_000); return () => clearInterval(i); }, []);
-  useEffect(() => { try { const w = +(localStorage.getItem(WKEY) || 0); if (w >= 200) setWidth(Math.min(w, innerWidth * 0.6)); } catch { /* default width */ } }, []);
+  useEffect(() => restoreEdge(SIDEBAR_EDGE), []);
   const live = s.threads.filter(t => !t.archived && !t.side);
   const pinned = live.filter(t => t.pinned), rest = live.filter(t => !t.pinned), archived = s.threads.filter(t => t.archived && !t.side);
   return (

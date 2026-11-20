@@ -278,6 +278,11 @@ test('machines popover: machines with marks, picking one opens a new thread ther
   await p.locator('#side .mbtn').click();
   await p.locator('.menu.mach').waitFor();
   assert.match(await p.locator('.menu.mach').innerText(), /Add SSH host/);
+  // the link's dot sits beside the name; the harness marks line up in one column, local and remote alike
+  assert.ok(await p.locator('.menu.mach .mi .ml .dot').count() > 0, 'dots beside the names');
+  assert.equal(await p.locator('.menu.mach .mi .mr .dot').count(), 0, 'no dot among the marks');
+  const cols = await p.locator('.menu.mach .mi .mr').evaluateAll(rs => rs.filter(r => r.querySelector('.has')).map(r => [...r.querySelectorAll('.has')].map(h => Math.round(h.getBoundingClientRect().left)).join(',')));
+  assert.ok(cols.length > 1 && cols.every(c => c === cols[0]), `marks aligned: ${cols.join(' | ')}`);
   await p.locator('.menu.mach .mi', { hasText: 'linux' }).click();
   await settle(p, 150);
   const t = await p.evaluate(() => { const S = window.__skein.S, w = S.workspaces.find(x => x.id === S.wid); const g = w.tree; return g.tabs.find(x => x.id === g.active); });

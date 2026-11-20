@@ -14,6 +14,7 @@ import { Sidebar } from './Sidebar';
 import { StatusBar } from './StatusBar';
 import { Workspace } from './Workspace';
 import { run } from './commands';
+import { restoreEdge, TREE_EDGE } from '../ui/resize';
 
 function applyTheme() {
   const t = S.settings.theme === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : S.settings.theme;
@@ -113,6 +114,7 @@ function narrow() {
 export function App() {
   const s = useApp();
   useEffect(() => { applyTheme(); }, [s.settings.theme]);
+  useEffect(() => restoreEdge(TREE_EDGE), []);
   useEffect(() => { narrow(); addEventListener('resize', narrow); return () => removeEventListener('resize', narrow); }, []);
   return (
     <>
