@@ -88,6 +88,11 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   - One unnamed register for all fields (`input/register.ts`), filled by readers' yanks too; `p` with it empty puts
     the system clipboard. No `"+` or named registers. `vimtext` gained `NG` / `Ngg`, `3p`, and counts after an
     operator (`d2w`, `2d3w`); `r` followed by a digit replaces with that digit (it used to start a count).
+- **Final polish pass** (2026-11-20, in the real app, both themes): a path under the machine's home reads `~/...`
+  in the status bar and the folder chip, as the sidebar already did (stored paths stay absolute). Claude Code
+  writes `gitBranch: "HEAD"` outside a repo, which is now no branch. File search outside a repo skips hidden
+  folders (a home folder's `.cache` filled the list); hidden files still show. A failed Browser load names the
+  cause in words and hides the engine's white page. The keyboard sheet flows in columns and lists reader keys.
 
 ## Read first
 
