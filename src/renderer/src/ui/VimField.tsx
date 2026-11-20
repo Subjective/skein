@@ -12,6 +12,7 @@ import { forPut, getReg, setReg } from '../input/register';
 import { init, setText, step, tokAt, typed, vrange, type Effect, type TextState } from '../input/vimtext';
 import { S, toast, update } from '../state/store';
 import { cx } from './primitives';
+import { revealCaret } from './caret';
 
 export interface VimFieldHandle { focus(insert?: boolean): void; set(text: string, pos?: number): void; state(): TextState; el(): HTMLTextAreaElement | null; /** Put the cursor at an offset, in NORMAL or with a VISUAL selection (a reader handing over to the editor). */ at(pos: number, vis?: { anchor: number; mode: 'VISUAL' | 'V-LINE' }): void }
 
@@ -81,13 +82,23 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
     el.classList.toggle('vv', normal && vis);
     el.classList.toggle('hollow', hollow);
     el.classList.toggle('drawn', hollow && !!props.current.onCursor);
+    // keep the cursor in view: the browser only scrolls a textarea to its caret while typing, not for a NORMAL
+    // motion (j, G, w, a search), so a long draft would leave the cursor (and the block drawn behind) out of sight
+    if (focused && vim && s.mode !== 'INSERT') revealCaret(el, s.pos);
     cursor(normal ? { hollow: hollow ? s.pos : -1, vcur: vis && s.pos < s.text.length && s.text[s.pos] !== '\n' ? s.pos : -1 } : null);
     if (!focused) return;
     if (!vim || s.mode === 'INSERT' || hollow) el.setSelectionRange(s.pos, s.pos);
     else if (s.mode === 'NORMAL') el.setSelectionRange(s.pos, tokAt(s.text, s.pos)?.[1] ?? Math.min(s.text.length, s.pos + 1));   // a quote is one block
     else { const [a, b] = vrange(s); el.setSelectionRange(a, b); }
   };
-  const grow = () => { const el = ta.current; if (!el) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, p.maxHeight ?? 180) + 'px'; };
+  // height: auto for a moment collapses the field, which clamps its scroll to the top: put the scroll back after
+  const grow = () => {
+    const el = ta.current; if (!el) return;
+    const top = el.scrollTop;
+    el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, p.maxHeight ?? 180) + 'px';
+    el.scrollTop = top;
+    if (document.activeElement === el && S.settings.vim && st.current.mode !== 'INSERT') revealCaret(el, st.current.pos);
+  };
 
   // outside changes to value (send cleared it, a / pick replaced a word)
   useLayoutEffect(() => { if (p.value !== st.current.text) { st.current = setText(st.current, p.value); paint(); } grow(); }, [p.value]); // eslint-disable-line react-hooks/exhaustive-deps

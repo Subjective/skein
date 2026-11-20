@@ -1026,3 +1026,39 @@ await test('reader yank: V y in a code block copies it with its fences; v y copi
   got = await clip(p);
   assert.equal(got, 'build it on a replica first', JSON.stringify(got));
 });
+
+await test('edit box: a long message scrolls with the NORMAL cursor (j, G, gg), and the block cursor stays drawn', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await p.locator('.pane.focus .m-user').first().click();
+  const box = p.locator('.pane.focus .m-edit textarea');
+  await box.waitFor();
+  await box.fill(Array.from({ length: 30 }, (_, i) => (i % 5 === 3 ? '' : `line ${i}`)).join('\n'));
+  await box.press('Escape');
+  // the cursor's line is inside the box: the selection (a character) or the drawn block (a line end, an empty line)
+  const seen = () => box.evaluate(el => {
+    const r = el.getBoundingClientRect(), hc = el.closest('.taw').querySelector('.hc i');
+    if (hc) { const b = hc.getBoundingClientRect(); return b.top >= r.top - 1 && b.bottom <= r.bottom + 1; }
+    const lh = parseFloat(getComputedStyle(el).lineHeight), line = el.value.slice(0, el.selectionStart).split('\n').length - 1;
+    const y = 4 + line * lh - el.scrollTop;   // no line here wraps
+    return y >= 0 && y + lh <= el.clientHeight + 1;
+  });
+  assert.ok(await box.evaluate(el => el.scrollHeight > el.clientHeight), 'the box scrolls');
+  await keys(p, 'G');
+  assert.ok(await box.evaluate(el => el.scrollTop > 0), 'G scrolled down');
+  assert.ok(await seen(), 'G: cursor in view');
+  await keys(p, 'g g');
+  assert.equal(await box.evaluate(el => el.scrollTop), 0);
+  for (let i = 0; i < 25; i++) { await p.keyboard.press('j'); assert.ok(await seen(), `j ${i + 1}: cursor in view`); }
+  for (let i = 0; i < 25; i++) { await p.keyboard.press('k'); assert.ok(await seen(), `k ${i + 1}: cursor in view`); }
+});
+
+await test('a long link wraps inside your message bubble and inside a reply', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await composer(p).fill('see https://example.com/' + 'averyverylongsegment'.repeat(14) + ' please');
+  await composer(p).press('Enter');
+  const u = p.locator('.pane.focus .m-user', { hasText: 'please' });
+  await u.waitFor();
+  const fits = await u.evaluate(el => { const col = el.closest('[data-read]').getBoundingClientRect(), r = el.getBoundingClientRect(); return el.scrollWidth <= el.clientWidth && r.right <= col.right + 1; });
+  assert.ok(fits, 'the bubble holds the link');
+  assert.equal(await p.locator('.pane.focus .prose').first().evaluate(el => getComputedStyle(el).overflowWrap), 'anywhere');
+});

@@ -355,6 +355,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // the layer behind the text paints quote chips
   const paintBk = () => { const b = bk.current, el = field.current?.el(); if (b && el) b.scrollTop = el.scrollTop; };
   useEffect(paintBk);
+  // the textarea also scrolls on its own (the wheel, typing past the bottom, a motion revealing the cursor): the layer follows
+  useEffect(() => { const el = field.current?.el(); if (!el) return; el.addEventListener('scroll', paintBk); return () => el.removeEventListener('scroll', paintBk); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const th = p.thread, ctx = th.ctx;
   const hasText = !!p.draft.text.trim() || p.draft.images.length > 0;

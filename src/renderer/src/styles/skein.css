@@ -266,10 +266,10 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 .chat { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .thread { flex: 1; min-height: 0; overflow: auto; padding: 20px 0 12px; }
 .col { width: min(740px, calc(100% - 48px)); margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
-.m-user { align-self: flex-end; max-width: 84%; margin-top: 12px; padding: 9px 15px; border-radius: 18px; background: var(--bubble); font-size: 14px; line-height: 1.550; }
+.m-user { align-self: flex-end; max-width: 84%; overflow-wrap: anywhere; margin-top: 12px; padding: 9px 15px; border-radius: 18px; background: var(--bubble); font-size: 14px; line-height: 1.550; }
 .m-user:first-child { margin-top: 0; }
 .m-img { display: block; max-width: min(260px, 100%); border-radius: 10px; margin: 4px 0 8px; cursor: zoom-in; }
-.prose { font-size: 14px; line-height: 1.650; }
+.prose { font-size: 14px; line-height: 1.650; overflow-wrap: anywhere; }   /* a long link or path breaks instead of running out of the column */
 .prose p { margin: 0 0 .600em; } .prose p:last-child { margin: 0; }
 .prose code, .m-user code, .tool code { font: var(--mono-w) 12.500px var(--mono); background: var(--code); padding: 1.500px 5px; border-radius: 5px; }
 .tool { font-size: 13px; }
