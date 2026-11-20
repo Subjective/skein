@@ -517,3 +517,18 @@ test('sidebar: double-click renames a project and a thread in place; typed keys 
   await settle(p);
   assert.equal(await p.locator('#side').getByText('Tidy PowerShell profile', { exact: true }).count(), 1, 'esc keeps the old name');
 });
+
+test('window drag: only top-edge tab bars move the window; a popup header and a lower pane never do', async p => {
+  await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
+  await p.locator('.pane .chat').first().waitFor();
+  await p.waitForTimeout(450);
+  await p.locator('.pane.focus .sc-link').first().click();
+  await p.locator('.peek').waitFor();
+  const region = sel => p.evaluate(s => [...document.querySelectorAll(s)].map(e => getComputedStyle(e).getPropertyValue('-webkit-app-region')), sel);
+  assert.deepEqual([...new Set(await region('.peek, .peek *'))], ['no-drag'], 'nothing in a popup drags the window');
+  assert.ok((await region('.pane .tb .drag')).includes('drag'), 'a top tab bar still drags it');
+  await ldr(p, 's');   // split below
+  await settle(p);
+  const lower = await region('.split.d-col > .cell:last-child .tb, .split.d-col > .cell:last-child .tb *');
+  if (lower.length) assert.deepEqual([...new Set(lower)], ['no-drag'], 'a lower pane does not drag the window');
+});
