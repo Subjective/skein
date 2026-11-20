@@ -42,16 +42,16 @@ export const Chip = forwardRef<HTMLButtonElement, BtnProps & { icon?: IconName |
     );
   });
 
-/** Two or more icon toggles in a well (chat | terminal). */
-export function Seg<T extends string>({ value, options, onChange, label, mark }: {
-  value: T; options: { v: T; icon: IconName | string; label: string }[]; onChange: (v: T) => void; label: string; mark?: T | null;
+/** Two or more toggles in a well (chat | terminal). Icons, or words when `text` (Preview | Source). */
+export function Seg<T extends string>({ value, options, onChange, label, mark, text }: {
+  value: T; options: { v: T; icon?: IconName | string; label: string }[]; onChange: (v: T) => void; label: string; mark?: T | null; text?: boolean;
 }) {
   return (
-    <div className="seg" role="group" aria-label={label}>
+    <div className={cx('seg', text && 'txt')} role="group" aria-label={label}>
       {options.map(o => (
         <button key={o.v} type="button" className={cx(value === o.v && 'on', mark === o.v && 'drv')} aria-pressed={value === o.v} title={o.label} aria-label={o.label}
           onMouseDown={e => e.preventDefault()} onClick={() => onChange(o.v)}>
-          <Icon name={o.icon} />
+          {text || !o.icon ? o.label : <Icon name={o.icon} />}
         </button>
       ))}
     </div>
@@ -64,3 +64,22 @@ export const Dot = ({ color, pulse, label }: { color: 'green' | 'amber' | 'red' 
 export const Kbd = ({ k }: { k: string }) => <kbd>{kb(k)}</kbd>;
 export const Switch = ({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) =>
   <button type="button" role="switch" aria-checked={on} aria-label={label} className="sw-btn" onClick={() => onChange(!on)}><span className={cx('sw', on && 'on')} /></button>;
+
+/** A tri-state box (stage a file, select all). `on` 'mix' draws a dash. */
+export const Checkbox = ({ on, onChange, label, className }: { on: boolean | 'mix'; onChange: (v: boolean) => void; label: string; className?: string }) => (
+  <button type="button" role="checkbox" aria-checked={on === 'mix' ? 'mixed' : on} aria-label={label} title={label} className={cx('cb', on === 'mix' ? 'mix' : on && 'on', className)}
+    onMouseDown={e => e.preventDefault()} onClick={e => { e.stopPropagation(); onChange(on !== true); }}>
+    {on === true && <Icon name="check" />}
+  </button>
+);
+
+/** A primary action with a caret for its other forms (Commit | Commit & push ...). */
+export function SplitButton({ label, onClick, onMenu, menuLabel, disabled, keys }: { label: ReactNode; onClick: () => void; onMenu: (anchor: DOMRect) => void; menuLabel: string; disabled?: boolean; keys?: string }) {
+  return (
+    <span className="split">
+      <button type="button" className="btn primary sm" disabled={disabled} title={keys ? kb(keys) : undefined} onMouseDown={e => e.preventDefault()} onClick={onClick}>{label}</button>
+      <button type="button" className="btn primary sm caret" disabled={disabled} aria-haspopup="menu" aria-label={menuLabel} title={menuLabel}
+        onMouseDown={e => e.preventDefault()} onClick={e => onMenu(e.currentTarget.parentElement!.getBoundingClientRect())}><Icon name="down" size="sm" /></button>
+    </span>
+  );
+}
