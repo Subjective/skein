@@ -55,3 +55,16 @@ export const CodeLine = memo(function CodeLine({ toks, unit, paint }: { toks: To
   if (!out.length) out.push(' ');
   return <>{out}</>;
 });
+
+/** mod-l from a reader's VISUAL (painted spans, not a DOM selection): select the painted text in the page, so
+ *  "add to chat" quotes it from its `data-src` like a mouse selection. Line numbers are not selectable (tools.css).
+ *  false when nothing is painted. */
+export function selectPainted(root: Element | null | undefined, selector: string): boolean {
+  const els = root ? [...root.querySelectorAll(selector)] : [];
+  if (!els.length) return false;
+  const r = document.createRange();
+  r.setStartBefore(els[0]); r.setEndAfter(els[els.length - 1]);
+  const s = getSelection(); if (!s) return false;
+  s.removeAllRanges(); s.addRange(r);
+  return true;
+}

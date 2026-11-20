@@ -4,8 +4,11 @@
 #root { height: 100%; }
 
 /* Window chrome. The tab bars and the sidebar's top row drag the window; their controls do not. */
-.s-top, .tb .drag, .tb, .peek .tb { -webkit-app-region: drag; }
-.s-top button, .tb button, .tb .tab, .tb .seg, .tabs, .peek .tb button { -webkit-app-region: no-drag; }
+.s-top, .tb .drag, .tb { -webkit-app-region: drag; }
+.s-top button, .tb button, .tb .tab, .tb .seg, .tabs { -webkit-app-region: no-drag; }
+/* Only tab bars along the window's top edge move the window. A popup's header moves the popup, and a pane
+   below another (the lower half of a column split) is in the middle of the window. Overlays never drag it. */
+.peek, .peek *, .split.d-col > .cell:last-child .tb, .scrim, .layer, .menu, .dialog, .toast, .seltb { -webkit-app-region: no-drag; }
 /* macOS: traffic lights sit over the sidebar's top row (or the first tab bar when the sidebar is hidden) */
 [data-os="mac"] .s-top { padding-left: 78px; }
 [data-os="mac"] .tb.corner { padding-left: 78px; }

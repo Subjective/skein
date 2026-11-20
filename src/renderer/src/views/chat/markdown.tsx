@@ -3,6 +3,9 @@
 import { Fragment, type ReactNode } from 'react';
 import { api } from '../../api';
 
+/** Inline code that names a file (a path with an extension, or a well-known file name) links to it (`.flink`). */
+export const isFile = (c: string) => /^[\w.~/-]+\.[a-z][a-z0-9]{0,4}$/i.test(c) && (c.includes('/') || /\.(md|tsx?|jsx?|json|py|rs|go|css|html|toml|ya?ml|sh|txt)$/i.test(c));
+
 function inline(s: string, key = 0): ReactNode[] {
   const out: ReactNode[] = [];
   const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\([^)\s]+\))|(⁣[^⁣]*⁣)/g;
@@ -10,7 +13,7 @@ function inline(s: string, key = 0): ReactNode[] {
   while ((m = re.exec(s))) {
     if (m.index > last) out.push(s.slice(last, m.index));
     const t = m[0];
-    if (m[1]) out.push(<code key={k++}>{t.slice(1, -1)}</code>);
+    if (m[1]) { const c = t.slice(1, -1); out.push(isFile(c) ? <code key={k++} className="flink" data-p={c} title={`Open ${c} · g f`}>{c}</code> : <code key={k++}>{c}</code>); }
     else if (m[2]) out.push(<b key={k++}>{inline(t.slice(2, -2), k * 100)}</b>);
     else if (m[3]) out.push(<i key={k++}>{inline(t.slice(1, -1), k * 100)}</i>);
     else if (m[4]) {
@@ -20,6 +23,27 @@ function inline(s: string, key = 0): ReactNode[] {
     last = m.index + t.length;
   }
   if (last < s.length) out.push(s.slice(last));
+  return out;
+}
+
+/** For each character `inline` shows, its index in the Markdown it came from (plus one past the end), so a
+ *  cursor in a rendered message lands on the same character in the raw text (editing from the reader). */
+export function shownToRaw(s: string, base = 0): number[] {
+  const out: number[] = [];
+  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\([^)\s]+\))|(⁣[^⁣]*⁣)/g;
+  let last = 0, m: RegExpExecArray | null;
+  while ((m = re.exec(s))) {
+    for (let i = last; i < m.index; i++) out.push(base + i);
+    const t = m[0], at = base + m.index;
+    if (m[1]) for (let i = 1; i < t.length - 1; i++) out.push(at + i);
+    else if (m[2]) out.push(...shownToRaw(t.slice(2, -2), at + 2).slice(0, -1));
+    else if (m[3]) out.push(...shownToRaw(t.slice(1, -1), at + 1).slice(0, -1));
+    else if (m[4]) { const label = /^\[([^\]]+)\]/.exec(t)![1]; out.push(...shownToRaw(label, at + 1).slice(0, -1)); }
+    else for (let i = 0; i < t.length; i++) out.push(at + i);
+    last = m.index + t.length;
+  }
+  for (let i = last; i < s.length; i++) out.push(base + i);
+  out.push(base + s.length);
   return out;
 }
 

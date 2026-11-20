@@ -63,18 +63,19 @@ test('menu search field: j k still move the list in NORMAL, with a count', async
   assert.equal(await menuInput(p).inputValue(), '', 'the count did not reach the field');
 });
 
-test('model picker (no search field) keeps h / l for its effort', async p => {
+test('model picker: in NORMAL (esc from its search field) h / l step its effort', async p => {
   await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
   const seg = p.locator('.pane.focus .tb .seg button[aria-label^="Chat"]');
   if ((await seg.getAttribute('aria-pressed')) !== 'true') await seg.click();
   const chip = p.locator('.pane.focus .cf .chip[title="Model and effort"]');
   await chip.click();
-  await p.locator('.menu .mi', { hasText: 'Effort' }).waitFor();
+  await p.locator('.menu.model .eff').waitFor();
   const before = await chip.innerText();
+  await keys(p, 'Escape');
   await keys(p, 'l');
-  await p.waitForFunction(b => document.querySelector('.pane.focus .cf .chip[title="Model and effort"]')?.textContent !== b, before);
+  await p.waitForFunction(b => document.querySelector('.pane.focus .cf .chip[title="Model and effort"]')?.innerText !== b, before);
   await keys(p, 'h');
-  await p.waitForFunction(b => document.querySelector('.pane.focus .cf .chip[title="Model and effort"]')?.textContent.replace(/\s+/g, ' ').trim() === b.replace(/\s+/g, ' ').trim(), before);
+  await p.waitForFunction(b => document.querySelector('.pane.focus .cf .chip[title="Model and effort"]')?.innerText === b, before);
   await keys(p, 'Escape');
 });
 
@@ -83,7 +84,7 @@ test('model picker (no search field) keeps h / l for its effort', async p => {
 async function openSettings(p) {
   await keys(p, 'Escape');
   await p.keyboard.type(':');
-  await p.locator('.menu.pal').waitFor();
+  await p.locator('.menu.cmd').waitFor();
   await p.keyboard.type('settings');
   await keys(p, 'Enter');
   await p.locator('.settings').waitFor();
@@ -95,11 +96,11 @@ test('settings: j k move sections, l enters the rows, h l change a value, esc st
   assert.equal(await section(p), 'General');
   assert.ok(await p.locator('.settings-nav.kf').count(), 'the section list has the keys');
   await keys(p, 'j');
-  assert.equal(await section(p), 'Vim');
-  await keys(p, 'j j');
+  assert.equal(await section(p), 'Appearance');
+  await keys(p, 'j j j');
   assert.equal(await section(p), 'Machines');
   await keys(p, 'k k k');
-  assert.equal(await section(p), 'General');
+  assert.equal(await section(p), 'Appearance');
   await keys(p, 'l');
   assert.equal(await p.locator('.settings-nav.kf').count(), 0);
   assert.match(await p.locator('.s-row.cur').innerText(), /Theme/);
@@ -109,8 +110,8 @@ test('settings: j k move sections, l enters the rows, h l change a value, esc st
   await p.waitForFunction(t => window.__skein.S.settings.theme !== t, t0);
   await keys(p, 'h');
   await p.waitForFunction(t => window.__skein.S.settings.theme === t, t0);
-  await keys(p, 'j');
-  assert.match(await p.locator('.s-row.cur').innerText(), /Threads open as/);
+  await keys(p, 'Escape k l j');
+  assert.match(await p.locator('.s-row.cur').innerText(), /Sidebar/);
   await keys(p, 'Escape');
   assert.ok(await p.locator('.settings-nav.kf').count(), 'esc goes back to the section list');
   assert.equal(await p.locator('.s-row.cur').count(), 0);
@@ -129,7 +130,7 @@ test('settings: H and L do nothing in the dialog; tab enters the rows, h on a bu
   assert.equal(await section(p), 'General');
   assert.equal(await tabs(), n);
   assert.equal(await layers(p), 1);
-  await keys(p, 'j Tab j');
+  await keys(p, 'j j Tab j');
   assert.match(await p.locator('.s-row.cur').innerText(), /vimrc/);
   await keys(p, 'h');
   assert.ok(await p.locator('.settings-nav.kf').count(), 'h on a row with no value goes back to the sections');
@@ -256,7 +257,7 @@ test('scrollback: counts move by lines, / finds, n wraps with a notice, esc clea
 const THREAD = 'Fix session-restore race';
 async function openReadme(p) {
   await p.locator('#side').getByText(THREAD, { exact: true }).first().click();
-  await settle(p, 200);
+  await p.locator('.pane.focus .tab.on, .pane.focus .tab').filter({ hasText: THREAD }).first().waitFor();
   await keys(p, 'Control+Space :');
   await p.keyboard.type('filesview');
   await keys(p, 'Enter');
@@ -293,7 +294,7 @@ test('file: counts (3j, 5G, 2gg) and ? searches backwards with a wrap notice', a
 
 test('diff: / searches the rows, n moves on, counts move the row cursor; f searches the tree', async p => {
   await p.locator('#side').getByText(THREAD, { exact: true }).first().click();
-  await settle(p, 200);
+  await p.locator('.pane.focus .tab.on, .pane.focus .tab').filter({ hasText: THREAD }).first().waitFor();
   await keys(p, 'Control+Space :');
   await p.keyboard.type('changes');
   await keys(p, 'Enter');

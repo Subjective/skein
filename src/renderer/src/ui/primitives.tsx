@@ -32,12 +32,13 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps & { variant?: 'prim
     );
   });
 
-/** A pill that opens a picker: icon, label, chevron. */
-export const Chip = forwardRef<HTMLButtonElement, BtnProps & { icon?: IconName | string; label: ReactNode; caret?: boolean; on?: boolean; title?: string }>(
-  function Chip({ icon, label, caret, on, className, ...rest }, ref) {
+/** A pill that opens a picker: icon, label, chevron. The label goes in one span (`lbl` gives it a class, such as
+ *  `lbl`, which narrow panes hide); `raw` puts the label in as given, for a label made of its own spans. */
+export const Chip = forwardRef<HTMLButtonElement, BtnProps & { icon?: IconName | string; label: ReactNode; lbl?: string; raw?: boolean; caret?: boolean; on?: boolean; title?: string }>(
+  function Chip({ icon, label, lbl, raw, caret, on, className, ...rest }, ref) {
     return (
       <button ref={ref} type="button" className={cx('chip', on && 'on', className)} {...rest}>
-        {icon && <Icon name={icon} />}<span>{label}</span>{caret && <Icon name="down" size="sm" />}
+        {icon && <Icon name={icon} />}{raw ? label : <span className={lbl}>{label}</span>}{caret && <Icon name="down" size="sm" />}
       </button>
     );
   });
@@ -62,8 +63,9 @@ export const Spinner = ({ label = 'Working' }: { label?: string }) => <span clas
 export const Dot = ({ color, pulse, label }: { color: 'green' | 'amber' | 'red' | 'blue' | 'off'; pulse?: boolean; label?: string }) =>
   <span className={cx('dot', color, pulse && 'pulse')} role={label ? 'img' : undefined} aria-label={label} title={label} />;
 export const Kbd = ({ k }: { k: string }) => <kbd>{kb(k)}</kbd>;
-export const Switch = ({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) =>
-  <button type="button" role="switch" aria-checked={on} aria-label={label} className="sw-btn" onClick={() => onChange(!on)}><span className={cx('sw', on && 'on')} /></button>;
+/** A switch; `large` is the Settings size (34 x 20, the mockup's .swb), the default the composer's small one. */
+export const Switch = ({ on, onChange, label, large }: { on: boolean; onChange: (v: boolean) => void; label: string; large?: boolean }) =>
+  <button type="button" role="switch" aria-checked={on} aria-label={label} className={large ? 'swb' : 'sw-btn'} onClick={() => onChange(!on)}><span className={cx('sw', on && 'on')} /></button>;
 
 /** A tri-state box (stage a file, select all). `on` 'mix' draws a dash. */
 export const Checkbox = ({ on, onChange, label, className }: { on: boolean | 'mix'; onChange: (v: boolean) => void; label: string; className?: string }) => (
@@ -74,11 +76,12 @@ export const Checkbox = ({ on, onChange, label, className }: { on: boolean | 'mi
 );
 
 /** A primary action with a caret for its other forms (Commit | Commit & push ...). */
-export function SplitButton({ label, onClick, onMenu, menuLabel, disabled, keys }: { label: ReactNode; onClick: () => void; onMenu: (anchor: DOMRect) => void; menuLabel: string; disabled?: boolean; keys?: string }) {
+/** `menuDisabled` defaults to `disabled`; a menu with an action that needs nothing (Create branch) stays open to it. */
+export function SplitButton({ label, onClick, onMenu, menuLabel, disabled, menuDisabled = disabled, keys }: { label: ReactNode; onClick: () => void; onMenu: (anchor: DOMRect) => void; menuLabel: string; disabled?: boolean; menuDisabled?: boolean; keys?: string }) {
   return (
     <span className="split">
-      <button type="button" className="btn primary sm" disabled={disabled} title={keys ? kb(keys) : undefined} onMouseDown={e => e.preventDefault()} onClick={onClick}>{label}</button>
-      <button type="button" className="btn primary sm caret" disabled={disabled} aria-haspopup="menu" aria-label={menuLabel} title={menuLabel}
+      <button type="button" className="btn primary sm" disabled={disabled} title={keys ? (typeof label === 'string' ? `${label} · ${kb(keys)}` : kb(keys)) : undefined} onMouseDown={e => e.preventDefault()} onClick={onClick}>{label}</button>
+      <button type="button" className="btn primary sm caret" disabled={menuDisabled} aria-haspopup="menu" aria-label={menuLabel} title={menuLabel}
         onMouseDown={e => e.preventDefault()} onClick={e => onMenu(e.currentTarget.parentElement!.getBoundingClientRect())}><Icon name="down" size="sm" /></button>
     </span>
   );

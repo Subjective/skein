@@ -1,5 +1,5 @@
 // Chat view: every interactive state.
-import { assert, mod, mode, settle, test } from './harness.mjs';
+import { assert, keys, mod, mode, settle, test } from './harness.mjs';
 
 /** Open a thread from the sidebar in its chat view. */
 async function openChat(p, title) {
@@ -35,7 +35,7 @@ await test('/ menu: lists commands, filters, picks one in place', async p => {
   await composer(p).pressSequentially('/co');
   const menu = p.locator('.composer-menu');
   await menu.waitFor();
-  assert.ok((await menu.innerText()).includes('/compact'));
+  assert.ok((await menu.innerText()).includes('Compact'));
   await composer(p).press('Enter');
   assert.equal(await composer(p).inputValue(), '/compact ');
   assert.equal(await menu.count(), 0);
@@ -44,9 +44,9 @@ await test('/ menu: lists commands, filters, picks one in place', async p => {
 await test('/ anywhere: /model mid-message keeps the draft and opens the picker', async p => {
   await openChat(p, 'Add timestamps to chat rows');
   await composer(p).pressSequentially('fix this /mod');
-  await p.locator('.composer-menu .mi.sel', { hasText: '/model' }).waitFor();
+  await p.locator('.composer-menu .mi.sel', { hasText: 'Model' }).waitFor();
   await composer(p).press('Enter');
-  await p.locator('.menu .mi', { hasText: 'Effort' }).waitFor();
+  await p.locator('.menu.model .eff').waitFor();
   assert.equal((await composer(p).inputValue()).trim(), 'fix this');
   await p.keyboard.press('Escape');
 });
@@ -97,6 +97,20 @@ await test('reader: gg from the composer goes to the top; y in VISUAL yanks, q l
   assert.ok(top < 50, `scrolled to top (${top})`);
   await p.keyboard.press('q');
   assert.ok(await composer(p).evaluate(el => el === document.activeElement));
+});
+
+await test('reader: G goes to the last line and stays in the reader', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).press('Escape');
+  await p.keyboard.press('g'); await p.keyboard.press('g');
+  await settle(p);
+  await p.keyboard.press('Shift+G');
+  await settle(p, 300);
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'still reading');
+  assert.equal(await mode(p), 'NORMAL');
+  assert.ok(!(await composer(p).evaluate(el => el === document.activeElement)), 'the composer did not take the keys');
+  const gap = await p.evaluate(() => { const s = document.querySelector('.pane.focus .thread'); return s.scrollHeight - s.scrollTop - s.clientHeight; });
+  assert.ok(gap < 60, `scrolled to the last line (${gap})`);
 });
 
 await test('requests: 1 of 3, y allows the oldest, n denies the next, buttons answer the last', async p => {
@@ -202,10 +216,11 @@ await test('side chat: link opens it; Send to thread quotes the answer back', as
   assert.equal(await p.locator('.pane .compw .bk .tok').count(), 1, 'drawn as a chip');
 });
 
-await test('/side starts a new side chat popup in INSERT', async p => {
+await test('/sidechats offers New side chat; it opens a side chat popup in INSERT', async p => {
   await openChat(p, 'Add timestamps to chat rows');
-  await composer(p).pressSequentially('/side');
+  await composer(p).pressSequentially('/sidech');
   await composer(p).press('Enter');
+  await p.locator('.menu .mi', { hasText: 'New side chat' }).click();
   const pop = p.locator('.peek.focus');
   await pop.waitFor();
   assert.equal(await pop.locator('textarea').getAttribute('placeholder'), 'Ask in this side chat');
@@ -225,8 +240,9 @@ await test('model and permission pickers change the chips', async p => {
   await p.locator('.menu .mi', { hasText: 'Sonnet' }).click();
   await p.locator('.pane.focus .cf .chip', { hasText: 'Sonnet' }).waitFor();
   await p.locator('.pane.focus .cf .chip[title="Model and effort"]').click();
-  await p.locator('.menu .mi', { hasText: 'High' }).click();
+  await p.locator('.menu.model .eff .et span', { hasText: 'High' }).click();
   await p.locator('.pane.focus .cf .chip', { hasText: 'High' }).waitFor();
+  await p.keyboard.press('Escape');
   await p.locator('.pane.focus .cf .chip[title="Permissions"]').click();
   await p.locator('.menu .mi', { hasText: 'Plan mode' }).click();
   await p.locator('.pane.focus .cf .chip', { hasText: 'Plan mode' }).waitFor();
@@ -309,4 +325,311 @@ await test('drafts survive switching threads', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await openChat(p, 'Add timestamps to chat rows');
   assert.equal(await composer(p).inputValue(), 'half-written');
+});
+
+// ---------- mockup parity: pickers, / menu, context, quotes, images, the launcher ----------
+
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+/** Paste an image into a textarea, as a clipboard with only a file item (a Windows screenshot). */
+const pasteImage = (loc, b64 = png.toString('base64')) => loc.evaluate((el, b) => {
+  const bytes = Uint8Array.from(atob(b), c => c.charCodeAt(0)), dt = new DataTransfer();
+  dt.items.add(new File([bytes], 'shot.png', { type: 'image/png' }));
+  el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+}, b64);
+
+await test('permission chip: one label, a 200px menu of plain modes with a check', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const chip = p.locator('.pane.focus .cf .chip[title="Permissions"]');
+  assert.equal(await chip.locator(':scope > span').count(), 1);
+  assert.equal(await chip.locator(':scope > span.lbl').count(), 1, 'the label is the .lbl itself');
+  await chip.click();
+  const menu = p.locator('.menu').last();
+  await menu.waitFor();
+  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Ask before edits', 'Accept edits', 'Plan mode']);
+  assert.equal(await menu.locator('.mi .mic').count(), 0, 'no icons');
+  assert.equal(await menu.locator('.mi .mh').count(), 0, 'no hints');
+  assert.equal(await menu.locator('.mi.sel', { hasText: 'Accept edits' }).locator('.i-check').count(), 1);
+  assert.equal(Math.round((await menu.boundingBox()).width), 200);
+  await p.keyboard.press('Escape');
+});
+
+await test('model picker: search, harness marks, effort track, Ultracode', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const chip = p.locator('.pane.focus .cf .chip[title="Model and effort"]');
+  assert.equal((await chip.innerText()).replace(/\s+/g, ' ').trim(), 'Opus 5.5 Medium');
+  await chip.click();
+  const menu = p.locator('.menu.model');
+  await menu.waitFor();
+  assert.equal(await menu.locator('.m-s input').getAttribute('placeholder'), 'Search models');
+  assert.equal(await mode(p), 'INSERT', 'opens ready to type');
+  assert.equal(await menu.locator('.mi .mic .i-claude').count(), 4, 'each row has its harness mark');
+  assert.equal(await menu.locator('.mi.head').count(), 0, 'no headings');
+  await p.keyboard.type('son');
+  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Sonnet 5.5', 'Ultracode']);
+  await p.keyboard.press('ArrowRight');   // arrows step the effort while typing
+  await p.waitForFunction(() => document.querySelector('.menu.model .eff .eh b')?.textContent === 'High');
+  await p.keyboard.press('Escape');       // NORMAL: h / l step it, j / k pick
+  await p.keyboard.press('h');
+  await p.waitForFunction(() => document.querySelector('.menu.model .eff .eh b')?.textContent === 'Medium');
+  // click a stop on the track
+  const max = menu.locator('.eff .et span', { hasText: 'Max' });
+  await max.click();
+  await p.locator('.pane.focus .cf .chip[title="Model and effort"]', { hasText: 'Max' }).waitFor();
+  await menu.locator('.mi', { hasText: 'Ultracode' }).click();
+  await menu.locator('.mi', { hasText: 'Ultracode' }).locator('.sw.on').waitFor();
+  await p.locator('.pane.focus .cf .chip[title="Model and effort"]', { hasText: 'Max · Ultracode' }).waitFor();
+  await p.keyboard.press('Escape');
+});
+
+await test('model picker on a machine without the harness: dimmed rows and Install copies', async p => {
+  await p.locator('#side').getByText('New thread').first().click();
+  const T = p.locator('.pane.focus .newp textarea:visible');
+  await T.waitFor();
+  await p.locator('.pane.focus .newp .chip[title="Machine"]:visible').click();
+  await p.locator('.menu .mi', { hasText: 'build-07' }).click();
+  await p.locator('.pane.focus .newp .chip[title="Model and effort"]:visible').click();
+  const menu = p.locator('.menu.model');
+  await menu.waitFor();
+  assert.equal(await menu.locator('.mi.off', { hasText: 'not on build-07' }).count(), 4);
+  assert.equal(await menu.locator('.mx .mgap').count(), 1, 'a gap between the harnesses');
+  await menu.locator('.mi', { hasText: 'Install Claude Code on build-07' }).click();
+  await p.locator('.toast', { hasText: 'Copied' }).waitFor();
+});
+
+await test('context ring opens the context popover', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const ring = p.locator('.pane.focus .cf button[aria-label^="Context usage"]');
+  await ring.click();
+  const pop = p.locator('#context-usage');
+  await pop.waitFor();
+  const t = (await pop.innerText()).replace(/\s+/g, ' ');
+  assert.match(t, /Context \d+%/);
+  assert.match(t, /\d+% left · Opus 5\.5/);
+  assert.equal(await pop.locator('.cu-bar').count(), 1);
+  await p.keyboard.press('Escape');
+  await pop.waitFor({ state: 'detached' });
+});
+
+await test('attach button says how to attach', async p => {
+  await openChat(p, 'Fix session-restore race');
+  assert.equal(await p.locator('.pane.focus .cf .ib').first().getAttribute('title'), 'Attach image · or paste one');
+});
+
+await test('/ menu: the mockup list with icons, thread commands, then Skills', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).pressSequentially('/');
+  const menu = p.locator('.composer-menu');
+  await menu.waitFor();
+  const names = await menu.locator('.mi:not(.head) .ml').allInnerTexts();
+  assert.deepEqual(names.slice(0, 4), ['Clear', 'Compact', 'Model', 'Plan']);
+  assert.ok(names.indexOf('Side chats') > names.indexOf('Status') && names.indexOf('Subagents') === names.indexOf('Side chats') + 1);
+  assert.equal(await menu.locator('.mi.head', { hasText: 'Skills' }).count(), 1);
+  assert.ok(names.at(-1) === 'Security review');
+  assert.equal(await menu.locator('.mi:not(.head)').first().locator('.i-compose').count(), 1, 'Clear has its icon');
+  // ctrl-p moves the list (the popup's keys win over global file search)
+  await p.keyboard.press('Control+n');
+  assert.equal(await menu.locator('.mi.sel .ml').innerText(), 'Compact');
+  await p.keyboard.press('Control+p');
+  assert.equal(await menu.locator('.mi.sel .ml').innerText(), 'Clear');
+  await settle(p);
+  assert.equal(await p.locator('.menu.pal').count(), 0, 'file search did not open');
+});
+
+await test('quotes are one item: motions, the block cursor, x and backspace take them whole', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await p.evaluate(() => {
+    const el = document.querySelector('.pane.focus .m-asst p').firstChild; const r = document.createRange();
+    r.setStart(el, 0); r.setEnd(el, 20); getSelection().removeAllRanges(); getSelection().addRange(r);
+  });
+  await p.keyboard.press(`${mod}+l`);
+  await settle(p);
+  await p.keyboard.type('is wrong');
+  const v = await composer(p).inputValue(), end = v.indexOf('⁣', 1) + 1;
+  assert.ok(v.startsWith('⁣') && v.endsWith('is wrong'), 'the typing goes after the quote');
+  const sel = () => composer(p).evaluate(t => [t.selectionStart, t.selectionEnd]);
+  await keys(p, 'Escape 0');
+  assert.deepEqual(await sel(), [0, end], 'the block covers the whole quote');
+  await keys(p, 'l');
+  assert.deepEqual(await sel(), [end, end + 1], 'l steps over it');
+  await keys(p, 'h');
+  assert.deepEqual(await sel(), [0, end]);
+  await keys(p, 'x');
+  assert.equal(await composer(p).inputValue(), ' is wrong');
+  await keys(p, 'u A');
+  for (let i = 0; i < 9; i++) await p.keyboard.press('ArrowLeft');
+  assert.deepEqual(await sel(), [end, end]);
+  await p.keyboard.press('ArrowLeft');
+  assert.deepEqual(await sel(), [0, 0], 'left steps over it');
+  await p.keyboard.press('ArrowRight');
+  assert.deepEqual(await sel(), [end, end]);
+  await p.keyboard.press('Backspace');
+  assert.equal(await composer(p).inputValue(), ' is wrong', 'backspace deletes it whole');
+});
+
+await test('quotes stay linked: the source lights up, hover brightens it, x removes, a click goes there', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await p.evaluate(() => {
+    const el = document.querySelector('.pane.focus .m-asst p').firstChild; const r = document.createRange();
+    r.setStart(el, 0); r.setEnd(el, 20); getSelection().removeAllRanges(); getSelection().addRange(r);
+  });
+  await p.keyboard.press(`${mod}+l`);
+  await settle(p);
+  const hl = () => p.evaluate(() => [CSS.highlights.get('note')?.size ?? 0, CSS.highlights.get('note-hot')?.size ?? 0]);
+  assert.deepEqual(await hl(), [1, 0], 'the quoted text is marked while the quote waits');
+  const tok = await p.locator('.pane.focus .compw .bk .tok').boundingBox();
+  await p.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2);
+  await p.locator('.tokx').waitFor();
+  assert.deepEqual(await hl(), [0, 1], 'hovering it brightens its source');
+  await p.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2 + 1);
+  await p.mouse.down(); await p.mouse.up();
+  const [a, b] = await composer(p).evaluate(t => [t.selectionStart, t.selectionEnd]);
+  assert.equal(a, b);
+  const v = await composer(p).inputValue();
+  assert.ok(a === 0 || a === v.indexOf('⁣', 1) + 1, 'the caret is never inside the quote');
+  await p.locator('.tokx').hover();
+  await p.locator('.tokx').click();
+  assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 0);
+  await settle(p);
+  assert.deepEqual(await hl(), [0, 0]);
+});
+
+await test('images open in the viewer: composer thumbnails and sent ones; esc or a click closes', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await pasteImage(composer(p));
+  await p.locator('.pane.focus .atts .att img').click();
+  await p.locator('.lightbox img').waitFor();
+  await p.keyboard.press('Escape');
+  await p.locator('.lightbox').waitFor({ state: 'detached' });
+  assert.equal(await mode(p), 'INSERT', 'the composer has the keys again');
+  await composer(p).fill('see');
+  await composer(p).press('Enter');
+  await p.locator('.pane.focus .m-user .m-img').click();
+  await p.locator('.lightbox').click();
+  await p.locator('.lightbox').waitFor({ state: 'detached' });
+});
+
+await test('launcher: the chat composer, with / and @ menus, attach, paste, permission and branch chips', async p => {
+  await p.locator('#side').getByText('New thread').first().click();
+  const T = p.locator('.pane.focus .newp textarea:visible');
+  await T.waitFor();
+  const newp = p.locator('.pane.focus .newp:visible');
+  assert.equal(await newp.locator('.cf .chip[title="Permissions"]').innerText(), 'Ask before edits');
+  assert.equal(await newp.locator('.cf .ib[title^="Attach image"]').count(), 1);
+  assert.equal(await newp.locator('.under .chip[title="Start in a new git worktree"]').innerText(), 'main');
+  await T.pressSequentially('/');
+  const menu = p.locator('.composer-menu');
+  await menu.waitFor();
+  assert.ok((await menu.innerText()).includes('Compact'));
+  assert.equal(await menu.locator('.mi', { hasText: 'Side chats' }).count(), 0, 'no side chats before the thread exists');
+  await p.keyboard.press('Backspace');
+  await T.pressSequentially('@');
+  await p.locator('.composer-menu .mi .i-folder, .composer-menu .mi .i-file').first().waitFor();
+  await p.keyboard.press('Escape');
+  await T.fill('');
+  await pasteImage(T);
+  await newp.locator('.atts .att img').waitFor();
+  await newp.locator('.cf .chip[title="Permissions"]').click();
+  await p.locator('.menu .mi', { hasText: 'Plan mode' }).click();
+  await newp.locator('.cf .chip[title="Permissions"]', { hasText: 'Plan mode' }).waitFor();
+});
+
+await test('paste: an image on the clipboard attaches in an existing thread', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await pasteImage(composer(p));
+  await p.locator('.pane.focus .atts .att img').waitFor();
+});
+
+await test('quote toolbar: a click elsewhere (transcript or sidebar) dismisses it', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  const drag = async () => {
+    const b = await p.locator('.pane.focus .m-asst p').first().boundingBox();
+    await p.mouse.move(b.x + 4, b.y + 8); await p.mouse.down(); await p.mouse.move(b.x + 160, b.y + 8, { steps: 6 }); await p.mouse.up();
+    await p.locator('.seltb').waitFor();
+  };
+  await drag();
+  const th = await p.locator('.pane.focus .thread').boundingBox();
+  await p.mouse.click(th.x + th.width / 2, th.y + th.height - 20);
+  await p.locator('.seltb').waitFor({ state: 'detached' });
+  await drag();
+  await p.locator('#side .s-h').first().click();
+  await p.locator('.seltb').waitFor({ state: 'detached' });
+});
+
+// ---------- wave 2: quotes order, mouse selection, menus, links ----------
+
+const selectIn = (p, i, a, b) => p.evaluate(([i, a, b]) => {
+  const el = document.querySelectorAll('.pane.focus .m-asst p')[i].firstChild; const r = document.createRange();
+  r.setStart(el, a); r.setEnd(el, b); getSelection().removeAllRanges(); getSelection().addRange(r);
+}, [i, a, b]);
+
+await test('quotes: a second Add to chat goes after the first, the caret after it', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await selectIn(p, 0, 0, 8);
+  await p.keyboard.press(`${mod}+l`);
+  await settle(p);
+  await selectIn(p, 0, 10, 18);
+  await p.keyboard.press(`${mod}+l`);
+  await settle(p);
+  const toks = p.locator('.pane.focus .compw .bk .tok');
+  assert.equal(await toks.count(), 2);
+  const [v, caret] = await composer(p).evaluate(el => [el.value, el.selectionStart]);
+  const first = await p.evaluate(() => document.querySelectorAll('.pane.focus .m-asst p')[0].firstChild.textContent);
+  assert.ok(v.indexOf(first.slice(0, 8)) < v.indexOf(first.slice(10, 18)), 'quotes keep their order');
+  assert.ok(caret >= v.lastIndexOf('⁣'), 'the caret sits after the last quote');
+});
+
+await test('composer: a double-click selects a word in VISUAL', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).fill('hello brave world');
+  await composer(p).dblclick();
+  await settle(p);
+  assert.equal(await mode(p), 'VISUAL');
+});
+
+await test('/ menu: Tab picks the highlighted command', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).pressSequentially('/co');
+  await p.locator('.composer-menu').waitFor();
+  await p.keyboard.press('Tab');
+  assert.equal(await composer(p).inputValue(), '/compact ');
+});
+
+await test('composer controls: a mouse click clears the keyboard mark', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).press('Escape');
+  await p.keyboard.press('j');
+  await settle(p);
+  assert.ok(await p.locator('.pane.focus .cf > .kcur').count());
+  await composer(p).click();
+  await settle(p);
+  assert.equal(await p.locator('.pane.focus .cf > .kcur').count(), 0);
+});
+
+await test('undo past the oldest change toasts', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).press('Escape');
+  await p.keyboard.press('u');
+  await p.locator('.toast', { hasText: 'Already at oldest change' }).waitFor();
+});
+
+await test('leader [ in a chat tab enters the reader', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).press('Escape');
+  await keys(p, 'Control+Space [');
+  await settle(p);
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'reader is on');
+});
+
+await test('composer controls: i goes back into the text at its end', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).fill('one two three');
+  await composer(p).press('Escape');
+  await p.keyboard.press('0');
+  await p.keyboard.press('j');
+  await settle(p);
+  assert.ok(await p.locator('.pane.focus .cf > .kcur').count());
+  await p.keyboard.press('i');
+  await settle(p);
+  assert.equal(await mode(p), 'INSERT');
+  assert.equal(await composer(p).evaluate(el => el.selectionStart), 'one two three'.length);
 });

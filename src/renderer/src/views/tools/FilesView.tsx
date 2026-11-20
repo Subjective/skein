@@ -52,7 +52,7 @@ export function FilesView({ t, focused }: { t: Tab; focused: boolean }) {
         case '/': requestAnimationFrame(() => search.current?.focus(true)); return true;
         case 'esc': if (st.q) { st.q = ''; update(); return true; } return false;
       }
-      return k.length === 1;
+      return false;   // the app's NORMAL layer gets the rest (: H L | \ ?); the dispatcher drops what nobody takes
     },
   });
 

@@ -1,60 +1,75 @@
 // What a new tab shows: one composer (the model picks the harness), where it runs, and the other tab kinds.
 // enter starts the thread with the prompt; an empty enter just opens the harness.
 import { useRef, useState } from 'react';
-import type { Harness } from '@shared/types';
-import { MODELS as SHARED_MODELS } from '@shared/models';
+import type { Harness, ThreadMeta } from '@shared/types';
+import { MODELS } from '@shared/models';
 import { api } from '../api';
 import * as A from '../state/actions';
 import { mkTab, type Tab } from '../state/layout';
-import { machine, S, toast, update, useApp } from '../state/store';
+import { machine, S, toast, update, useApp, ws } from '../state/store';
 import { openMenu } from './overlays';
 import { harnessName, tildify } from './meta';
-import { Chip, Dot, Icon, SendButton } from '../ui/primitives';
-import { VimField, type VimFieldHandle } from '../ui/VimField';
+import { Chip, Dot, Icon } from '../ui/primitives';
+import { Composer, type ComposerHandle } from '../views/chat/Composer';
+import { blank, outgoing, setUltra, ultraOf, type Draft } from '../views/chat/state';
 
-/** Models per harness. CLI aliases, so they keep working as versions change. */
-// The model menu: the harness's own default first, then the shared list (@shared/models), which chat uses too.
-export const MODELS: Record<Harness, { id: string; label: string }[]> = {
-  claude: [{ id: '', label: 'Default' }, ...SHARED_MODELS.claude],
-  codex: [{ id: '', label: 'Default' }, ...SHARED_MODELS.codex],
-};
 export const harnessOf = (t: Tab): Harness => (t.model?.startsWith('codex') ? 'codex' : t.model?.startsWith('claude') ? 'claude' : (S.settings as unknown as { lastHarness?: Harness }).lastHarness || 'claude');
-const modelLabel = (t: Tab) => { const h = harnessOf(t), id = t.model?.split(':')[1] || ''; return `${harnessName(h)}${id ? ' · ' + (MODELS[h].find(m => m.id === id)?.label || id) : ''}`; };
+/** The tab's model id: what was picked, else the harness's first (the shared list, @shared/models, which chat uses too). */
+const modelOf = (t: Tab) => { const h = harnessOf(t), id = t.model?.split(':')[1] || ''; return MODELS[h].some(m => m.id === id) ? id : MODELS[h][0].id; };
 
 export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   const s = useApp();
-  const [draft, setDraft] = useState('');
-  const field = useRef<VimFieldHandle>(null);
+  const [draft, setDraft] = useState<Draft>(blank);
+  const comp = useRef<ComposerHandle>(null);
   const m = machine(t.machine) || s.machines[0];
   const h = harnessOf(t);
   const missing = m && !m.has.includes(h);
+  // the folder: the tab's, else the workspace's project when it is on this machine (as the mockup's new tab)
+  const w = ws(), dir = t.dir || (w.machine === (t.machine || m?.id) ? w.dir : '') || '~';
 
   const start = async () => {
     if (!m) return;
     if (m.ssh && m.link !== 'up') { toast(`${m.name} is not connected`, { icon: 'host' }); void api.machines.connect(m.id); return; }
     if (missing) { toast(`${harnessName(h)} is not installed on ${m.name}`, { icon: 'alert' }); return; }
-    const prompt = draft.trim();
+    const prompt = outgoing(draft), images = draft.images;
     const view = s.settings.defaultView;
     const model = t.model?.split(':')[1] || undefined;
+    const ultra = ultraOf(t.id);
+    if (!t.dir) t.dir = dir;
     const th = await A.startThread(t, h, view);
+    setDraft(blank());
+    if (ultra) setUltra(th.id, true);
     if (prompt) void api.threads.update(th.id, { title: prompt.replace(/\s+/g, ' ').slice(0, 60) });
     if (view === 'chat') {
-      if (prompt) void api.chat.send(th.id, { text: prompt, model }).catch(e => toast(`Couldn't start: ${(e as Error).message}`, { icon: 'alert' }, 6000));
+      if (prompt || images.length) void api.chat.send(th.id, { text: prompt, images, model, effort: t.effort, perm: t.perm }).catch(e => toast(`Couldn't start: ${(e as Error).message}`, { icon: 'alert' }, 6000));
     } else {
-      // the first prompt rides on the command line, so the TUI starts working on it straight away
-      pendingArgs.set(th.id, [...(model ? ['--model', model] : []), ...(prompt ? [prompt] : [])]);
+      // the first prompt rides on the command line, so the TUI starts working on it straight away; images go to the
+      // machine's inbox first and their paths into the prompt (G14)
+      const paths: string[] = [];
+      for (const [i, src] of images.entries()) {
+        try { const b = await (await fetch(src)).arrayBuffer(); paths.push(await api.images.toInbox(th.machine, new Uint8Array(b), `paste-${i + 1}-${Date.now().toString(36)}.png`)); }
+        catch (e) { toast(`Couldn't copy an image to ${m.name}: ${(e as Error).message}`, { icon: 'alert' }, 6000); }
+      }
+      const text = [...paths.map(p => (/\s/.test(p) ? `"${p}"` : p)), prompt].filter(Boolean).join(' ');
+      pendingArgs.set(th.id, [...(model ? ['--model', model] : []), ...(text ? [text] : [])]);
     }
     update(x => { x.tick++; });
   };
 
-  const pickModel = (el: HTMLElement) => openMenu<string>({
-    anchor: el.getBoundingClientRect(), place: 'bottom-start', width: 260, search: { placeholder: 'Search models' },
-    items: (['claude', 'codex'] as Harness[]).flatMap(hh => [
-      { head: true, label: harnessName(hh), icon: <Icon name={hh} /> },
-      ...MODELS[hh].map(x => ({ label: x.label, hint: m && !m.has.includes(hh) ? `Not installed on ${m.name}` : undefined, dis: !!m && !m.has.includes(hh), on: harnessOf(t) === hh && (t.model?.split(':')[1] || '') === x.id, data: `${hh}:${x.id}` })),
-    ]),
-    onPick: it => update(() => { t.model = it.data; }),
-  });
+  // the composer's pickers report here until the thread starts; a new harness resets the permission (as the mockup)
+  const onSettings = (p: { harness?: Harness; model?: string; effort?: string; perm?: string }) => {
+    update(x => {
+      const hh = p.harness || harnessOf(t);
+      if (p.model !== undefined || p.harness) t.model = `${hh}:${p.model ?? modelOf(t)}`;
+      if (p.effort) t.effort = p.effort;
+      if (p.harness) t.perm = undefined;
+      if (p.perm) t.perm = p.perm;
+      x.tick++;
+    });
+    A.save();
+  };
+  const stand: ThreadMeta = { id: t.id, harness: h, machine: m?.id || 'local', dir, title: '', model: modelOf(t), effort: t.effort, perm: t.perm, createdAt: 0, updatedAt: 0, status: 'idle' };
+
   const pickMachine = (el: HTMLElement) => openMenu<string>({
     anchor: el.getBoundingClientRect(), place: 'bottom-start', width: 260,
     items: s.machines.map(x => ({ label: x.name, icon: <Icon name={x.ssh ? 'host' : 'laptop'} />, right: x.ssh ? <Dot color={x.link === 'up' ? 'green' : x.link === 'down' ? 'red' : 'amber'} /> : undefined, on: x.id === m?.id, data: x.id })),
@@ -63,26 +78,21 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
       update(() => { t.machine = it.data; t.dir = nm?.home ? '~' : '~'; });
       if (nm?.ssh && nm.link !== 'up') void api.machines.connect(nm.id);
       // G6: picking a machine without this harness switches to one it has, and says so
-      if (nm && nm.has.length && !nm.has.includes(harnessOf(t))) { const other = nm.has[0]; update(() => { t.model = `${other}:`; }); toast(`${nm.name} has ${harnessName(other)} only, so the thread will use it`); }
+      if (nm && nm.has.length && !nm.has.includes(harnessOf(t))) { const other = nm.has[0]; update(() => { t.model = `${other}:`; t.perm = undefined; }); toast(`${nm.name} has ${harnessName(other)} only, so the thread will use it`); }
     },
   });
-  const pickDir = (el: HTMLElement) => dirMenu(t, el, d => { update(() => { t.dir = d; }); A.save(); });
+  const pickDir = (el: HTMLElement) => dirMenu({ machine: t.machine, dir }, el, d => { update(() => { t.dir = d; }); A.save(); });
   const open = (kind: 'shell' | 'changes' | 'files' | 'browser') => update(x => { Object.assign(t, mkTab(kind, { machine: t.machine, dir: t.dir }), { id: t.id }); x.tick++; });
 
   return (
     <div className="newp"><div className="col">
-      <div className="comp">
-        <div className="taw"><VimField ref={field} tabId={t.id} value={draft} onChange={setDraft} placeholder="Ask anything" autoFocus={focused} startMode={t.startNormal ? 'NORMAL' : 'INSERT'} onEnter={() => void start()} /></div>
-        <div className="cf">
-          <span className="sp" />
-          <Chip icon={h} label={modelLabel(t)} caret onClick={e => pickModel(e.currentTarget)} title="Model" />
-          <SendButton label="Start" disabled={!!missing} onClick={() => void start()} />
-        </div>
-      </div>
+      <Composer ref={comp} tabId={t.id} thread={stand} draft={draft} onDraft={setDraft} placeholder="Ask anything" autoFocus={focused}
+        startMode={t.startNormal ? 'NORMAL' : 'INSERT'} onSend={() => void start()} fresh={{ onSettings }} />
       <div className="under pick">
         <Chip icon={m?.ssh ? 'host' : 'laptop'} label={<>{m?.name}{m?.ssh && m.link !== 'up' && <> <Dot color={m.link === 'down' ? 'red' : 'amber'} /></>}</>} caret onClick={e => pickMachine(e.currentTarget)} title="Machine" />
-        <Chip className="path" icon="folder" label={t.dir ? tildify(t.machine, t.dir) : '~'} caret onClick={e => pickDir(e.currentTarget)} title="Folder" />
+        <Chip className="path" icon="folder" label={tildify(t.machine, dir)} caret onClick={e => pickDir(e.currentTarget)} title="Directory" />
         <span className="sp" />
+        <Chip icon="branch" lbl="lbl" on={!!t.worktree} label={t.worktree ? 'new worktree' : 'main'} title="Start in a new git worktree" onClick={() => { update(x => { t.worktree = !t.worktree; x.tick++; }); A.save(); }} />
       </div>
       {missing && <div className="link-note"><Icon name="alert" /><span>{harnessName(h)} is not installed on {m?.name}.</span></div>}
       <div className="cards">

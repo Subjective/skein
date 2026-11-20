@@ -27,6 +27,8 @@ export interface Tab {
   worktree?: boolean;
   /** A launcher made by a split opens in NORMAL (B10), so | then \\ splits twice instead of typing. */
   startNormal?: boolean;
+  /** Where the tab last floated as a popup (in #work), so popping it out again puts it back there. */
+  pop?: { x: number; y: number; w: number; h: number };
 }
 
 export interface Pane { type: 'pane'; id: string; tabs: Tab[]; active: string }

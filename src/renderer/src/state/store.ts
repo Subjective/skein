@@ -8,7 +8,8 @@ import { mkPane, mkTab, newId, type Workspace } from './layout';
 
 export interface Layer { id: number; render: (close: () => void) => import('react').ReactNode; close: () => void; surface?: Surface; onClose?: () => void }
 
-export interface Toast { id: number; icon?: string; text: string; action?: { label: string; run: () => void } }
+/** One toast at a time (the mockup's toast()): an icon, rich text (bold names as <b>), and an inline action like Undo. */
+export interface Toast { id: number; icon?: string; text: import('react').ReactNode; action?: { label: string; run: () => void } }
 
 export interface AppState {
   info: AppInfo;
@@ -23,6 +24,13 @@ export interface AppState {
   /** Sidebar cursor: a thread id, or 'fold:<key>' for a heading. */
   sideCursor: string | null;
   collapsed: Record<string, boolean>;
+  /** Sidebar projects: folders added with a machine's + (no threads yet), names given by double-click, and
+   *  the order projects were dragged into, all keyed '<machine>:<dir>' or by machine. */
+  projects: Record<string, string[]>;
+  names: Record<string, string>;
+  dirOrder: Record<string, string[]>;
+  /** The sidebar row being renamed in place: 'thread:<id>' or 'dir:<machine>:<dir>'. */
+  sideEdit: string | null;
   archiveOpen: boolean;
   leader: boolean;
   seq: string;
@@ -43,7 +51,7 @@ export const S: AppState = {
   info: { platform: 'win', version: '', home: '', pty: true },
   settings: { theme: 'system', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'term', notify: 'waiting', vimrc: '' },
   machines: [], threads: [], workspaces: [blankWs()], wid: '',
-  sideOpen: true, sideFocus: false, sideCursor: null, collapsed: {}, archiveOpen: false,
+  sideOpen: true, sideFocus: false, sideCursor: null, collapsed: {}, projects: {}, names: {}, dirOrder: {}, sideEdit: null, archiveOpen: false,
   leader: false, seq: '', toasts: [], auth: [], layers: [], tick: 0,
 };
 S.wid = S.workspaces[0].id;
@@ -69,11 +77,13 @@ export const thread = (id?: string) => (id ? S.threads.find(t => t.id === id) : 
 export const machine = (id?: string) => S.machines.find(m => m.id === (id || 'local'));
 
 let toastN = 0;
-export function toast(text: string, o: Partial<Omit<Toast, 'id' | 'text'>> = {}, ms = 3200) {
+export function toast(text: Toast['text'], o: Partial<Omit<Toast, 'id' | 'text'>> = {}, ms = 3200) {
   const t: Toast = { id: ++toastN, text, ...o };
-  update(s => { s.toasts = [...s.toasts.slice(-2), t]; });
-  setTimeout(() => update(s => { s.toasts = s.toasts.filter(x => x.id !== t.id); }), ms);
+  update(s => { s.toasts = [t]; });   // a new toast replaces the one showing
+  if (ms) setTimeout(() => dismissToast(t.id), ms);
+  return t.id;
 }
+export function dismissToast(id: number) { if (S.toasts.some(x => x.id === id)) update(s => { s.toasts = s.toasts.filter(x => x.id !== id); }); }
 
 let layerN = 0;
 /** Open an overlay. Its component registers its keyboard surface with `layerSurface`. Returns close. */

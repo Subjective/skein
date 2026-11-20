@@ -9,10 +9,11 @@ import { openMenu } from '../../shell/overlays';
 import { Icon, Spinner } from '../../ui/primitives';
 import type { ComposerHandle } from './Composer';
 import type { Reader } from './reader';
-import { bump, tabChat, tokenOf, type Quote } from './state';
+import { bump, offsetsIn, saveDraft, syncQuotes, tabChat, tokenOf, type Quote } from './state';
+import { termOf } from '../terminal/TerminalView';
 
 // ---- chat tabs on screen, so quotes can find their composer ----
-interface Live { thread: string; draft: string; composer: { current: ComposerHandle | null }; reader: () => Reader }
+interface Live { thread: string; draft: string; composer: { current: ComposerHandle | null }; reader: () => Reader; /** Leader `[`: into the reader at the end. */ enter?: () => boolean }
 const live = new Map<string, Live>();
 export function registerChatTab(tabId: string, l: Live) { live.set(tabId, l); return () => { if (live.get(tabId) === l) live.delete(tabId); }; }
 export const liveTab = (tabId: string) => live.get(tabId);
@@ -28,6 +29,7 @@ export function popTab(match: (t: Tab) => boolean, make: () => Tab) {
     return hit.tab;
   }
   const tab = make();
+  A.notePlace(tab.id);   // rule 15: where the keyboard was, for when the popup closes
   update(s => { w.pops.push({ tab, from: w.focus }); w.pf = tab.id; s.sideFocus = false; s.tick++; });
   A.save();
   return tab;
@@ -54,19 +56,33 @@ export async function forkAt(th: ThreadMeta, at: string) {
   toast('Forked into a new thread', { icon: 'branch' });
 }
 
-/** /sidechats: this thread's side chats, newest first, and New side chat. r renames the one under the cursor. */
-export function chooseSide(th: ThreadMeta, anchor: DOMRect, at: string | undefined, then: (id: string) => void, title?: string) {
-  const list = S.threads.filter(x => x.side && x.parent?.id === th.id).sort((a, b) => b.updatedAt - a.updatedAt);
+/** /sidechats: this thread's side chats in the order they were made, and New side chat. r (or the row's pencil)
+ *  renames one. From the composer the menu sits over it at its width; from a selection (Add to Side Chat) it drops
+ *  below the selection, 290 wide (the mockup's chooseSide). */
+export function chooseSide(th: ThreadMeta, anchor: DOMRect, at: string | undefined, then: (id: string) => void, title?: string, o: { fromSelection?: boolean } = {}) {
+  const list = S.threads.filter(x => x.side && x.parent?.id === th.id).sort((a, b) => a.createdAt - b.createdAt);
   if (!list.length && title) { void newSide(th, at, title).then(then); return; }
-  openMenu<string>({
-    anchor, place: 'top-start', width: 'anchor', className: 'composer-menu', search: { placeholder: 'Search side chats' }, empty: 'No matching side chats',
-    items: [{ label: 'New side chat', icon: createElement(Icon, { name: 'plus' }), data: '' }, ...list.map(x => ({ label: x.title, icon: createElement(Icon, { name: 'chat' }), data: x.id }))],
+  const placement = o.fromSelection ? { anchor, place: 'bottom-start' as const, width: 290 } : { anchor, place: 'top-start' as const, width: 'anchor' as const };
+  const rename = (id: string) => {
+    const sc = thread(id); if (!sc) return;
+    openMenu<string>({ ...placement, className: 'composer-menu', search: { prefix: 'Rename', placeholder: 'Side chat name', value: sc.title },
+      items: q => [{ label: q.trim() || sc.title, icon: createElement(Icon, { name: 'chat' }), data: q.trim() }],
+      onPick: (_, q) => { if (q.trim()) void api.threads.update(sc.id, { title: q.trim() }); } });
+    // the old name selected, so typing replaces it
+    requestAnimationFrame(() => { const i = document.querySelector<HTMLInputElement>('.menu:last-of-type .m-s input'); i?.select(); });
+  };
+  const close = openMenu<string>({
+    ...placement, className: 'composer-menu', search: { placeholder: 'Search side chats' }, empty: 'No matching side chats',
+    items: [{ label: 'New side chat', icon: createElement(Icon, { name: 'plus' }), data: '' }, ...list.map(x => ({
+      label: x.title, icon: createElement(Icon, { name: 'chat' }), data: x.id,
+      right: createElement('span', { className: 'wact' }, createElement('button', {
+        type: 'button', title: 'Rename side chat', 'aria-label': 'Rename side chat',
+        onMouseDown: (e: MouseEvent) => { e.preventDefault(); e.stopPropagation(); close(); rename(x.id); },
+      }, createElement(Icon, { name: 'pencil' }))),
+    }))],
     keys: (k, it) => {
       if (k !== 'r' || !it?.data) return false;
-      const sc = thread(it.data)!;
-      openMenu<string>({ anchor, place: 'top-start', width: 'anchor', className: 'composer-menu', search: { prefix: 'Rename', placeholder: 'Side chat name', value: sc.title },
-        items: q => [{ label: q.trim() || sc.title, icon: createElement(Icon, { name: 'chat' }), data: q.trim() }],
-        onPick: (_, q) => { if (q.trim()) void api.threads.update(sc.id, { title: q.trim() }); } });
+      close(); rename(it.data);
       return true;
     },
     onPick: it => (it.data ? then(it.data) : void newSide(th, at, title).then(then)),
@@ -97,7 +113,8 @@ export function quoteToTab(tabId: string, q: Quote) {
   const d = box.text, p = Math.min(l?.composer.current?.caret() ?? d.length, d.length), pre = d.slice(0, p), lead = pre && !/\s$/.test(pre) ? ' ' : '';
   const ins = lead + tokenOf(q) + ' ';
   box.text = pre + ins + d.slice(p);
-  box.quotes = [...box.quotes, q];
+  box.quotes = syncQuotes({ ...box, quotes: [...box.quotes, q] });   // in text order: the n-th chip is the n-th quote
+  if (!c.edit && l) saveDraft(l.draft, box.text, box.quotes);
   bump();
   requestAnimationFrame(() => {
     const f = live.get(tabId)?.composer.current?.field(); if (!f) return;
@@ -111,6 +128,13 @@ export function quoteInto(threadId: string, q: Quote) {
   if (!hit) { A.openThread(threadId, { view: 'chat' }); hit = allTabs(w).find(x => x.tab.kind === 'thread' && x.tab.thread === threadId); }
   if (!hit) return;
   const tab = hit.tab;
+  // a thread shown as its terminal takes the words as text at the TUI's prompt (it has no quote chips)
+  const term = tab.view === 'term' ? termOf(tab.id) : undefined;
+  if (term) {
+    if (hit.pane) A.activate(hit.pane.id, tab.id); else update(s => { w.pf = tab.id; s.tick++; });
+    term.term.paste(`"${q.text}" `); term.term.focus();
+    return;
+  }
   if (tab.view !== 'chat') A.setView(tab, 'chat');
   if (hit.pane) A.activate(hit.pane.id, tab.id); else update(s => { w.pf = tab.id; s.tick++; });
   requestAnimationFrame(() => quoteToTab(tab.id, q));
@@ -128,7 +152,7 @@ export function quoteSelection(side: boolean): boolean {
   const lt = live.get(tabId);
   const threadId = lt?.thread || allTabs(ws()).find(x => x.tab.id === tabId)?.tab.thread;
   lt?.reader().clear(); s.removeAllRanges();
-  const q: Quote = { id: 'q' + Date.now(), text, src: key };
+  const q: Quote = { id: 'q' + Date.now(), text, src: key, ...(src && src.contains(r.endContainer) ? offsetsIn(src, r) : {}) };
   if (!side) {
     if (lt) quoteToTab(tabId, q);
     else if (threadId) quoteInto(threadId, q);
@@ -139,6 +163,6 @@ export function quoteSelection(side: boolean): boolean {
   const main = th.side && th.parent ? thread(th.parent.id) || th : th;
   const at = /^ev:[^:]+:(.+)$/.exec(key)?.[1];
   const rect = r.getBoundingClientRect();
-  chooseSide(main, rect, at, id => { openSide(id); requestAnimationFrame(() => { const t = allTabs(ws()).find(x => x.tab.thread === id); if (t) quoteToTab(t.tab.id, q); }); }, text.slice(0, 28));
+  chooseSide(main, rect, at, id => { openSide(id); requestAnimationFrame(() => { const t = allTabs(ws()).find(x => x.tab.thread === id); if (t) quoteToTab(t.tab.id, q); }); }, text.length > 28 ? text.slice(0, 27) + '…' : text, { fromSelection: true });
   return true;
 }

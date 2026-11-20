@@ -43,6 +43,13 @@ function pump() {
   current = { id: p.id, close };
 }
 
+/** The sign-in dot: show this machine's waiting prompt now (first in line). false when none is waiting. */
+export function showAuth(machineId: string): boolean {
+  const p = S.auth.find(x => x.machine === machineId); if (!p) return false;
+  if (current?.id !== p.id) { update(s => { s.auth = [p, ...s.auth.filter(x => x !== p)]; }); pump(); }
+  return true;
+}
+
 /** Follow the main process's auth events. Called once at boot. */
 export function watchAuth() {
   api.on(e => {

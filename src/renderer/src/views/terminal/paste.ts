@@ -7,23 +7,43 @@ import { api } from '../../api';
 import { machine, update } from '../../state/store';
 import type { TermEntry } from './TerminalView';
 
-export type Upload = { name: string; host: string; state: 'up' | 'fail'; error?: string; retry: () => void };
+export type Upload = { name: string; host: string; state: 'up' | 'fail'; pct: number; error?: string; retry: () => void };
 export const uploads = new Map<string, Upload>();
 
 const setUpload = (tabId: string, u: Upload | null) => update(() => { if (u) uploads.set(tabId, u); else uploads.delete(tabId); });
 
+// main pushes an upload's progress as 'upload' events, named by the file
+let wired = false;
+function wire() {
+  if (wired) return; wired = true;
+  api.on(e => {
+    if (e.type !== 'upload' || e.error) return;
+    for (const u of uploads.values()) if (u.state === 'up' && u.name === e.name && e.pct > u.pct) update(() => { u.pct = e.pct; });
+  });
+}
+
+/** Why an upload failed, in a few words: the machine dropped, else the first line of what went wrong. */
+export function uploadCause(host: string, linkUp: boolean, error = ''): string {
+  if (!linkUp || /connection (closed|reset|refused|timed out)|broken pipe|lost connection|could not resolve|no route/i.test(error)) return `${host} disconnected`;
+  return error.split('\n').map(x => x.trim()).find(Boolean) || 'the upload failed';
+}
+
+let n = 0;
 function send(tabId: string, t: TermEntry, bytes: Uint8Array) {
+  wire();
   const m = machine(t.spec.machine);
   const remote = !!m?.ssh;
+  const name = `paste-${++n}-${Date.now().toString(36)}.png`;
   const run = async () => {
-    if (remote) setUpload(tabId, { name: 'clipboard image', host: m!.name, state: 'up', retry: run });
+    if (remote) setUpload(tabId, { name, host: m!.name, state: 'up', pct: 0, retry: run });
     try {
-      const path = await api.images.toInbox(t.spec.machine, bytes);
+      const path = await api.images.toInbox(t.spec.machine, bytes, name);
       setUpload(tabId, null);
       t.term.paste((/\s/.test(path) ? `"${path}"` : path) + ' ');
       t.term.focus();
     } catch (e) {
-      setUpload(tabId, { name: 'clipboard image', host: m?.name ?? 'this machine', state: 'fail', error: (e as Error).message, retry: run });
+      const now = machine(t.spec.machine), msg = String((e as Error).message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+      setUpload(tabId, { name, host: now?.name ?? 'this machine', state: 'fail', pct: uploads.get(tabId)?.pct ?? 0, error: msg, retry: run });
     }
   };
   void run();

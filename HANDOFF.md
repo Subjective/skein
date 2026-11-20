@@ -69,11 +69,11 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   loads from it while the address bar keeps the remote's address, with `<machine> → :<local port>` beside it.
   One forward per machine and port, kept until it dies or the app quits; a failure is a row with Retry.
 - **Closing VIM-MODEL section 6** (2026-11-20; rules 18 and 19, section 4's Menu search field and Settings rows):
-  - A menu's search field is a Field in NORMAL: it keeps the focus (read-only) and its block cursor, and runs
+  - After `esc`, a menu's search field is a Field in NORMAL: it keeps the focus (read-only) and its block cursor, and runs
     `vimtext`. The list keeps `j` `k` `gg` `G` `enter` `q` (counts move the list: `3j`); everything else goes to the
     field. The menu owner's `keys` come first, so a folder field keeps `h` / `l` for out / in and the workspace list
-    keeps `d`. The model picker has no search field in the build (the mockup's had one), so its `h` / `l` effort
-    keys never clashed; `l` still picks in a menu without a search field.
+    keeps `d`. Every popup with a search field opens in INSERT (VIM-MODEL rule 21); the model picker has a
+    search field now, like the mockup's. `l` still picks in a menu without a search field.
   - Settings is two lists. The section list has the keys when it opens (`j` / `k` sections, `l` / `enter` / `tab`
     in); the rows take `h` / `l` as values (a switch counts: `h` off, `l` on), and `esc` / `shift-tab` / `h` on a
     row with no value go back. `J` / `K` (the old section keys) are gone; `H` / `L` do nothing in the dialog.
@@ -92,7 +92,26 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   in the status bar and the folder chip, as the sidebar already did (stored paths stay absolute). Claude Code
   writes `gitBranch: "HEAD"` outside a repo, which is now no branch. File search outside a repo skips hidden
   folders (a home folder's `.cache` filled the list); hidden files still show. A failed Browser load names the
-  cause in words and hides the engine's white page. The keyboard sheet flows in columns and lists reader keys.
+  cause in words and hides the engine's white page. The keyboard sheet flows in columns and lists reader keys
+  (since replaced by the mockup's sheet, below).
+- **Mockup parity pass, shell** (2026-11-20): the keyboard sheet, workspaces menu, `:` line, palette, pane search,
+  Machines popover, Settings and toasts now follow the mockup (scenes `keys`, `workspaces`, `folders`, `cmdline`,
+  `palette`, `tabs`, `machines`, `settings`). Decisions:
+  - The sheet rebinds by writing `nnoremap` lines to the vimrc (VIM-MODEL rule 12); it uses the mockup's command
+    names `q` and `workspace`, and `tabclose` / `workspaces` stay as aliases so older vimrc lines work.
+  - Commands take arguments (`run('new linux ~/repo')`). File search is `:find` (was `:files`); `:files` opens the
+    Files tool as in the mockup (`:filesview` still works). An exact name wins in the `:` line, so `:w` saves.
+  - Leader `o` is the mockup's popup focus (it was `:only`, which now has no default key), `d` docks, `r`
+    rotates, `+` / `-` resize stacked panes; `ctrl-w` in NORMAL arms the whole leader instead of 9 sequences.
+  - `:chatall` / `:termall` also change Settings' "New threads open as". Settings > General > On launch: Start
+    empty boots one blank workspace (`Settings.launch`). Folders picked in a folder field are kept (`dirs`).
+  - The vimrc tab applies as you type (400 ms after the last key); `:w` / ctrl-s save at once and name what
+    was ignored. Its header reads `~/.config/skein/vimrc` as in the mockup (the text lives in settings).
+  - Menus are modal; Tab picks like enter (a folder list's Tab goes in, else moves on); NORMAL space picks and
+    stays open; only composer menus follow the pointer. A click in the sidebar gives it the keys, but opening a
+    thread from it hands them to the thread (the mockup keeps them in the sidebar, which would swallow typing).
+  - Toasts: one at a time, rich text, an inline action (Undo) that also dismisses it.
+  - Folder rows have no "has sub-folders" chevron: it would need a listing per row, slow over SSH.
 
 ## Read first
 

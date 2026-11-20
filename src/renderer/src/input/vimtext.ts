@@ -22,9 +22,27 @@ export interface TextState {
   col?: number;         // wanted column for j / k
 }
 
-export type Effect = 'enter' | 'leave' | 'leave-up' | 'leave-down' | 'changed' | 'insert' | 'yank';
+export type Effect = 'enter' | 'leave' | 'leave-up' | 'leave-down' | 'changed' | 'insert' | 'yank' | 'oldest' | 'newest';
 
 export const init = (text = '', mode: FieldMode = 'INSERT'): TextState => ({ text, pos: text.length, mode, anchor: 0, pending: '', reg: { text: '', line: false }, undo: [], redo: [], insertFrom: mode === 'INSERT' ? { text, pos: text.length } : undefined });
+
+// ---------- quotes ----------
+// A quoted selection sits in a composer's text as one item between invisible U+2063 marks. The cursor never
+// goes inside one: motions step over it whole, the NORMAL block covers all of it, operators take it whole.
+const TOKRE = /\u2063[^\u2063]*\u2063/g;
+/** The quote [start, end) that position p is inside, if any. */
+export function tokAt(t: string, p: number): [number, number] | null {
+  if (t.indexOf('\u2063') < 0) return null;
+  TOKRE.lastIndex = 0; let m: RegExpExecArray | null;
+  while ((m = TOKRE.exec(t))) { if (p >= m.index && p < m.index + m[0].length) return [m.index, m.index + m[0].length]; if (m.index > p) break; }
+  return null;
+}
+/** Widen [a, b) so it holds every quote it touches whole. */
+export function widen(t: string, a: number, b: number): [number, number] {
+  const x = tokAt(t, a), y = b > a ? tokAt(t, b - 1) : null;
+  return [x ? x[0] : a, y ? y[1] : b];
+}
+const snapTok = (t: string, p: number) => { const k = tokAt(t, p); return k ? k[0] : p; };
 
 // ---------- geometry ----------
 const lineStart = (t: string, p: number) => t.lastIndexOf('\n', p - 1) + 1;
@@ -75,7 +93,7 @@ function innerWord(t: string, p: number, around: boolean): [number, number] {
 // ---------- editing helpers ----------
 const snap = (s: TextState) => ({ text: s.text, pos: s.pos });
 function edit(s: TextState, text: string, pos: number): TextState {
-  return { ...s, undo: [...s.undo, snap(s)].slice(-200), redo: [], text, pos };
+  return { ...s, undo: [...s.undo, snap(s)].slice(-200), redo: [], text, pos: snapTok(text, pos) };
 }
 const toInsert = (s: TextState, pos: number): TextState => ({ ...s, mode: 'INSERT', pos, pending: '', insertFrom: snap({ ...s, pos }) });
 
@@ -118,7 +136,7 @@ export function step(s0: TextState, k: string): Result {
     if (k === 'esc' || k === 'ctrl-[') {
       const changed = s.insertFrom && s.insertFrom.text !== s.text;
       const undo = changed ? [...s.undo, s.insertFrom!].slice(-200) : s.undo;
-      return R({ ...s, mode: 'NORMAL', undo, redo: changed ? [] : s.redo, insertFrom: undefined, pos: clampN(s.text, s.pos > lineStart(s.text, s.pos) ? s.pos - 1 : s.pos), col: undefined });
+      return R({ ...s, mode: 'NORMAL', undo, redo: changed ? [] : s.redo, insertFrom: undefined, pos: snapTok(s.text, clampN(s.text, s.pos > lineStart(s.text, s.pos) ? s.pos - 1 : s.pos)), col: undefined });
     }
     return PASS(s);
   }
@@ -126,7 +144,7 @@ export function step(s0: TextState, k: string): Result {
   // ---- pending: counts, g, r, operators ----
   // a count may come before the operator, after it, or both (3dw, d3w, 2d3w: 6 words), as in Vim
   const pend = s.pending.replace(/\d+/g, '');
-  if (pend === 'r') { s = { ...s, pending: '' }; if (k.length !== 1) return R(s); return R(edit(s, s.text.slice(0, s.pos) + k + s.text.slice(s.pos + 1), s.pos), 'changed'); }
+  if (pend === 'r') { s = { ...s, pending: '' }; if (k.length !== 1 || tokAt(s.text, s.pos)) return R(s); return R(edit(s, s.text.slice(0, s.pos) + k + s.text.slice(s.pos + 1), s.pos), 'changed'); }
   if (/^[1-9]$/.test(k) || (k === '0' && /\d$/.test(s.pending))) return R({ ...s, pending: s.pending + k });
   const groups = s.pending.match(/\d+/g) || [];
   const explicit = groups.length > 0;
@@ -161,7 +179,10 @@ export function step(s0: TextState, k: string): Result {
     return applyOp(s, op, a, Math.min(t.length, b), true);
   }
 
-  const mv = motion({ ...s, pending: pend }, key, count, explicit);
+  // on a quote, forward motions start from its last mark and backward ones from its first
+  const tk0 = tokAt(s.text, s.pos);
+  const from = tk0 ? (['l', 'right', 'w', 'W', 'e', 'E', '$', 'end'].includes(key) ? tk0[1] - 1 : tk0[0]) : s.pos;
+  const mv = motion({ ...s, pending: pend, pos: from }, key, count, explicit);
   if (mv === 'up' || mv === 'down') {
     if (op) return R({ ...s, pending: '' });
     return R({ ...s, pending: '' }, mv === 'up' ? 'leave-up' : 'leave-down');
@@ -172,7 +193,10 @@ export function step(s0: TextState, k: string): Result {
       if (mv.line) return applyOp(s, op, lineStart(s.text, lo), lineEnd(s.text, hi), true);
       return applyOp(s, op, lo, hi + (mv.incl ? 1 : 0), false);
     }
-    return R({ ...s, pos: visual ? Math.min(mv.to, s.text.length) : clampN(s.text, mv.to), pending: '', col: mv.col });
+    let to = visual ? Math.min(mv.to, s.text.length) : clampN(s.text, mv.to);
+    // a motion that lands inside a quote rests on its start; one that cannot leave it (l at its end) stays
+    const tk = tokAt(s.text, to); if (tk) to = tk[0];
+    return R({ ...s, pos: to, pending: '', col: mv.col });
   }
 
   if (visual) return visualKey(s, k);
@@ -181,7 +205,7 @@ export function step(s0: TextState, k: string): Result {
   const t = s.text, p = s.pos;
   switch (k) {
     case 'i': return R(toInsert(s, p), 'insert');
-    case 'a': return R(toInsert(s, Math.min(t.length, p + (t[p] === '\n' || !t.length ? 0 : 1))), 'insert');
+    case 'a': return R(toInsert(s, Math.min(t.length, (tokAt(t, p)?.[1] ?? p + (t[p] === '\n' || !t.length ? 0 : 1)))), 'insert');
     case 'I': { let i = lineStart(t, p); while (/[ \t]/.test(t[i] || '')) i++; return R(toInsert(s, i), 'insert'); }
     case 'A': return R(toInsert(s, lineEnd(t, p)), 'insert');
     case 'o': { const e = lineEnd(t, p); const x = toInsert(s, e + 1); return R({ ...x, text: t.slice(0, e) + '\n' + t.slice(e) }, 'insert', 'changed'); }
@@ -194,13 +218,13 @@ export function step(s0: TextState, k: string): Result {
     case 'S': return applyOp(s, 'c', lineStart(t, p), lineEnd(t, p), false);
     case 'd': case 'c': case 'y': return R({ ...s, pending: s.pending + k });
     case 'r': return R({ ...s, pending: 'r' });
-    case '~': { if (!t.length) return R(s); const c = t[p]; const sw = c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase(); return R({ ...edit(s, t.slice(0, p) + sw + t.slice(p + 1), clampN(t, p + 1)) }, 'changed'); }
+    case '~': { if (!t.length || tokAt(t, p)) return R(s); const c = t[p]; const sw = c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase(); return R({ ...edit(s, t.slice(0, p) + sw + t.slice(p + 1), clampN(t, p + 1)) }, 'changed'); }
     case 'J': { const e = lineEnd(t, p); if (e >= t.length) return R(s); let j = e + 1; while (/[ \t]/.test(t[j] || '')) j++; return R(edit(s, t.slice(0, e) + ' ' + t.slice(j), e), 'changed'); }
     case 'p': case 'P': return s.reg.text ? R(put({ ...s, pending: '' }, k === 'P', count), 'changed') : R({ ...s, pending: '' });
     case 'v': return R({ ...s, mode: 'VISUAL', anchor: p });
     case 'V': return R({ ...s, mode: 'V-LINE', anchor: p });
-    case 'u': { const prev = s.undo[s.undo.length - 1]; if (!prev) return R(s); return R({ ...s, text: prev.text, pos: clampN(prev.text, prev.pos), undo: s.undo.slice(0, -1), redo: [...s.redo, snap(s)] }, 'changed'); }
-    case 'ctrl-r': { const nx = s.redo[s.redo.length - 1]; if (!nx) return R(s); return R({ ...s, text: nx.text, pos: clampN(nx.text, nx.pos), redo: s.redo.slice(0, -1), undo: [...s.undo, snap(s)] }, 'changed'); }
+    case 'u': { const prev = s.undo[s.undo.length - 1]; if (!prev) return R(s, 'oldest'); return R({ ...s, text: prev.text, pos: clampN(prev.text, prev.pos), undo: s.undo.slice(0, -1), redo: [...s.redo, snap(s)] }, 'changed'); }
+    case 'ctrl-r': { const nx = s.redo[s.redo.length - 1]; if (!nx) return R(s, 'newest'); return R({ ...s, text: nx.text, pos: clampN(nx.text, nx.pos), redo: s.redo.slice(0, -1), undo: [...s.undo, snap(s)] }, 'changed'); }
     case 'enter': return R(s, 'enter');
   }
   return PASS(s);
@@ -223,11 +247,12 @@ function visualKey(s: TextState, k: string): Result {
 export function vrange(s: TextState): [number, number] {
   const lo = Math.min(s.anchor, s.pos), hi = Math.max(s.anchor, s.pos);
   if (s.mode === 'V-LINE') return [lineStart(s.text, lo), lineEnd(s.text, hi)];
-  return [lo, Math.min(s.text.length, hi + 1)];
+  return widen(s.text, lo, Math.min(s.text.length, hi + 1));
 }
 
 function applyOp(s: TextState, op: string, a: number, b: number, line: boolean): Result {
   const t = s.text;
+  if (!line) [a, b] = widen(t, a, b);   // a quote goes whole or not at all
   const reg = { text: t.slice(a, b), line };
   if (op === 'y') return R({ ...s, reg, pending: '', pos: a, mode: 'NORMAL' }, 'yank');
   if (line && op === 'd') {

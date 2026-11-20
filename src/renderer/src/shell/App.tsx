@@ -4,7 +4,8 @@ import { api } from '../api';
 import type { ThreadMeta } from '@shared/types';
 import { currentTab } from '../state/actions';
 import { leaves, type Workspace as Ws } from '../state/layout';
-import { S, update, useApp } from '../state/store';
+import { S, toast, update, useApp } from '../state/store';
+import { loadDirs } from './overlays';
 import { cx } from '../ui/primitives';
 import { retheme } from '../views/terminal/TerminalView';
 import { Layers, Toasts } from './Layers';
@@ -33,23 +34,35 @@ function notifyStatus(t: ThreadMeta) {
   if (!visible) void api.app.notify(t.title, t.status === 'wait' ? 'Waiting on you' : 'Replied', t.id);
 }
 
+const signing = new Set<string>();
+
 export async function boot() {
+  void loadDirs();
   const [info, settings, machines, threads, ui] = await Promise.all([api.app.info(), api.app.settings(), api.machines.list(), api.threads.list(), api.app.load('ui')]);
   update(s => {
     s.info = info; s.settings = settings; s.machines = machines; s.threads = threads;
-    const u = ui as { workspaces?: Ws[]; wid?: string; sideOpen?: boolean; collapsed?: Record<string, boolean> } | undefined;
-    if (u?.workspaces?.length) {
+    const u = ui as { workspaces?: Ws[]; wid?: string; sideOpen?: boolean; collapsed?: Record<string, boolean>; projects?: Record<string, string[]>; names?: Record<string, string>; dirOrder?: Record<string, string[]> } | undefined;
+    s.projects = u?.projects || {}; s.names = u?.names || {}; s.dirOrder = u?.dirOrder || {};
+    // Settings > General > On launch: Start empty keeps one blank workspace (projects and names still come back)
+    if (u?.workspaces?.length && settings.launch !== 'empty') {
       // drop tabs whose thread is gone; a thread tab comes back as it was (G12)
       for (const w of u.workspaces) { w.pops = w.pops || []; w.pf = null; for (const p of leaves(w.tree)) if (!p.tabs.length) p.tabs = []; }
       s.workspaces = u.workspaces; s.wid = u.wid && u.workspaces.some(w => w.id === u.wid) ? u.wid : u.workspaces[0].id;
       s.sideOpen = u.sideOpen ?? true; s.collapsed = u.collapsed || {};
-    }
+    } else if (u) { s.sideOpen = u.sideOpen ?? true; s.collapsed = u.collapsed || {}; }
   });
   document.documentElement.dataset.os = info.platform;
   applyTheme();
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
   api.on(e => {
-    if (e.type === 'machine') update(s => { const i = s.machines.findIndex(m => m.id === e.machine.id); if (i >= 0) s.machines[i] = e.machine; else s.machines = [...s.machines, e.machine]; });
+    if (e.type === 'machine') {
+      // after a sign-in (the link went through auth), say when it is up: "Connected to <b>X</b>"
+      const m = e.machine;
+      if (m.link === 'auth') signing.add(m.id);
+      else if (m.link === 'up' && signing.delete(m.id)) toast(<span>Connected to <b>{m.name}</b></span>, { icon: 'host' });
+      else if (m.link === 'down') signing.delete(m.id);
+      update(s => { const i = s.machines.findIndex(x => x.id === m.id); if (i >= 0) s.machines[i] = m; else s.machines = [...s.machines, m]; });
+    }
     if (e.type === 'thread') {
       const before = S.threads.find(t => t.id === e.thread.id);
       update(s => { const i = s.threads.findIndex(t => t.id === e.thread.id); if (i >= 0) s.threads[i] = e.thread; else s.threads = [e.thread, ...s.threads]; });
