@@ -66,11 +66,12 @@ describe('moveSession: Claude Code', () => {
   it('same machine: copies the transcript (and its folder) into the new project and keeps the original', async () => {
     const f = fakeIO({ local: { [src]: '{"a":1}\n', '/home/local/.claude/projects/-w-app/abc-123/subagents/s.jsonl': 'sub', '/w/next.v2/x': '' } });
     const r = await moveSession(thread('claude'), local, local, '/w/next.v2', f.io);
-    const dst = '/home/local/.claude/projects/-w-next-v2/abc-123.jsonl';
-    expect(f.calls).toEqual([`copy local ${src} -> ${dst}`, 'copy local /home/local/.claude/projects/-w-app/abc-123 -> /home/local/.claude/projects/-w-next-v2/abc-123 (folder)']);
+    // a local destination uses this computer's separators (backslashes on Windows)
+    const dst = join('/home/local/.claude/projects/-w-next-v2/abc-123.jsonl'), dir = join('/home/local/.claude/projects/-w-next-v2/abc-123');
+    expect(f.calls).toEqual([`copy local ${src} -> ${dst}`, `copy local /home/local/.claude/projects/-w-app/abc-123 -> ${dir} (folder)`]);
     expect(f.fs.local[dst]).toBe('{"a":1}\n');
     expect(f.fs.local[src]).toBe('{"a":1}\n');
-    expect(f.fs.local['/home/local/.claude/projects/-w-next-v2/abc-123/subagents/s.jsonl']).toBe('sub');
+    expect(f.fs.local[dir + '/subagents/s.jsonl']).toBe('sub');
     expect(r.copied).toHaveLength(2);
   });
   it('other machine: sends the transcript into the project of the folder there', async () => {
