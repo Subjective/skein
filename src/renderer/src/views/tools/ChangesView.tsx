@@ -8,14 +8,17 @@ import type { Commit, DiffLine, DiffScope, FileDiff, RepoState, RevertUndo, Scop
 import { api } from '../../api';
 import type { Mode } from '../../input/dispatcher';
 import { kb } from '../../input/platform';
+import { Count, findAll, searchRe } from '../../input/readerkeys';
+import { yank as yankReg } from '../../input/register';
 import type { Tab } from '../../state/layout';
 import { openLayer, S, thread, toast, update, useApp } from '../../state/store';
 import { openMenu } from '../../shell/overlays';
 import { Menu, type MenuItem } from '../../ui/Menu';
+import { ReaderSearch, type Searchable } from '../../ui/search';
 import { animate, MOTION } from '../../ui/motion';
 import { Checkbox, Chip, cx, Icon, IconButton, SplitButton, Spinner } from '../../ui/primitives';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
-import { CodeLine, LangBadge, Nums } from './code';
+import { CodeLine, LangBadge, Nums, type Paint } from './code';
 import { openCommit, type CommitAction } from './CommitDialog';
 import { baseName, langOf, tokenize, type HlState } from './highlight';
 import { openFile } from './open';
@@ -56,6 +59,13 @@ interface View {
   g: boolean;
   lastUndo: { undo: RevertUndo; name: string } | null;
   flash?: string;
+  /** a count typed before a motion (5j, 3}) */
+  count: Count;
+  /** / ? n N over the diff's rows (ui/search.tsx); `find` is what is painted, `col` where in the row the cursor is */
+  search: ReaderSearch;
+  reader?: Searchable;
+  find: string;
+  col: number;
 }
 
 type Row =
@@ -74,10 +84,15 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
   const ctx = ctxOf(t);
   const re = useRepo(ctx.machine, ctx.dir);
   const repo = re.repo;
-  const v = viewState<View>(t.id, () => ({
-    scope: 'uncommitted', range: null, before: 'uncommitted', commits: [], files: null, counts: {}, loadedKey: '', loading: false, err: '',
-    closed: new Set(), opened: new Set(), gaps: new Map(), texts: new Map(), tree: true, tq: '', cur: 0, anchor: null, vmode: 'n', g: false, lastUndo: null,
-  }));
+  const v = viewState<View>(t.id, () => {
+    const x: View = {
+      scope: 'uncommitted', range: null, before: 'uncommitted', commits: [], files: null, counts: {}, loadedKey: '', loading: false, err: '',
+      closed: new Set(), opened: new Set(), gaps: new Map(), texts: new Map(), tree: true, tq: '', cur: 0, anchor: null, vmode: 'n', g: false, lastUndo: null,
+      count: new Count(), search: null as unknown as ReaderSearch, find: '', col: -1,
+    };
+    x.search = new ReaderSearch(() => x.reader!);
+    return x;
+  });
   const body = useRef<HTMLDivElement>(null);
   const tq = useRef<VimFieldHandle>(null);
   const turn = repo ? turnFor(t, ctx.machine, repo.root) : undefined;
@@ -258,7 +273,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
   const yank = () => {
     const [a, b] = [Math.min(v.anchor ?? v.cur, v.cur), Math.max(v.anchor ?? v.cur, v.cur)];
     const text = rows.slice(a, b + 1).map(r => (r.k === 'line' ? (r.l.k === ' ' ? ' ' : r.l.k) + r.l.text : r.k === 'file' ? r.f.path : '')).filter(Boolean).join('\n');
-    void navigator.clipboard?.writeText(text).catch(() => {});
+    yankReg(text, true);
     toast(`Copied ${b - a + 1} line${b === a ? '' : 's'}`);
     v.anchor = null; v.vmode = 'n'; update();
   };
@@ -268,7 +283,17 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
     else if (r.k === 'gap') openGap(r);
     else if (r.k === 'line') openAt(r);
   };
-  const go = (i: number) => { v.cur = Math.max(0, Math.min(rows.length - 1, i)); update(); };
+  const go = (i: number) => { v.cur = Math.max(0, Math.min(rows.length - 1, i)); v.col = -1; update(); };
+  // the search reads each row as its text: a file header is its path, a line its code
+  const rowText = (r: Row) => (r.k === 'line' ? r.l.text : r.k === 'file' ? (r.f.old ? `${r.f.old} → ${r.f.path}` : r.f.path) : r.k === 'gap' ? `${r.n} unmodified lines` : r.text);
+  v.reader = {
+    items: () => rows.map(rowText),
+    at: () => ({ i: v.cur, o: v.col }),
+    go: h => { v.cur = h.i; v.col = h.o; update(); },
+    paint: q => { v.find = q; update(); },
+    anchor: () => body.current?.getBoundingClientRect() ?? null,
+    num: h => { const r = rows[h.i]; return r?.k === 'line' ? (r.l.k === '-' ? r.l.a : r.l.b) ?? null : null; },
+  };
   const nextFile = (d: number) => { let i = v.cur + d; while (rows[i] && rows[i].k !== 'file') i += d; if (rows[i]) go(i); else if (d < 0) go(0); };
   const { own } = useSurface(t.id, focused, {
     mode: (): Mode => (v.vmode === 'V' ? 'V-LINE' : 'NORMAL'),
@@ -276,23 +301,28 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
       if (nativeTarget() && (k === 'enter' || k === 'space')) return false;
       if (v.g) {
         v.g = false;
-        if (k === 'g') { go(0); return true; }
+        if (k === 'g') { const ex = v.count.explicit, n = v.count.take(); go(ex ? n - 1 : 0); return true; }
+        v.count.clear();
         if (k === 's') { pickScope(); return true; }
         if (k === 'b') { void pickBranch(); return true; }
         if (k === 'f') { const r = rows[v.cur]; if (r) openFile({ machine: ctx.machine, dir: repo?.root || ctx.dir }, r.f.path, { line: r.k === 'line' ? r.l.b ?? r.l.a : 1, from: t, newTab: true }); return true; }
         return true;
       }
       const r = rows[v.cur];
+      if (v.count.feed(k)) return true;
+      if (k === 'g') { v.g = true; return true; }   // keeps the count for 5gg
+      const explicit = v.count.explicit, n = v.count.take();
+      if (v.search.key(k, n)) return true;
       switch (k) {
-        case 'j': case 'down': go(v.cur + 1); return true;
-        case 'k': case 'up': go(v.cur - 1); return true;
-        case 'G': case 'end': go(rows.length - 1); return true;
+        case 'j': case 'down': go(v.cur + n); return true;
+        case 'k': case 'up': go(v.cur - n); return true;
+        case 'G': go(explicit ? n - 1 : rows.length - 1); return true;
+        case 'end': go(rows.length - 1); return true;
         case 'home': go(0); return true;
-        case 'g': v.g = true; return true;
-        case 'ctrl-d': case 'pagedown': go(v.cur + halfPage(body.current)); return true;
-        case 'ctrl-u': case 'pageup': go(v.cur - halfPage(body.current)); return true;
-        case '}': case ']': nextFile(1); return true;
-        case '{': case '[': nextFile(-1); return true;
+        case 'ctrl-d': case 'pagedown': go(v.cur + halfPage(body.current) * n); return true;
+        case 'ctrl-u': case 'pageup': go(v.cur - halfPage(body.current) * n); return true;
+        case '}': case ']': for (let i = 0; i < n; i++) nextFile(1); return true;
+        case '{': case '[': for (let i = 0; i < n; i++) nextFile(-1); return true;
         case 'enter': case 'o': press(r); return true;
         case 'l': case 'right': if (r?.k === 'file') toggle(r.f, true); else if (r?.k === 'gap') openGap(r); return true;
         case 'h': case 'left': if (r) toggle(r.f, false); return true;
@@ -300,13 +330,13 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
         case 'S': if (working(v.scope)) stageAll(); return true;
         case 'x': if (r && working(v.scope)) void revert(r.f); return true;
         case 'u': if (v.lastUndo) void unrevert(v.lastUndo.undo); else toast('Nothing to undo'); return true;
-        case '/': searchTree(); return true;
+        case 'f': searchTree(); return true;
         case 't': side.toggle(); return true;
         case 'c': commit('commit'); return true;
         case 'C': commitMenu(); return true;
         case 'V': if (v.vmode === 'V') { v.vmode = 'n'; v.anchor = null; } else { v.vmode = 'V'; v.anchor = v.cur; } update(); return true;
         case 'y': if (v.vmode === 'V') yank(); return true;
-        case 'esc': if (v.vmode === 'V') { v.vmode = 'n'; v.anchor = null; update(); return true; } return false;
+        case 'esc': if (v.vmode === 'V') { v.vmode = 'n'; v.anchor = null; update(); return true; } return v.search.clear();
       }
       return k.length === 1;
     },
@@ -322,6 +352,13 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
   const counts = v.counts[v.scope] || (v.files ? { files: files.length, add: files.reduce((a, f) => a + f.add, 0), del: files.reduce((a, f) => a + f.del, 0) } : undefined);
   const scopeLabel = v.scope === 'commits' ? rangeLabel(v) : SCOPES.find(x => x.k === v.scope)!.label;
   const sel = v.vmode === 'V' && v.anchor != null ? [Math.min(v.anchor, v.cur), Math.max(v.anchor, v.cur)] : null;
+  const findRe = searchRe(v.find);
+  /** The search's matches in a diff line; the one under the cursor is `now`. */
+  const hitsIn = (text: string, i: number): Paint[] | undefined => {
+    if (!findRe) return undefined;
+    const out = findAll([text], v.find).map(h => ({ from: h.o, to: h.o + Math.max(1, h.len), cls: i === v.cur && h.o === v.col ? 'hit now' : 'hit' }));
+    return out.length ? out : undefined;
+  };
   const q = v.tq.trim().toLowerCase();
   const shown = files.filter(f => !q || f.path.toLowerCase().includes(q));
   const dirs = [...new Set(shown.map(f => (f.path.includes('/') ? f.path.replace(/\/[^/]*$/, '') : '')))].sort((a, b) => Number(a === '') - Number(b === '') || a.localeCompare(b));
@@ -376,7 +413,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
                       : r.k === 'note' ? <div key={i} className={cx('dl note', v.cur === i && focused && 'curl')}><span className="n" /><span className="c dim">{r.text}</span></div>
                       : r.k === 'line' ? <div key={i} className={cx('dl', r.l.k === '+' ? 'add' : r.l.k === '-' ? 'del' : '', v.cur === i && focused && 'curl', sel && i >= sel[0] && i <= sel[1] && 'vsel')}
                           onMouseDown={() => { v.cur = i; update(); }} onDoubleClick={() => openAt(r)}>
-                          <span className="n">{r.l.k === '-' ? r.l.a : r.l.b}</span><span className="c"><CodeLine toks={r.toks} unit={0} /></span>
+                          <span className="n">{r.l.k === '-' ? r.l.a : r.l.b}</span><span className="c"><CodeLine toks={r.toks} unit={0} paint={hitsIn(r.l.text, i)} /></span>
                         </div>
                       : null)}
                   </div>}

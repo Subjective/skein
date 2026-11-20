@@ -1,4 +1,5 @@
-// An open file. It reads like any other text (a Vim cursor, visual mode, y to copy, / to find) until an editing
+// An open file. It reads like any other text (a Vim cursor with counts, visual mode, y to copy, / ? n N to search,
+// ui/search.tsx) until an editing
 // key: then the source becomes a Vim field at that spot and the key acts there, with u / ctrl-r undo and redo.
 // esc from NORMAL goes back to reading; :w, ctrl-s / cmd-s or Save writes it. Unsaved text stays with the file
 // (closing the tab keeps it for this session) and is what Preview shows.
@@ -13,10 +14,11 @@ import type { KeyLike } from '../../input/keys';
 import { kb } from '../../input/platform';
 import { tabSurface } from '../../input/surfaces';
 import { setText, step, vrange, init, type TextState } from '../../input/vimtext';
+import { yank } from '../../input/register';
+import { ReaderSearch, type Searchable } from '../../ui/search';
 import type { Tab } from '../../state/layout';
 import { S, toast, update, useApp } from '../../state/store';
 import { openCmdline, openMenu } from '../../shell/overlays';
-import type { MenuItem } from '../../ui/Menu';
 import { Button, cx, Icon, IconButton, Seg, Spinner } from '../../ui/primitives';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
 import { CodeLine, LangBadge, type Paint } from './code';
@@ -37,7 +39,7 @@ const EDIT_N = new Set(['i', 'a', 'I', 'A', 'o', 'O', 's', 'S', 'c', 'C', 'd', '
 const EDIT_V = new Set(['d', 'x', 'c', 's', 'J', '~', 'r', 'delete']);
 const HL_MAX = 8000;   // lines highlighted; the rest of a huge file is plain
 
-interface View { rs: TextState; mode: 'read' | 'edit'; md: 'preview' | 'source'; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string }
+interface View { rs: TextState; mode: 'read' | 'edit'; md: 'preview' | 'source'; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string; search: ReaderSearch; reader?: Searchable }
 
 const fakeKey = (k: string): KeyLike => ({ key: k.length === 1 ? k : k === 'esc' ? 'Escape' : k, code: '', ctrlKey: k.startsWith('ctrl-'), altKey: false, shiftKey: false, metaKey: false });
 const lineStarts = (t: string) => { const a = [0]; for (let i = 0; i < t.length; i++) if (t.charCodeAt(i) === 10) a.push(i + 1); return a; };
@@ -52,7 +54,11 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   const repo = re.repo;
   const lister = useLister(ctx, re);
   const nav = fileNav(t);
-  const v = viewState<View>(t.id, () => ({ rs: init('', 'NORMAL'), mode: 'read', md: 'preview', tree: true, ts: { open: new Set(), cur: null, q: '' }, find: '', opened: '' }));
+  const v = viewState<View>(t.id, () => {
+    const x: View = { rs: init('', 'NORMAL'), mode: 'read', md: 'preview', tree: true, ts: { open: new Set(), cur: null, q: '' }, find: '', opened: '', search: null as unknown as ReaderSearch };
+    x.search = new ReaderSearch(() => x.reader!);
+    return x;
+  });
   const side = useSideTree(v);
   const key = `${ctx.machine}\u0000${ctx.dir}\u0000${path}`;
   const doc = docs.get(key) || { gen: -1 };
@@ -172,35 +178,17 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   };
   const onEdit = (x: string) => { if (x === doc.disk) bufs.delete(key); else bufs.set(key, x); update(); };
 
-  // find in file: a menu of matching lines; n / N step through them afterwards
-  const hits = useMemo(() => {
-    if (!v.find) return [] as { line: number; col: number }[];
-    const re = new RegExp(v.find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g' + smart(v.find)), out: { line: number; col: number }[] = [];
-    lines.forEach((l, i) => { re.lastIndex = 0; let m; while ((m = re.exec(l)) && out.length < 5000) { out.push({ line: i, col: m.index }); if (!m[0]) re.lastIndex++; } });
-    return out;
-  }, [v.find, lines]);
+  // / ? n N: the shared reader search (ui/search.tsx) over the file's lines; matches are painted with `hit`
   const gotoPos = (line: number, col: number) => { v.rs = { ...v.rs, pos: Math.min(starts[line] + col, text.length), mode: 'NORMAL' }; if (preview) v.md = 'source'; update(); };
-  const find = (anchor?: DOMRect | null) => {
-    openMenu<{ line: number; col: number }>({
-      anchor: anchor ?? body.current?.closest('.file-v')?.querySelector('[data-k=find]')?.getBoundingClientRect() ?? null, place: 'bottom-end', width: 420,
-      search: { placeholder: 'Find in file', value: v.find }, empty: 'No matches',
-      items: q => {
-        if (!q) return [];
-        const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), smart(q)), out: MenuItem<{ line: number; col: number }>[] = [];
-        for (let i = 0; i < lines.length && out.length < 200; i++) { const m = re.exec(lines[i]); if (m) out.push({ label: lines[i].trim() || ' ', hint: q, right: <span className="age">{i + 1}</span>, data: { line: i, col: m.index } }); }
-        // the menu filters by label: keep every line that matched
-        return out.map(it => ({ ...it, label: it.label.toLowerCase().includes(q.toLowerCase()) ? it.label : `${it.label} ${q}` }));
-      },
-      onPick: (it, q) => { v.find = q; if (it.data) gotoPos(it.data.line, it.data.col); },
-    });
+  v.reader = {
+    items: () => lines,
+    at: () => ({ i: curLine, o: v.rs.pos - starts[curLine] }),
+    go: h => gotoPos(h.i, h.o),
+    paint: q => { v.find = q; update(); },
+    anchor: () => body.current?.getBoundingClientRect() ?? null,
+    num: h => h.i + 1,
   };
-  const nextHit = (d: number) => {
-    if (!hits.length) { toast(v.find ? `No “${v.find}” in this file` : 'Nothing to find yet: press /'); return; }
-    const col = v.rs.pos - starts[curLine];
-    const i = d > 0 ? hits.findIndex(h => h.line > curLine || (h.line === curLine && h.col > col)) : hits.findLastIndex(h => h.line < curLine || (h.line === curLine && h.col < col));
-    const h = hits[i < 0 ? (d > 0 ? 0 : hits.length - 1) : i];
-    gotoPos(h.line, h.col);
-  };
+  const find = () => v.search.prompt(1);
   // the folder list behind a crumb: subfolders, then files; a folder opens its own list
   const crumbMenu = (dir: string, anchor?: DOMRect | null) => {
     const a = anchor ?? body.current?.closest('.file-v')?.querySelector(`.crumb[data-d="${CSS.escape(dir)}"]`)?.getBoundingClientRect() ?? null;
@@ -225,21 +213,21 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
       const visual = v.rs.mode === 'VISUAL' || v.rs.mode === 'V-LINE';
       if (v.rs.pending.endsWith('g') && k === 'p' && isMd) { v.rs = { ...v.rs, pending: '' }; v.md = v.md === 'preview' ? 'source' : 'preview'; update(); return true; }
       if (!v.rs.pending || /^\d+$/.test(v.rs.pending)) {
-        if (k === '/') { find(); return true; }
-        if (k === 'n' && !visual) { nextHit(1); return true; }
-        if (k === 'N' && !visual) { nextHit(-1); return true; }
+        const n = Math.max(1, parseInt(v.rs.pending || '1', 10));
+        if (!visual && (k === '/' || k === '?' || ((k === 'n' || k === 'N') && v.search.active))) { v.rs = { ...v.rs, pending: '' }; v.search.key(k, n); return true; }
+        if (k === 'n' || k === 'N') { v.rs = { ...v.rs, pending: '' }; if (!visual) v.search.next(1); return true; }
         if (k === '-' && !visual) { crumbMenu(path.includes('/') ? path.replace(/\/[^/]*$/, '') : ''); return true; }
         if (k === ':' && !visual) { openCmdline(); return true; }
         if (k === 'ctrl-d' || k === 'ctrl-u' || k === 'pagedown' || k === 'pageup') {
-          const n = halfPage(body.current, 20) * (k === 'ctrl-d' || k === 'pagedown' ? 1 : -1);
-          if (preview) { scrollBy(n * 20); return true; }
-          const ln = Math.max(0, Math.min(starts.length - 1, curLine + n)); v.rs = { ...v.rs, pos: starts[ln] + Math.min(v.rs.pos - starts[curLine], Math.max(0, lines[ln].length - 1)) }; update(); return true;
+          const h = halfPage(body.current, 20) * n * (k === 'ctrl-d' || k === 'pagedown' ? 1 : -1);
+          if (preview) { scrollBy(h * 20); return true; }
+          const ln = Math.max(0, Math.min(starts.length - 1, curLine + h)); v.rs = { ...v.rs, pending: '', pos: starts[ln] + Math.min(v.rs.pos - starts[curLine], Math.max(0, lines[ln].length - 1)) }; update(); return true;
         }
-        if (k === 'esc' && !visual && v.find) { v.find = ''; update(); return true; }
+        if (k === 'esc' && !visual && !v.rs.pending && v.search.clear()) return true;
         if (k === 'enter' && !visual) { startEdit(); return true; }
         if (preview) {
-          if (k === 'j' || k === 'down') { scrollBy(40); return true; }
-          if (k === 'k' || k === 'up') { scrollBy(-40); return true; }
+          if (k === 'j' || k === 'down') { v.rs = { ...v.rs, pending: '' }; scrollBy(40 * n); return true; }
+          if (k === 'k' || k === 'up') { v.rs = { ...v.rs, pending: '' }; scrollBy(-40 * n); return true; }
           if (k === 'G') { body.current?.scrollTo({ top: 1e9 }); return true; }
         }
         if (!visual && EDIT_N.has(k) && !(preview && k === 'u')) { startEdit(k); return true; }
@@ -249,7 +237,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
       if (/^[dcr]/.test(v.rs.pending.replace(/^\d+/, ''))) { startEdit(k); return true; }   // an operator typed while reading
       const r = step(v.rs, k);
       if (!r.handled) return k.length === 1;
-      if (r.fx.includes('yank')) { void navigator.clipboard?.writeText(r.s.reg.text).catch(() => {}); toast(`Copied ${r.s.reg.text.split('\n').length > 1 ? r.s.reg.text.split('\n').length + ' lines' : 'selection'}`); }
+      if (r.fx.includes('yank')) { yank(r.s.reg.text, r.s.reg.line); toast(`Copied ${r.s.reg.text.split('\n').length > 1 ? r.s.reg.text.split('\n').length + ' lines' : 'selection'}`); }
       if (r.fx.includes('leave')) { v.rs = { ...r.s, mode: 'NORMAL' }; update(); return false; }
       if (r.s.text !== v.rs.text) { startEdit(k); return true; }   // anything that would change the text edits instead
       v.rs = { ...r.s, mode: r.s.mode === 'INSERT' ? 'NORMAL' : r.s.mode }; update();
@@ -319,7 +307,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
         {dirty && <Button small className="mod" onClick={() => void save()} title={`Save · :w · ${kb('mod-s')}`}>Save</Button>}
         {isMd && <Seg text label="Preview or source" value={preview ? 'preview' : 'source'} onChange={x => { if (v.mode === 'edit') stopEdit(); v.md = x; update(); }}
           options={[{ v: 'preview', label: 'Preview' }, { v: 'source', label: 'Source' }]} />}
-        <IconButton data-k="find" icon="search" small label="Find in file" keys="/" onClick={e => find(e.currentTarget.getBoundingClientRect())} />
+        <IconButton data-k="find" icon="search" small label="Find in file" keys="/" onClick={() => find()} />
         <IconButton icon="panelR" small on={side.show} aria-pressed={side.show} label="Project files" onClick={side.toggle} />
       </header>
       <div className={cx('cbody', side.show && 'tree')}>

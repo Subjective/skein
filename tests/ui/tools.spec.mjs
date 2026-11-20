@@ -203,9 +203,9 @@ await test('changes: the revert button and the toast Undo do the same with the m
   await p.waitForFunction(() => !!document.querySelector('.pane.focus .cfile[data-p="sessions/restore.test.ts"]'));
 });
 
-await test('changes: / searches the tree, enter jumps to the first match, esc leaves', async p => {
+await test('changes: f searches the tree, enter jumps to the first match, esc leaves', async p => {
   await openChanges(p);
-  await keys(p, '/');
+  await keys(p, 'f');
   assert.equal(await mode(p), 'INSERT');
   await p.keyboard.type('theme');
   assert.equal(await C(p).locator('.ctree .tf:not(.all)').count(), 1);
@@ -213,7 +213,7 @@ await test('changes: / searches the tree, enter jumps to the first match, esc le
   await settle(p, 200);
   assert.equal(await curRow(p).evaluate(e => e.closest('.cfile').dataset.p), 'ui/theme.css');
   assert.equal(await mode(p), 'NORMAL');
-  await keys(p, '/');
+  await keys(p, 'f');
   await p.keyboard.type('zzz');
   assert.ok(await C(p).locator('.ctree .tf.none').count());
   await p.keyboard.press('Escape');
@@ -339,7 +339,7 @@ await test('changes: nothing staged shows an empty state', async p => {
   await C(p).getByText('Nothing staged yet').waitFor();
 });
 
-await test('changes: a narrow pane hides the tree; t shows it there; / brings it for search', async p => {
+await test('changes: a narrow pane hides the tree; t shows it there; f brings it for search', async p => {
   await openChanges(p);
   assert.equal(await C(p).locator('.ctree').count(), 0);
   assert.ok(await C(p).locator('.split').isVisible(), 'the commit button stays in view');
@@ -347,7 +347,7 @@ await test('changes: a narrow pane hides the tree; t shows it there; / brings it
   assert.ok(box.x + box.width <= pane.x + pane.width + 1, 'the commit button is not cut off');
   await keys(p, 't');
   assert.equal(await C(p).locator('.ctree').count(), 1);
-  await keys(p, 't /');
+  await keys(p, 't f');
   assert.equal(await C(p).locator('.ctree').count(), 1);
   assert.equal(await mode(p), 'INSERT');
 }, { viewport: { width: 1100, height: 800 } });

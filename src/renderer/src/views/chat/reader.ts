@@ -1,13 +1,20 @@
 // The reader: a Vim cursor over a thread's read-only text (VIM-MODEL: Reader).
-// NORMAL h j k l w b e 0 $ gg G { } [[ ]], v / V select, y yanks, esc / q go back to the composer.
+// NORMAL h j k l w b e 0 $ gg G { } [[ ]] (with counts: 3w, 5j), v / V select, y yanks, esc / q go back to
+// the composer. / ? n N search the transcript (ui/search.tsx); esc clears a search before it leaves.
 // A line that is one thing (a tool row, a subagent, a request's buttons) is a row: the cursor takes the
 // whole row, h / l fold and unfold it, enter opens or presses it. On one of your own messages, i a x c
 // edit it (edit and resend). The mouse does the same: click moves the cursor, drag is v, triple-click V.
 //
 // It works on the DOM, not on the events, so whatever the transcript renders can be read.
 import type { Mode, Surface } from '../../input/dispatcher';
+import { Count, findAll } from '../../input/readerkeys';
+import { yank } from '../../input/register';
 import { registerTab } from '../../input/surfaces';
 import { update } from '../../state/store';
+import { ReaderSearch } from '../../ui/search';
+
+/** Keys a count repeats. */
+const COUNTED = new Set(['h', 'l', 'w', 'b', 'e', 'j', 'k', '{', '}', 'left', 'right', 'up', 'down']);
 
 interface Pt { n: Text; o: number }
 export interface ReaderHost {
@@ -41,7 +48,31 @@ export class Reader {
   private g = false;
   private br: string | null = null;
   private unreg: (() => void) | null = null;
+  private count = new Count();
+  private nodes: Text[] = [];
+  readonly search = new ReaderSearch(() => ({
+    items: () => (this.nodes = this.root ? this.texts(this.root) : []).map(n => n.data),
+    at: () => { const f = this.f, i = f ? this.nodes.indexOf(f.n) : -1; return i >= 0 ? { i, o: f!.o } : { i: 0, o: -1 }; },
+    go: h => {
+      const n = this.nodes[h.i]; if (!n || !this.root) return;
+      for (let d = n.parentElement?.closest('details:not([open])'); d; d = d.parentElement?.closest('details:not([open])')) (d as HTMLDetailsElement).open = true;
+      if (!this.on) { this.begin(this.root, 'n', { n, o: h.o }); return; }
+      this.f = { n, o: h.o }; if (this.mode === 'n') { this.a = this.f; this.bound = null; }
+      this.draw();
+    },
+    paint: q => this.paintHits(q),
+    anchor: () => (this.root?.closest('.thread') ?? this.root)?.getBoundingClientRect() ?? null,
+  }));
   constructor(private host: ReaderHost) {}
+
+  /** Every match of the search, highlighted (CSS highlight `rsearch`). */
+  private paintHits(q: string) {
+    if (!HL) return;
+    if (!q || !this.root) { HL.delete('rsearch'); return; }
+    const ns = this.texts(this.root), rs: Range[] = [];
+    for (const h of findAll(ns.map(n => n.data), q, 2000)) { const r = document.createRange(); r.setStart(ns[h.i], h.o); r.setEnd(ns[h.i], h.o + h.len); rs.push(r); }
+    HL.set('rsearch', new Highlight(...rs));
+  }
 
   // ---------- where the cursor may go ----------
   inside(n: Node | null): n is Text {
@@ -100,6 +131,8 @@ export class Reader {
     HL?.delete('vcur');
     this.root?.querySelectorAll('.rowcur, .kcur').forEach(x => x.classList.remove('rowcur', 'kcur'));
     this.root?.classList.remove('rd', 'rv');
+    if (this.search.active) { this.search.q = ''; HL?.delete('rsearch'); }
+    this.count.clear();
     this.row = null; this.on = false; this.mode = 'n';
     this.unreg?.(); this.unreg = null;
     this.host.selection?.(null);
@@ -236,7 +269,16 @@ export class Reader {
     key: k => { if (!this.on) return false; return this.key(k); },
   };
 
+  /** A key, with a count before it (3w, 5j) and the shared search keys. */
   key(k: string): boolean {
+    if (!this.br && !this.g && this.count.feed(k)) return true;
+    const n = this.count.take();
+    if (this.search.key(k, n)) return true;
+    if (n > 1 && COUNTED.has(k)) { let used = false; for (let i = 0; i < n && this.on; i++) used = this.key1(k) || used; return used; }
+    return this.key1(k);
+  }
+
+  private key1(k: string): boolean {
     if (!this.alive()) { if (!this.root || !this.enter(this.root)) { this.exit(); return true; } }
     const f = this.f!;
     const settle = () => { if (this.mode === 'n') { this.a = this.f; this.bound = null; } this.draw(); return true; };
@@ -299,10 +341,10 @@ export class Reader {
         break;
       case 'y':
         if (this.mode === 'n') { if (this.host.answer?.(true)) return true; break; }
-        void navigator.clipboard?.writeText(getSelection()!.toString()).catch(() => {});
+        yank(getSelection()!.toString(), this.mode === 'V');
         this.mode = 'n'; break;
       case 'n': if (this.mode === 'n' && this.host.answer?.(false)) return true; return true;
-      case 'esc': if (this.mode !== 'n') { this.mode = 'n'; break; } this.exit(); return true;
+      case 'esc': if (this.mode !== 'n') { this.mode = 'n'; break; } if (this.search.clear()) break; this.exit(); return true;
       case 'q': this.exit(); return true;
       case 'G': this.exit('end'); return true;
       case 'i': case 'a': this.exit('insert'); return true;
