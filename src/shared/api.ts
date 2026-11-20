@@ -39,6 +39,12 @@ export interface ChatSend {
   model?: string;
   effort?: string;
   perm?: string;
+  /** Edit and resend (G8): the id of the user event this message replaces. The thread rewinds to just before it. */
+  rewind?: string;
+  /** Send to this subagent (the id of its `sub` event) instead of the thread. */
+  sub?: string;
+  /** Run the last turn again (Restart after a crash, Retry now after a rate limit). `text` is empty. */
+  retry?: boolean;
 }
 
 export interface NewThread {
@@ -50,8 +56,10 @@ export interface NewThread {
   perm?: string;
   worktree?: boolean;
   view: ViewKind;
-  /** Fork from this thread (a side chat). */
+  /** Fork from this thread at that event: a new thread, or a side chat when `side` is set. */
   parent?: { id: string; at?: string };
+  /** A side chat: a fork kept with its parent (ThreadMeta.side), not listed as a thread of its own. */
+  side?: boolean;
 }
 
 export interface GitFile { path: string; status: 'M' | 'A' | 'D' | 'R' | '?'; add: number; del: number; staged: boolean }
