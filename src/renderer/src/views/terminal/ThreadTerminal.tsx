@@ -10,8 +10,9 @@ import { thread, update } from '../../state/store';
 import * as A from '../../state/actions';
 import { Button, Icon, Spinner } from '../../ui/primitives';
 import { harnessName } from '../../shell/meta';
-import { startPty, termOf, useTerminal } from './TerminalView';
+import { startPty, termOf, UploadCard, useTerminal } from './TerminalView';
 import { pendingArgs } from '../../shell/Launcher';
+
 
 const takeArgs = (id: string) => { const a = pendingArgs.get(id); return a?.length ? a : undefined; };
 
@@ -77,6 +78,7 @@ export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
   return (
     <div className="term-wrap">
       <div className="term-host" ref={host} />
+      <UploadCard tabId={t.id} />
       {exited && (
         <div className="t-exit kbrow">
           <Icon name={th.harness} />
@@ -92,3 +94,4 @@ export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
     </div>
   );
 }
+
