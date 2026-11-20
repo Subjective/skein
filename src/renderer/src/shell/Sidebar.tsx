@@ -11,7 +11,8 @@ import { S, update, useApp } from '../state/store';
 import { cx, Dot, Icon, IconButton, Spinner } from '../ui/primitives';
 import { animate, MOTION } from '../ui/motion';
 import { run } from './commands';
-import { base } from './meta';
+import { projectName } from './meta';
+import { moveMenu, startThreadDrag } from './move';
 
 const LINK: Record<Machine['link'], ['green' | 'amber' | 'red', boolean, string]> = {
   up: ['green', false, 'Connected'], connecting: ['amber', true, 'Connecting'], reconnecting: ['amber', true, 'Reconnecting'], auth: ['amber', false, 'Needs you to sign in'], down: ['red', false, 'Not connected'],
@@ -28,7 +29,6 @@ export function ThreadStatus({ t }: { t: ThreadMeta }) {
   }
 }
 
-const projectName = (m: string, d: string) => (S.settings as unknown as { names?: Record<string, string> }).names?.[m + ':' + d] || (d === S.machines.find(x => x.id === m)?.home ? '~' : base(d)) || d;
 
 /** Items in sidebar order, for j / k: headings ('fold:<key>') and threads (ids). */
 function navOrder(): string[] {
@@ -80,6 +80,11 @@ const sideSurface: Surface = {
         return true;
       case 'x': if (t) { go(i + 1); archive(t); } return true;
       case 'p': if (t) pin(t); return true;
+      case 'm': {
+        const row = t && !t.archived ? document.querySelector<HTMLElement>(`#side .row[data-thread="${CSS.escape(t.id)}"]`) : null;
+        if (t && row) moveMenu(t.id, row);
+        return true;
+      }
       case 'c': {
         const target = t || (key && !key.startsWith('h:') ? { machine: key.split(':')[0], dir: key.slice(key.indexOf(':') + 1) } : null);
         if (target) newIn(target.machine, target.dir); return true;
@@ -99,8 +104,8 @@ function Row({ t, d, sfx }: { t: ThreadMeta; d?: number; sfx?: boolean }) {
   const cur = s.sideCursor === t.id;
   useEffect(() => { if (cur && s.sideFocus) ref.current?.scrollIntoView({ block: 'nearest' }); }, [cur, s.sideFocus]);
   return (
-    <div ref={ref} className={cx('row', ft.kind === 'thread' && ft.thread === t.id && 'foc', cur && 'cur')} style={{ ['--d' as string]: d || 0 }}
-      title={`${t.title} · ${m?.name ?? t.machine} ${t.dir}`} onClick={e => A.openThread(t.id, { split: e.shiftKey })}>
+    <div ref={ref} className={cx('row', ft.kind === 'thread' && ft.thread === t.id && 'foc', cur && 'cur')} style={{ ['--d' as string]: d || 0 }} data-thread={t.id}
+      title={`${t.title} · ${m?.name ?? t.machine} ${t.dir}`} onClick={e => A.openThread(t.id, { split: e.shiftKey })} onMouseDown={e => startThreadDrag(e, t)}>
       <Icon name={t.harness} size="hm" />
       <span className="t">{t.title}</span>
       {sfx && <span className={cx('sfx', m?.ssh && 'ssh')}>{m?.ssh && <Icon name="host" />}<span>{projectName(t.machine, t.dir)}</span></span>}
@@ -123,7 +128,7 @@ function Head({ k, label, m }: { k: string; label: string; m?: Machine }) {
     requestAnimationFrame(() => { if (ch && from) animate(ch, [{ transform: from }, { transform: getComputedStyle(ch).transform }], MOTION.base); });
   };
   return (
-    <div ref={ref} className={cx('s-h', s.collapsed[k] && 'shut', cur && 'cur')} onClick={toggle} title={m ? (m.ssh ? 'Remote machine (SSH)' : 'Local machine') : undefined}>
+    <div ref={ref} className={cx('s-h', s.collapsed[k] && 'shut', cur && 'cur')} onClick={toggle} title={m ? (m.ssh ? 'Remote machine (SSH)' : 'Local machine') : undefined} data-machine={m?.id}>
       <span>{label}</span>
       {m && <Icon name={m.ssh ? 'host' : 'laptop'} className="machine-kind" />}
       {m?.ssh && (m.link === 'auth' || m.link === 'down'
@@ -168,7 +173,7 @@ export function Sidebar() {
                     const k = m.id + ':' + d, shut = s.collapsed[k];
                     return (
                       <div key={k}>
-                        <div className={cx('s-d', s.sideFocus && s.sideCursor === 'fold:' + k && 'cur')} onClick={() => fold(k)} title={d}>
+                        <div className={cx('s-d', s.sideFocus && s.sideCursor === 'fold:' + k && 'cur')} onClick={() => fold(k)} title={d} data-machine={m.id} data-dir={d}>
                           <Icon name={shut ? 'folder' : 'folderOpen'} className="project-folder" />
                           <span className="t">{projectName(m.id, d)}</span>
                           <IconButton icon="compose" label={`New thread in ${d}`} small className="add" onClick={e => { e.stopPropagation(); newIn(m.id, d); }} />

@@ -43,6 +43,10 @@ export function createHarnesses(deps: HarnessDeps = {}): Harnesses {
       const d = codexDrivers.get(t.id) ?? (lastHost ? codexDriver(t, lastHost) : null);
       return d ? d.attachArgs() : null;
     },
+    forget(id: string) {
+      const d = codexDrivers.get(id);
+      if (d) { codexDrivers.delete(id); d.dispose(); }
+    },
     dispose() { servers.dispose(); },
   };
 }

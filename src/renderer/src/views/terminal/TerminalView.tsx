@@ -109,6 +109,21 @@ export async function startPty(t: TermEntry) {
   }
 }
 
+/** A thread is moving: let go of its terminals' programs without treating that as an exit (main closes them).
+ *  Returns a function that starts them again at the thread's place then (the new one, or the old one if it failed). */
+export function detachThread(thread: string): (at: { machine: string; cwd: string }) => void {
+  const hit = [...cache.values()].filter(t => t.spec.thread === thread);
+  for (const t of hit) if (t.ptyId) { byPty.delete(t.ptyId); t.ptyId = null; t.exited = undefined; }
+  return at => {
+    for (const t of hit) {
+      // the first launch's arguments (model, first prompt) are not sent again
+      t.spec = { ...t.spec, machine: at.machine, cwd: at.cwd, run: { ...t.spec.run, args: undefined } as PtySpec['run'] };
+      if (t.term.element) { t.term.reset(); void startPty(t); } // one never shown starts when it is
+    }
+    update();
+  };
+}
+
 export function disposeTerm(tabId: string) {
   const t = cache.get(tabId); if (!t) return;
   if (t.ptyId) { api.pty.kill(t.ptyId); byPty.delete(t.ptyId); }

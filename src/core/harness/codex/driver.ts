@@ -216,6 +216,8 @@ export class CodexDriver implements ChatDriver {
         const perm = codexPerm(permId('codex', t.perm));
         const r = await rpc.request<{ turn: { id: string } }>('turn/start', {
           threadId, clientUserMessageId: clientId, input,
+          // the thread's folder every turn, so a moved thread works in its new one
+          cwd: expand(this.m, t.dir),
           ...(modelId('codex', t.model) ? { model: modelId('codex', t.model) } : {}),
           ...(effortId(t.effort) ? { effort: effortId(t.effort) } : {}),
           ...(perm ? { approvalPolicy: perm.approvalPolicy, sandboxPolicy: perm.sandboxPolicy } : {}),
@@ -267,7 +269,13 @@ export class CodexDriver implements ChatDriver {
   /** Codex needs no handoff: the terminal resumes the same thread id. Nothing to let go of. */
   async release(): Promise<void> {}
 
-  dispose() { this.unlisten?.(); }
+  /** Stop listening and let the app-server unload the thread, so the next resume reads its record again. */
+  dispose() {
+    this.unlisten?.(); this.unlisten = null;
+    const id = this.t.sessionId;
+    if (this.rpc?.alive && id && this.loaded) void this.rpc.request('thread/unsubscribe', { threadId: id }).catch(() => undefined);
+    this.loaded = false;
+  }
 
   // ---- thread lifecycle ----
 

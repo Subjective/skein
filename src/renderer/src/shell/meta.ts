@@ -4,6 +4,8 @@ import type { Tab } from '../state/layout';
 import { machine, S, thread } from '../state/store';
 
 export const harnessName = (h: Harness) => (h === 'claude' ? 'Claude Code' : 'Codex');
+/** A project's name in the sidebar: a name the user gave it, ~ for the home folder, else the folder's name. */
+export const projectName = (m: string, d: string) => (S.settings as unknown as { names?: Record<string, string> }).names?.[m + ':' + d] || (d === S.machines.find(x => x.id === m)?.home ? '~' : base(d)) || d;
 const base = (p = '') => p.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || p;
 
 export function tabMeta(t: Tab): { icon: string; title: string; ssh?: boolean } {
