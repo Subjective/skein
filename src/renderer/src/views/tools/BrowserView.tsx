@@ -22,6 +22,7 @@ import { display, hostOf, isLocalHost, normalize, portOf, withPort } from './add
 import { registerHooks, tabHook } from './hooks';
 import { ctxOf, viewState } from './repo';
 import { halfPage, useSurface } from './surface';
+import { loadError } from './netErrors';
 
 /** What a page host can do: a <webview> in the app, an <iframe> in a plain browser. */
 interface Frame {
@@ -81,7 +82,7 @@ function webviewFrame(ev: Events): Frame {
   wv.addEventListener('page-title-updated', e => ev.title((e as unknown as { title: string }).title));
   wv.addEventListener('did-fail-load', e => {
     const x = e as unknown as { errorCode: number; errorDescription: string; validatedURL: string; isMainFrame: boolean };
-    if (x.isMainFrame && x.errorCode !== -3) ev.fail(x.errorDescription.replace(/^net::/, '') || `Error ${x.errorCode}`, x.validatedURL);
+    if (x.isMainFrame && x.errorCode !== -3) ev.fail(loadError(x.errorDescription), x.validatedURL);
   });
   const off = onClickIn(wv, ev);
   const safe = (f: () => void) => { if (ready) try { f(); } catch { /* not attached yet */ } };
@@ -330,7 +331,7 @@ export function BrowserView({ t, focused }: { t: Tab; focused: boolean }) {
           <Button small variant="primary" onClick={() => st.err?.retry()}>Retry</Button>
         </div></div>
       )}
-      <div className={'br-page' + (t.url ? '' : ' blank')} ref={host}>
+      <div className={'br-page' + (t.url ? (st.err ? ' failed' : '') : ' blank')} ref={host}>
         {!t.url && <div className="r-empty"><Icon name="globe" size="xl" /><span className="dim">Type an address, or a port like 5173{m?.ssh ? ` on ${m.name}` : ''}</span></div>}
       </div>
     </div>

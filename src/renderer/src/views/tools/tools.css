@@ -125,5 +125,8 @@
 .br-page { position: relative; flex: 1; min-height: 0; display: flex; margin: 6px 0 0; border-top: 1px solid var(--line); background: #fff; }
 .br-page.blank { background: none; border-top-color: transparent; }
 .br-page.blank > webview, .br-page.blank > iframe { display: none; }
+/* a failed load shows the error row over the pane's own background, not the engine's blank white page */
+.br-page.failed { background: none; }
+.br-page.failed > webview, .br-page.failed > iframe { visibility: hidden; }
 .br-page > webview, .br-page > iframe { flex: 1; width: 100%; height: 100%; border: 0; }
 .br-page .r-empty { text-align: center; padding: 24px; }
