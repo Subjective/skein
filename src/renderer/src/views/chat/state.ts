@@ -19,12 +19,30 @@ export function log(thread: string): Log {
   if (!l.loaded && !l.loading) {
     const ll = l;
     ll.loading = api.threads.history(thread).then(evs => {
-      // pushes that arrived while loading win over the snapshot
-      const seen = new Set(ll.events.map(e => e.id));
-      ll.events = [...evs.filter(e => !seen.has(e.id)), ...ll.events];
+      ll.events = mergeSnapshot(evs, ll.events);
     }).catch(() => {}).finally(() => { ll.loaded = true; ll.loading = undefined; bump(); });
   }
   return l;
+}
+
+/** A history snapshot plus the events pushed while it loaded. Pushes win: they carry the ids later updates use.
+ *  A harness may name the same message differently in its transcript (Codex numbers its rollout lines, the live
+ *  prompt carries a client id), so a snapshot message with the same kind and text as a push is that push, once. */
+export function mergeSnapshot(snap: ThreadEvent[], pushed: ThreadEvent[]): ThreadEvent[] {
+  const ids = new Set(pushed.map(e => e.id));
+  const same = new Map<string, number>();
+  const sig = (e: ThreadEvent) => ((e.t === 'user' || e.t === 'text') ? e.t + '\0' + e.text.trim() : null);
+  for (const e of pushed) { const k = sig(e); if (k) same.set(k, (same.get(k) ?? 0) + 1); }
+  // match from the end: what was pushed while loading is the newest
+  const kept: ThreadEvent[] = [];
+  for (let i = snap.length - 1; i >= 0; i--) {
+    const e = snap[i];
+    if (ids.has(e.id)) continue;
+    const k = sig(e), n = k ? same.get(k) ?? 0 : 0;
+    if (n) { same.set(k!, n - 1); continue; }
+    kept.unshift(e);
+  }
+  return [...kept, ...pushed];
 }
 
 /** Apply a pushed event: replace the one with the same id, else append. */
