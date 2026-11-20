@@ -39,3 +39,6 @@ jobs:
       - name: App launches (Linux, under Xvfb)
         if: runner.os == 'Linux'
         run: xvfb-run -a node scripts/launch-check.cjs
+      - name: App launches (Windows, macOS)
+        if: runner.os != 'Linux'
+        run: node scripts/launch-check.cjs
