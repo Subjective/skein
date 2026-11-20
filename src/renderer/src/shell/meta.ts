@@ -6,7 +6,7 @@ import { hostOf } from '../views/tools/address';
 
 export const harnessName = (h: Harness) => (h === 'claude' ? 'Claude Code' : 'Codex');
 /** A project's name in the sidebar: a name the user gave it, ~ for the home folder, else the folder's name. */
-export const projectName = (m: string, d: string) => (S.settings as unknown as { names?: Record<string, string> }).names?.[m + ':' + d] || (d === S.machines.find(x => x.id === m)?.home ? '~' : base(d)) || d;
+export const projectName = (m: string, d: string) => S.names[m + ':' + d] || (d === S.machines.find(x => x.id === m)?.home ? '~' : base(d)) || d;
 /** A path as people read it: the machine's home folder shown as ~ (the stored path stays absolute). */
 export function tildify(m: string | undefined, d: string): string {
   const home = S.machines.find(x => x.id === (m || 'local'))?.home?.replace(/[\\/]+$/, '');

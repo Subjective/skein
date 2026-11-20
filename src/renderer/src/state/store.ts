@@ -23,6 +23,13 @@ export interface AppState {
   /** Sidebar cursor: a thread id, or 'fold:<key>' for a heading. */
   sideCursor: string | null;
   collapsed: Record<string, boolean>;
+  /** Sidebar projects: folders added with a machine's + (no threads yet), names given by double-click, and
+   *  the order projects were dragged into, all keyed '<machine>:<dir>' or by machine. */
+  projects: Record<string, string[]>;
+  names: Record<string, string>;
+  dirOrder: Record<string, string[]>;
+  /** The sidebar row being renamed in place: 'thread:<id>' or 'dir:<machine>:<dir>'. */
+  sideEdit: string | null;
   archiveOpen: boolean;
   leader: boolean;
   seq: string;
@@ -43,7 +50,7 @@ export const S: AppState = {
   info: { platform: 'win', version: '', home: '', pty: true },
   settings: { theme: 'system', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'term', notify: 'waiting', vimrc: '' },
   machines: [], threads: [], workspaces: [blankWs()], wid: '',
-  sideOpen: true, sideFocus: false, sideCursor: null, collapsed: {}, archiveOpen: false,
+  sideOpen: true, sideFocus: false, sideCursor: null, collapsed: {}, projects: {}, names: {}, dirOrder: {}, sideEdit: null, archiveOpen: false,
   leader: false, seq: '', toasts: [], auth: [], layers: [], tick: 0,
 };
 S.wid = S.workspaces[0].id;

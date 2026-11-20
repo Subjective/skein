@@ -53,6 +53,17 @@ const wordAt = (text: string, pos: number): Pop => {
   return null;
 };
 
+/** The text behind the textarea: quotes as chips, plus the block cursor (.hc) or VISUAL's moving end (.vcur). */
+function backLayer(text: string, cur: { hollow: number; vcur: number } | null): React.ReactNode[] {
+  const part = (str: string, key: string) => {
+    const toks = str.match(TOK) || [];
+    return str.split(TOK).flatMap((x, i, a) => (i < a.length - 1 ? [x, <span key={key + i} className="tok">{toks[i]}</span>] : [x]));
+  };
+  if (cur && cur.hollow >= 0) { const at = Math.min(cur.hollow, text.length); return [...part(text.slice(0, at), 'a'), <span key="hc" className="hc"><i /></span>, ...part(text.slice(at), 'b')]; }
+  if (cur && cur.vcur >= 0 && cur.vcur < text.length) return [...part(text.slice(0, cur.vcur), 'a'), <span key="vc" className="vcur">{text[cur.vcur]}</span>, ...part(text.slice(cur.vcur + 1), 'b')];
+  return part(text, 'a');
+}
+
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(p, handle) {
   const field = useRef<VimFieldHandle>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -61,6 +72,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const file = useRef<HTMLInputElement>(null);
   const props = useRef(p); props.current = p;
   const [pop, setPop] = useState<Pop>(null);
+  // the NORMAL cursor where there is no character, and VISUAL's moving end, drawn in the layer behind the text
+  const [cur, setCur] = useState<{ hollow: number; vcur: number } | null>(null);
   const menu = useRef<Surface | undefined>(undefined);
   const h: Harness = p.thread.harness;
 
@@ -210,11 +223,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         ))}</div>
       )}
       <div className="taw">
-        <div ref={bk} className="bk" aria-hidden="true">{p.draft.text.split(TOK).flatMap((s, i, a) => {
-          const toks = p.draft.text.match(TOK) || [];
-          return i < a.length - 1 ? [s, <span key={i} className="tok">{toks[i]}</span>] : [s];
-        })}{'​'}</div>
-        <VimField ref={field} tabId={p.tabId} value={p.draft.text} onChange={onChange} placeholder={p.placeholder || 'Send follow-up'}
+        <div ref={bk} className="bk" aria-hidden="true">{backLayer(p.draft.text, cur)}{'\u200b'}</div>
+        <VimField ref={field} tabId={p.tabId} value={p.draft.text} onChange={onChange} onCursor={setCur} placeholder={p.placeholder || 'Send follow-up'}
           autoFocus={p.autoFocus} onEnter={() => { if (open) return; p.onSend(); }} onLeave={() => { setPop(null); p.onLeave?.(); }}
           onLeaveUp={() => p.onLeaveUp?.()} onLeaveDown={toControls} onKey={onKey}
           onPaste={e => { const fs = [...e.clipboardData.files].filter(f => f.type.startsWith('image/')); if (fs.length) { e.preventDefault(); addFiles(fs); } }} />

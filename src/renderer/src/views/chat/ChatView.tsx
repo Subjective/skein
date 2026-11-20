@@ -181,22 +181,34 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     onFix: e => fixError(th, e, () => A.setView(t, 'term')),
   };
 
-  // the mouse: click moves the reader's cursor, a drag selects (VISUAL), a triple click selects lines
+  // the mouse (as the mockup): a click in the transcript moves the reader's cursor there (NORMAL), a drag selects
+  // (VISUAL), a triple click selects lines. A click outside a message being edited cancels the edit first. A click
+  // on nothing readable still leaves INSERT: the composer lets go and the tab is in NORMAL.
   const onMouseUp = (e: React.MouseEvent) => {
-    const root = read.current; if (!root) return;
-    const ev = e.nativeEvent;
+    const root = read.current; if (!root || e.button !== 0) return;
+    const ev = e.nativeEvent, target = ev.target as Element;
+    if (target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, summary, [role=dialog]')) return;
+    if (target.closest('.m-user.can-edit') && !getSelection()?.toString()) return;   // that click opens the edit box
     setTimeout(() => {
       const s = getSelection();
-      if (s && !s.isCollapsed && root.contains(s.anchorNode)) { reader.fromMouse(ev, root); setSel(s.toString()); }
-      else if (ev.detail >= 3) reader.fromMouse(ev, root);
+      if (s && !s.isCollapsed && root.contains(s.anchorNode)) setSel(s.toString());
+      reader.fromMouse(ev, root);   // first, while the text under the pointer is where it was clicked
+      if (tc.edit && (!s || s.isCollapsed)) { tc.edit = undefined; bump(); }
+      if (!reader.on) {
+        const el = document.activeElement as HTMLElement | null;
+        if (el && el.matches('textarea, input') && scroller.current?.parentElement?.contains(el)) el.blur();
+        idle();
+      }
     }, 0);
   };
+  // a field in this tab taking the focus takes the cursor too: the reader's goes (never two cursors)
+  const onFocusIn = (e: React.FocusEvent) => { if ((e.target as Element).matches('textarea, input') && reader.on) reader.clear(); };
 
   const m = machine(th.machine);
   const parent = th.side ? thread(th.parent?.id) : undefined;
   const anchorText = th.side && th.parent?.at ? (log(th.parent.id).events.find(e => e.id === th.parent!.at) as { text?: string } | undefined)?.text : undefined;
   return (
-    <div className={cx('chat', (th.side || t.kind === 'sub') && 'side')}>
+    <div className={cx('chat', (th.side || t.kind === 'sub') && 'side')} onFocus={onFocusIn}>
       <div className="thread" ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp}>
         <div className="col" data-read ref={read}>
           {t.kind === 'sub' && sub && <div className="sub-h"><Icon name="agent" /><span>{sub.task}</span></div>}

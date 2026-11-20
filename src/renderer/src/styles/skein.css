@@ -789,7 +789,7 @@ code.flink:hover { text-decoration: underline; text-underline-offset: 2px; }
    search fields. It is drawn by us, so it does not depend on the browser's block-caret support. */
 .hc { position: relative; }
 .hc i { position: absolute; left: 0; top: 0; width: .42em; height: 1.5em; background: var(--fg); opacity: .8; border-radius: 1px; }
-textarea.vn.hollow { caret-color: transparent; }
+textarea.vn.hollow.drawn { caret-color: transparent; }
 .m-q { position: relative; }
 /* on a character it is exactly that character's box, no wider */
 .m-q .ncur { padding: 0; margin: 0; letter-spacing: 0; }

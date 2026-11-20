@@ -1,6 +1,9 @@
 // A text field driven by the Vim engine (input/vimtext.ts). Composers, the vimrc editor and other editable
 // text all use this, so a key means the same thing in each (VIM-MODEL: Field).
-// The NORMAL cursor is drawn as a one-character selection (class `vn`), VISUAL as the selection itself.
+// The NORMAL cursor is drawn as a one-character selection (class `vn`), VISUAL as the selection itself. Where
+// there is no character to sit on (an empty field, an empty line) the caret itself is the cursor (`hollow`); a
+// field with a layer behind its text (the composer's .bk) draws it there as a block (`onCursor`, as the mockup's
+// Vim.block does). Only the focused field draws a cursor: on blur the classes go (one cursor on screen, ever).
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react';
 import type { KeyLike } from '../input/keys';
 import type { Mode, Surface } from '../input/dispatcher';
@@ -33,6 +36,9 @@ export interface VimFieldProps {
   maxHeight?: number;
   mono?: boolean;
   startMode?: 'INSERT' | 'NORMAL';
+  /** Where the layer behind the text should draw the cursor: `hollow` the block where there is no character,
+   *  `vcur` the moving end of a VISUAL selection. null when the field has no cursor to draw (INSERT, blurred). */
+  onCursor?: (c: { hollow: number; vcur: number } | null) => void;
 }
 
 export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimField(p, handle) {
@@ -40,15 +46,25 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
   const st = useRef<TextState>(init(p.value, p.startMode || 'INSERT'));
   const props = useRef(p); props.current = p;
 
+  const lastCur = useRef('');
+  const cursor = (c: { hollow: number; vcur: number } | null) => {
+    const key = c ? `${c.hollow}:${c.vcur}` : '';
+    if (key !== lastCur.current) { lastCur.current = key; props.current.onCursor?.(c); }
+  };
   const paint = () => {
     const el = ta.current, s = st.current; if (!el) return;
     if (el.value !== s.text) el.value = s.text;
-    const vim = S.settings.vim;
-    el.classList.toggle('vn', vim && s.mode !== 'INSERT');
-    el.classList.toggle('vv', vim && (s.mode === 'VISUAL' || s.mode === 'V-LINE'));
-    if (document.activeElement !== el) return;
-    if (!vim || s.mode === 'INSERT') el.setSelectionRange(s.pos, s.pos);
-    else if (s.mode === 'NORMAL') el.setSelectionRange(s.pos, Math.min(s.text.length, s.pos + 1) || s.pos);
+    const vim = S.settings.vim, focused = document.activeElement === el;
+    const normal = vim && focused && s.mode !== 'INSERT', vis = s.mode === 'VISUAL' || s.mode === 'V-LINE';
+    const hollow = normal && !vis && (s.pos >= s.text.length || s.text[s.pos] === '\n');
+    el.classList.toggle('vn', normal);
+    el.classList.toggle('vv', normal && vis);
+    el.classList.toggle('hollow', hollow);
+    el.classList.toggle('drawn', hollow && !!props.current.onCursor);
+    cursor(normal ? { hollow: hollow ? s.pos : -1, vcur: vis && s.pos < s.text.length && s.text[s.pos] !== '\n' ? s.pos : -1 } : null);
+    if (!focused) return;
+    if (!vim || s.mode === 'INSERT' || hollow) el.setSelectionRange(s.pos, s.pos);
+    else if (s.mode === 'NORMAL') el.setSelectionRange(s.pos, Math.min(s.text.length, s.pos + 1));
     else { const [a, b] = vrange(s); el.setSelectionRange(a, b); }
   };
   const grow = () => { const el = ta.current; if (!el) return; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, p.maxHeight ?? 180) + 'px'; };
@@ -129,10 +145,18 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
       className={cx(p.className, p.mono && 'mono')}
       placeholder={p.placeholder}
       defaultValue={p.value}
-      onFocus={() => own()}
-      onMouseDown={() => { if (S.settings.vim && st.current.mode !== 'INSERT') { st.current = { ...st.current, mode: 'INSERT', insertFrom: { text: st.current.text, pos: st.current.pos } }; update(x => { x.tick++; }); } }}
+      onFocus={() => { own(); requestAnimationFrame(() => { if (document.activeElement === ta.current && st.current.mode !== 'INSERT') paint(); }); }}
+      onBlur={() => { const el = ta.current; if (el) el.classList.remove('vn', 'vv', 'hollow', 'drawn'); cursor(null); }}
+      // a click places the caret and types there (VIM-MODEL rule: clicking a field enters INSERT); the NORMAL
+      // classes go at once, so the browser's caret shows where the click put it
+      onMouseDown={e => {
+        if (!S.settings.vim || st.current.mode === 'INSERT') return;
+        st.current = { ...st.current, mode: 'INSERT', pending: '', insertFrom: { text: st.current.text, pos: st.current.pos } };
+        e.currentTarget.classList.remove('vn', 'vv', 'hollow', 'drawn'); cursor(null);
+        update(x => { x.tick++; });
+      }}
       onMouseUp={e => { const el = e.currentTarget; if (el.selectionStart === el.selectionEnd) st.current = { ...st.current, pos: el.selectionStart }; }}
-      onInput={e => { const el = e.currentTarget; st.current = typed(st.current, el.value, el.selectionStart); grow(); props.current.onChange(el.value); }}
+      onInput={e => { const el = e.currentTarget; st.current = typed(st.current, el.value, el.selectionStart); if (el.classList.contains('vn')) paint(); grow(); props.current.onChange(el.value); }}
       onSelect={e => { if (st.current.mode === 'INSERT') st.current = { ...st.current, pos: e.currentTarget.selectionStart }; }}
       onPaste={p.onPaste}
     />

@@ -39,7 +39,8 @@ export const COMMANDS: Record<string, string> = {
   zoom: 'Zoom pane',
   only: 'Close other panes',
   workspaces: 'Workspaces',
-  wsnext: 'Last workspace',
+  wsnext: 'Switch workspace (hold ctrl)',
+  wsprev: 'Switch workspace, backwards',
   'focus h': 'Focus left', 'focus j': 'Focus down', 'focus k': 'Focus up', 'focus l': 'Focus right',
   'move h': 'Move pane left', 'move j': 'Move pane down', 'move k': 'Move pane up', 'move l': 'Move pane right',
   'resize -': 'Narrower', 'resize +': 'Wider',
@@ -73,6 +74,7 @@ export const DEFAULTS: Binding[] = [
   { layer: 'global', keys: 'alt-k', command: 'focus k', term: true },
   { layer: 'global', keys: 'alt-l', command: 'focus l', term: true },
   { layer: 'global', keys: 'ctrl-tab', command: 'wsnext', term: true },
+  { layer: 'global', keys: 'ctrl-shift-tab', command: 'wsprev', term: true },
   { layer: 'global', keys: 'ctrl-o', command: 'back' },
   { layer: 'global', keys: 'ctrl-i', command: 'forward' },
 

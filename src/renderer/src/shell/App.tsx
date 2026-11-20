@@ -37,7 +37,8 @@ export async function boot() {
   const [info, settings, machines, threads, ui] = await Promise.all([api.app.info(), api.app.settings(), api.machines.list(), api.threads.list(), api.app.load('ui')]);
   update(s => {
     s.info = info; s.settings = settings; s.machines = machines; s.threads = threads;
-    const u = ui as { workspaces?: Ws[]; wid?: string; sideOpen?: boolean; collapsed?: Record<string, boolean> } | undefined;
+    const u = ui as { workspaces?: Ws[]; wid?: string; sideOpen?: boolean; collapsed?: Record<string, boolean>; projects?: Record<string, string[]>; names?: Record<string, string>; dirOrder?: Record<string, string[]> } | undefined;
+    s.projects = u?.projects || {}; s.names = u?.names || {}; s.dirOrder = u?.dirOrder || {};
     if (u?.workspaces?.length) {
       // drop tabs whose thread is gone; a thread tab comes back as it was (G12)
       for (const w of u.workspaces) { w.pops = w.pops || []; w.pf = null; for (const p of leaves(w.tree)) if (!p.tabs.length) p.tabs = []; }

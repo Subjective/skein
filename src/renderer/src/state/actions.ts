@@ -211,7 +211,7 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 export function save() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
-    void api.app.save('ui', { workspaces: S.workspaces, wid: S.wid, sideOpen: S.sideOpen, collapsed: S.collapsed });
+    void api.app.save('ui', { workspaces: S.workspaces, wid: S.wid, sideOpen: S.sideOpen, collapsed: S.collapsed, projects: S.projects, names: S.names, dirOrder: S.dirOrder });
   }, 400);
 }
 

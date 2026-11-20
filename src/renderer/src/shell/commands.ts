@@ -1,6 +1,7 @@
 // Command names (input/keymap.ts COMMANDS) to actions. The : line runs these too.
 import { S, toast, update, ws } from '../state/store';
 import * as A from '../state/actions';
+import { cycleWorkspaces } from './switcher';
 import { openCmdline, openKeys, openPalette, openPaneSearch, openSettings, openWorkspaces } from './overlays';
 import { scrollback } from '../views/terminal/scrollback';
 import { tabHook } from '../views/tools/hooks';
@@ -28,7 +29,8 @@ const RUN: Record<string, () => void> = {
   zoom: () => A.zoom(),
   only: () => A.only(),
   workspaces: () => openWorkspaces(),
-  wsnext: () => A.lastWorkspace(),
+  wsnext: () => cycleWorkspaces(1),
+  wsprev: () => cycleWorkspaces(-1),
   'focus h': () => A.focusDir('h'), 'focus j': () => A.focusDir('j'), 'focus k': () => A.focusDir('k'), 'focus l': () => A.focusDir('l'),
   'move h': () => A.movePane('h'), 'move j': () => A.movePane('j'), 'move k': () => A.movePane('k'), 'move l': () => A.movePane('l'),
   'resize -': () => A.resizePane(-0.05), 'resize +': () => A.resizePane(0.05),

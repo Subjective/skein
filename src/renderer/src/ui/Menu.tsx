@@ -46,6 +46,9 @@ export interface MenuProps<D = unknown> {
   keep?: boolean;
   /** Extra keys handled by the menu's owner while an item is selected (NORMAL only). */
   keys?: (k: string, it: MenuItem<D> | undefined) => boolean;
+  /** Controlled selection (the ctrl-tab switcher moves it from outside); onSelect hears every move. */
+  select?: number;
+  onSelect?: (i: number) => void;
   /** Register as the keyboard owner (default true). */
   surface?: (s: Surface | undefined) => void;
 }
@@ -64,8 +67,10 @@ export function Menu<D>(p: MenuProps<D>) {
     return f.filter((it, i) => !it.head || (f[i + 1] && !f[i + 1].head));
   }, [all, q, p.ranked]);
   const first = () => { const on = items.findIndex(it => !it.head && !it.dis && it.on); return on >= 0 ? on : items.findIndex(it => !it.head && !it.dis); };
-  const [i, setI] = useState(first);
-  useEffect(() => { setI(first()); }, [items.length, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [i, setI] = useState(() => p.select ?? first());
+  useEffect(() => { setI(p.select ?? first()); }, [items.length, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (p.select != null) setI(p.select); }, [p.select]);
+  useEffect(() => { p.onSelect?.(i); }, [i]); // eslint-disable-line react-hooks/exhaustive-deps
   const ref = useRef<HTMLDivElement>(null);
   const inp = useRef<HTMLInputElement>(null);
   const st = useRef({ i, items, q, ins }); st.current = { i, items, q, ins };

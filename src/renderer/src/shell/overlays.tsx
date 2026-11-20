@@ -145,16 +145,16 @@ function KeysSheet({ close }: { close: () => void }) {
 // ---------- settings ----------
 interface Row { label: string; desc?: string; seg?: [string, string][]; get?: () => string; set?: (v: string) => void; sw?: () => boolean; toggle?: () => void; btn?: string; run?: () => void; extra?: React.ReactNode }
 
-export function openSettings() { openLayer(close => <Settings close={close} />); }
+export function openSettings(section?: string) { openLayer(close => <Settings close={close} section={section} />); }
 const setSetting = async (patch: Partial<typeof S.settings>) => { const s = await api.app.setSettings(patch); update(st => { st.settings = s; }); };
 
 // Keys (VIM-MODEL section 4, Settings): two lists side by side. The section list has the keys first: j / k move
 // over sections (the page follows), l / enter / tab go into the section's rows. In the rows, j / k move,
 // h / l lower and raise a row's value (a choice, a switch), enter presses it, and esc, shift-tab, or h on a row
 // with no value go back to the section list. esc there closes. H / L (tabs elsewhere) do nothing in this dialog.
-function Settings({ close }: { close: () => void }) {
+function Settings({ close, section }: { close: () => void; section?: string }) {
   const s = useApp();
-  const [sec, setSec] = useState(0);
+  const [sec, setSec] = useState(() => Math.max(0, ['General', 'Vim', 'Notifications', 'Machines'].indexOf(section || '')));
   const [row, setRow] = useState(0);
   const [col, setCol] = useState<'nav' | 'rows'>('nav');
   const sections: [string, string, Row[]][] = [

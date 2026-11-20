@@ -7,12 +7,14 @@ import type { Surface } from '../input/dispatcher';
 import { api } from '../api';
 import * as A from '../state/actions';
 import { mkTab } from '../state/layout';
-import { S, update, useApp } from '../state/store';
+import { S, toast, update, useApp } from '../state/store';
 import { cx, Dot, Icon, IconButton, Spinner } from '../ui/primitives';
 import { animate, MOTION } from '../ui/motion';
 import { run } from './commands';
 import { projectName } from './meta';
+import { dirMenu } from './Launcher';
 import { moveMenu, startThreadDrag } from './move';
+import { openMenu, openSettings } from './overlays';
 
 const LINK: Record<Machine['link'], ['green' | 'amber' | 'red', boolean, string]> = {
   up: ['green', false, 'Connected'], connecting: ['amber', true, 'Connecting'], reconnecting: ['amber', true, 'Reconnecting'], auth: ['amber', false, 'Needs you to sign in'], down: ['red', false, 'Not connected'],
@@ -38,13 +40,20 @@ function navOrder(): string[] {
   if (pinned.length) { out.push('fold:h:pinned'); if (!S.collapsed['h:pinned']) out.push(...pinned.map(t => t.id)); }
   if (S.settings.sideView === 'recent') { out.push('fold:h:recent'); if (!S.collapsed['h:recent']) out.push(...[...rest].sort((a, b) => b.updatedAt - a.updatedAt).map(t => t.id)); }
   else for (const m of S.machines) {
-    const ts = rest.filter(t => t.machine === m.id); if (!ts.length) continue;
+    const ts = rest.filter(t => t.machine === m.id); if (!hasProjects(m.id, ts)) continue;
     out.push('fold:h:' + m.id); if (S.collapsed['h:' + m.id]) continue;
-    for (const d of dirsOf(ts)) { const k = m.id + ':' + d; out.push('fold:' + k); if (!S.collapsed[k]) out.push(...ts.filter(t => t.dir === d).sort((a, b) => b.updatedAt - a.updatedAt).map(t => t.id)); }
+    for (const d of dirsOf(m.id, ts)) { const k = m.id + ':' + d; out.push('fold:' + k); if (!S.collapsed[k]) out.push(...ts.filter(t => t.dir === d).sort((a, b) => b.updatedAt - a.updatedAt).map(t => t.id)); }
   }
   return out;
 }
-const dirsOf = (ts: ThreadMeta[]) => [...new Set([...ts].sort((a, b) => b.updatedAt - a.updatedAt).map(t => t.dir))];
+/** A machine's projects: folders with threads (most recent first) and folders added with its +, in the order
+ *  they were dragged into. */
+function dirsOf(m: string, ts: ThreadMeta[]): string[] {
+  const dirs = new Set([...[...ts].sort((a, b) => b.updatedAt - a.updatedAt).map(t => t.dir), ...(S.projects[m] || [])]);
+  const saved = (S.dirOrder[m] || []).filter(d => dirs.delete(d));
+  return saved.concat([...dirs]);
+}
+const hasProjects = (m: string, ts: ThreadMeta[]) => ts.length > 0 || (S.projects[m] || []).length > 0;
 
 const fold = (k: string) => update(s => { s.collapsed = { ...s.collapsed, [k]: !s.collapsed[k] }; });
 const archive = (t: ThreadMeta) => { void api.threads.update(t.id, { archived: !t.archived }); };
@@ -52,6 +61,81 @@ const pin = (t: ThreadMeta) => { void api.threads.update(t.id, { pinned: !t.pinn
 function newIn(machine: string, dir: string) {
   const p = A.focusedPane();
   update(s => { A.addTab(p, mkTab('new', { machine, dir })); s.sideFocus = false; s.tick++; });
+}
+
+/** A machine's +: a folder with no threads yet becomes a project in the sidebar. */
+function addProject(mid: string, el: HTMLElement) {
+  const m = S.machines.find(x => x.id === mid); if (!m) return;
+  dirMenu({ machine: mid, dir: '~' }, el, d => {
+    const k = mid + ':' + d;
+    update(s => {
+      if (!S.threads.some(t => t.machine === mid && t.dir === d) && !(s.projects[mid] || []).includes(d)) s.projects = { ...s.projects, [mid]: [...(s.projects[mid] || []), d] };
+      s.collapsed = { ...s.collapsed, ['h:' + mid]: false, [k]: false }; s.sideCursor = 'fold:' + k;
+    });
+    A.save();
+    toast(`Added ${projectName(mid, d)}`, { icon: 'folder' });
+  }, { placeholder: `Folder or path on ${m.name}` });
+}
+function machineActions(mid: string, el: HTMLElement) {
+  const k = 'h:' + mid;
+  openMenu<() => void>({
+    anchor: el.getBoundingClientRect(), place: 'bottom-start', width: 200,
+    items: [
+      { label: S.collapsed[k] ? 'Expand section' : 'Collapse section', icon: <Icon name="tree" />, data: () => fold(k) },
+      { label: 'Machine settings', icon: <Icon name="sliders" />, data: () => openSettings('Machines') },
+    ],
+    onPick: it => it.data?.(),
+  });
+}
+/** Rename in place (double-click a thread or project): enter keeps it, esc puts the old name back. */
+function NameEdit({ value, onDone, label }: { value: string; onDone: (v: string | null) => void; label: string }) {
+  const ref = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
+  useEffect(() => { ref.current?.focus(); ref.current?.select(); }, []);
+  const finish = (v: string | null) => { if (done.current) return; done.current = true; update(s => { s.sideEdit = null; }); onDone(v); };
+  return <input ref={ref} className="sidebar-name-input" aria-label={label} defaultValue={value} spellCheck={false}
+    onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
+    onKeyDown={e => {
+      if (e.nativeEvent.isComposing) return;
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
+      if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); finish(e.currentTarget.value.trim()); }
+    }}
+    onBlur={e => finish(e.currentTarget.value.trim())} />;
+}
+const renameThread = (t: ThreadMeta, v: string | null) => { if (v && v !== t.title) void api.threads.update(t.id, { title: v }); };
+const renameProject = (m: string, d: string, v: string | null) => {
+  if (v == null || v === projectName(m, d)) return;
+  update(s => { const n = { ...s.names }; if (v) n[m + ':' + d] = v; else delete n[m + ':' + d]; s.names = n; }); A.save();
+};
+
+/** Drag a project row up or down among its machine's projects. */
+function startProjectDrag(e: React.MouseEvent, m: string, d: string) {
+  if (e.button !== 0 || S.sideEdit) return;
+  const src = e.currentTarget as HTMLElement, x0 = e.clientX, y0 = e.clientY;
+  let on = false, over: HTMLElement | null = null, edge: 'before' | 'after' = 'before';
+  const unmark = () => { if (over) delete over.dataset.dropEdge; over = null; };
+  const mv = (ev: MouseEvent) => {
+    if (!on && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
+    if (!on) { on = true; src.classList.add('drag-source'); document.body.classList.add('dragging-thread'); document.getSelection()?.removeAllRanges(); }
+    unmark();
+    const row = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>('#side .s-d');
+    if (!row || row === src || row.dataset.machine !== m) return;
+    const r = row.getBoundingClientRect(); edge = ev.clientY < r.top + r.height / 2 ? 'before' : 'after';
+    row.dataset.dropEdge = edge; over = row;
+  };
+  const up = () => {
+    removeEventListener('mousemove', mv); removeEventListener('mouseup', up, true);
+    if (!on) return;
+    src.classList.remove('drag-source'); document.body.classList.remove('dragging-thread');
+    const swallow = (ev: Event) => { ev.stopPropagation(); ev.preventDefault(); };
+    addEventListener('click', swallow, true); setTimeout(() => removeEventListener('click', swallow, true), 0);
+    const target = over?.dataset.dir; unmark();
+    if (!target) return;
+    const order = dirsOf(m, S.threads.filter(t => t.machine === m && !t.archived && !t.side && !t.pinned)).filter(x => x !== d);
+    order.splice(order.indexOf(target) + (edge === 'after' ? 1 : 0), 0, d);
+    update(s => { s.dirOrder = { ...s.dirOrder, [m]: order }; }); A.save();
+  };
+  addEventListener('mousemove', mv); addEventListener('mouseup', up, true);
 }
 
 const sideSurface: Surface = {
@@ -96,18 +180,29 @@ const sideSurface: Surface = {
 };
 export const sidebarSurface = sideSurface;
 
+let rowClick: ReturnType<typeof setTimeout> | undefined;
 function Row({ t, d, sfx }: { t: ThreadMeta; d?: number; sfx?: boolean }) {
   const s = useApp();
   const ft = A.currentTab();
   const m = s.machines.find(x => x.id === t.machine);
   const ref = useRef<HTMLDivElement>(null);
   const cur = s.sideCursor === t.id;
+  const editing = s.sideEdit === 'thread:' + t.id;
   useEffect(() => { if (cur && s.sideFocus) ref.current?.scrollIntoView({ block: 'nearest' }); }, [cur, s.sideFocus]);
   return (
     <div ref={ref} className={cx('row', ft.kind === 'thread' && ft.thread === t.id && 'foc', cur && 'cur')} style={{ ['--d' as string]: d || 0 }} data-thread={t.id}
-      title={`${t.title} · ${m?.name ?? t.machine} ${t.dir}`} onClick={e => A.openThread(t.id, { split: e.shiftKey })} onMouseDown={e => startThreadDrag(e, t)}>
+      title={`${t.title} · ${m?.name ?? t.machine} ${t.dir}`}
+      onClick={e => {
+        // a double-click renames, so a plain click waits to see if a second one follows (as the mockup does)
+        clearTimeout(rowClick);
+        if (editing || e.detail > 1) return;
+        if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || !e.detail) { A.openThread(t.id, { split: e.shiftKey }); return; }
+        rowClick = setTimeout(() => A.openThread(t.id), 350);
+      }}
+      onDoubleClick={() => { clearTimeout(rowClick); if (!t.archived) update(x => { x.sideEdit = 'thread:' + t.id; }); }}
+      onMouseDown={e => { if (!editing) startThreadDrag(e, t); }}>
       <Icon name={t.harness} size="hm" />
-      <span className="t">{t.title}</span>
+      <span className="t">{editing ? <NameEdit value={t.title} label="Thread name" onDone={v => renameThread(t, v)} /> : t.title}</span>
       {sfx && <span className={cx('sfx', m?.ssh && 'ssh')}>{m?.ssh && <Icon name="host" />}<span>{projectName(t.machine, t.dir)}</span></span>}
       <span className="row-actions">
         {!t.archived && <button aria-label={t.pinned ? 'Unpin' : 'Pin'} title={t.pinned ? 'Unpin' : 'Pin'} onClick={e => { e.stopPropagation(); pin(t); }}><Icon name="pin" /></button>}
@@ -135,6 +230,10 @@ function Head({ k, label, m }: { k: string; label: string; m?: Machine }) {
         ? <button className="mlink" title={m.note || LINK[m.link][2]} onClick={e => { e.stopPropagation(); void api.machines.connect(m.id); }}><Dot color={LINK[m.link][0]} label={LINK[m.link][2]} /></button>
         : <Dot color={LINK[m.link][0]} pulse={LINK[m.link][1]} label={LINK[m.link][2]} />)}
       <Icon name="chev" className="ch" />
+      {m && <span className="machine-actions" onClick={e => e.stopPropagation()}>
+        <IconButton icon="dots" label={`Actions for ${m.name}`} small onClick={e => machineActions(m.id, e.currentTarget)} />
+        <IconButton icon="plus" label={`Add a project on ${m.name}`} small onClick={e => addProject(m.id, e.currentTarget)} />
+      </span>}
     </div>
   );
 }
@@ -164,18 +263,19 @@ export function Sidebar() {
           ? <><Head k="h:recent" label="Recent" /><Group k="h:recent">{[...rest].sort((a, b) => b.updatedAt - a.updatedAt).map(t => <Row key={t.id} t={t} sfx />)}</Group></>
           : s.machines.map(m => {
             const ts = rest.filter(t => t.machine === m.id);
-            if (!ts.length && !m.ssh) return null;
+            if (!hasProjects(m.id, ts) && !m.ssh) return null;
             return (
               <div key={m.id}>
                 <Head k={'h:' + m.id} label={m.name} m={m} />
                 <Group k={'h:' + m.id}>
-                  {dirsOf(ts).map(d => {
-                    const k = m.id + ':' + d, shut = s.collapsed[k];
+                  {dirsOf(m.id, ts).map(d => {
+                    const k = m.id + ':' + d, shut = s.collapsed[k], editing = s.sideEdit === 'dir:' + k;
                     return (
                       <div key={k}>
-                        <div className={cx('s-d', s.sideFocus && s.sideCursor === 'fold:' + k && 'cur')} onClick={() => fold(k)} title={d} data-machine={m.id} data-dir={d}>
+                        <div className={cx('s-d', s.sideFocus && s.sideCursor === 'fold:' + k && 'cur')} onClick={() => { if (!editing) fold(k); }} title={d} data-machine={m.id} data-dir={d}
+                          onDoubleClick={() => update(x => { x.sideEdit = 'dir:' + k; })} onMouseDown={e => { if (!editing && !(e.target as HTMLElement).closest('button')) startProjectDrag(e, m.id, d); }}>
                           <Icon name={shut ? 'folder' : 'folderOpen'} className="project-folder" />
-                          <span className="t">{projectName(m.id, d)}</span>
+                          <span className="t">{editing ? <NameEdit value={projectName(m.id, d)} label="Project name" onDone={v => renameProject(m.id, d, v)} /> : projectName(m.id, d)}</span>
                           <IconButton icon="compose" label={`New thread in ${d}`} small className="add" onClick={e => { e.stopPropagation(); newIn(m.id, d); }} />
                         </div>
                         <div className="project-threads" inert={!!shut}><div>{ts.filter(t => t.dir === d).sort((a, b) => b.updatedAt - a.updatedAt).map(t => <Row key={t.id} t={t} d={1} />)}</div></div>
