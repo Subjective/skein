@@ -1,8 +1,9 @@
 // Vim for a text field (VIM-MODEL: Field). Pure: a state and a key in, a new state and effects out.
 // Composers, the edit box, menu search fields and the file editor all run this one engine.
 //
-// NORMAL: h l j k w b e W B E 0 ^ $ gg G, counts, x X D C S s r~ J, d c y with motions (and iw aw, dd cc yy),
-//         p P, i a I A o O, v V, u ctrl-r (rule 17), enter (effect 'enter'), esc (effect 'leave').
+// NORMAL: h l j k w b e W B E 0 ^ $ gg G (5G, 5gg: line 5), counts, x X D C S s r~ J, d c y with motions
+//         (and iw aw, dd cc yy), p P (3p), i a I A o O, v V, u ctrl-r (rule 17), enter (effect 'enter'),
+//         esc (effect 'leave'). The register is the state's `reg`; VimField shares one across fields (input/register).
 // VISUAL / V-LINE: the same motions extend; d x c y s, o swaps ends, esc back to NORMAL.
 // INSERT: esc to NORMAL; everything else is typed by the browser (the field calls `typed`).
 export type FieldMode = 'NORMAL' | 'INSERT' | 'VISUAL' | 'V-LINE';
@@ -83,7 +84,7 @@ const R = (s: TextState, ...fx: Effect[]): Result => ({ s, handled: true, fx });
 const PASS = (s: TextState): Result => ({ s, handled: false, fx: [] });
 
 /** Motion: where the cursor lands, and whether an operator over it is inclusive / linewise. */
-function motion(s: TextState, k: string, count: number): { to: number; incl?: boolean; line?: boolean; col?: number } | null | 'up' | 'down' {
+function motion(s: TextState, k: string, count: number, explicit = false): { to: number; incl?: boolean; line?: boolean; col?: number } | null | 'up' | 'down' {
   const t = s.text, p = s.pos;
   let to = p;
   switch (k) {
@@ -101,8 +102,12 @@ function motion(s: TextState, k: string, count: number): { to: number; incl?: bo
       if (q == null) return k === 'j' || k === 'down' ? 'down' : 'up';
       return { to: q, line: true, col };
     }
-    case 'G': return { to: lineStart(t, t.length), line: true };
-    case 'g g': return { to: 0, line: true };
+    case 'G': case 'g g': {
+      if (!explicit) return { to: k === 'G' ? lineStart(t, t.length) : 0, line: true };
+      let at = 0;   // 5G / 5gg: the start of line 5 (or the last line)
+      for (let n = 1; n < count; n++) { const e = t.indexOf('\n', at); if (e < 0) break; at = e + 1; }
+      return { to: at, line: true };
+    }
   }
   return null;
 }
@@ -119,12 +124,14 @@ export function step(s0: TextState, k: string): Result {
   }
 
   // ---- pending: counts, g, r, operators ----
-  const m = /^(\d*)(.*)$/.exec(s.pending)!;
-  if (/^[1-9]$/.test(k) || (k === '0' && m[1])) return R({ ...s, pending: s.pending + k });
-  const count = Math.max(1, parseInt(m[1] || '1', 10));
-  const pend = m[2];
-  const key = pend === 'g' || pend.endsWith(' g') ? (k === 'g' ? 'g g' : k) : k;
+  // a count may come before the operator, after it, or both (3dw, d3w, 2d3w: 6 words), as in Vim
+  const pend = s.pending.replace(/\d+/g, '');
   if (pend === 'r') { s = { ...s, pending: '' }; if (k.length !== 1) return R(s); return R(edit(s, s.text.slice(0, s.pos) + k + s.text.slice(s.pos + 1), s.pos), 'changed'); }
+  if (/^[1-9]$/.test(k) || (k === '0' && /\d$/.test(s.pending))) return R({ ...s, pending: s.pending + k });
+  const groups = s.pending.match(/\d+/g) || [];
+  const explicit = groups.length > 0;
+  const count = Math.max(1, Math.min(100000, groups.reduce((a, g) => a * parseInt(g, 10), 1)));
+  const key = pend === 'g' || /^[dcy]g$/.test(pend) ? (k === 'g' ? 'g g' : k) : k;
 
   const visual = s.mode === 'VISUAL' || s.mode === 'V-LINE';
   const op = (pend.match(/^([dcy])/) || [])[1];
@@ -154,7 +161,7 @@ export function step(s0: TextState, k: string): Result {
     return applyOp(s, op, a, Math.min(t.length, b), true);
   }
 
-  const mv = motion({ ...s, pending: pend }, key, count);
+  const mv = motion({ ...s, pending: pend }, key, count, explicit);
   if (mv === 'up' || mv === 'down') {
     if (op) return R({ ...s, pending: '' });
     return R({ ...s, pending: '' }, mv === 'up' ? 'leave-up' : 'leave-down');
@@ -189,7 +196,7 @@ export function step(s0: TextState, k: string): Result {
     case 'r': return R({ ...s, pending: 'r' });
     case '~': { if (!t.length) return R(s); const c = t[p]; const sw = c === c.toUpperCase() ? c.toLowerCase() : c.toUpperCase(); return R({ ...edit(s, t.slice(0, p) + sw + t.slice(p + 1), clampN(t, p + 1)) }, 'changed'); }
     case 'J': { const e = lineEnd(t, p); if (e >= t.length) return R(s); let j = e + 1; while (/[ \t]/.test(t[j] || '')) j++; return R(edit(s, t.slice(0, e) + ' ' + t.slice(j), e), 'changed'); }
-    case 'p': case 'P': return R(put(s, k === 'P'), 'changed');
+    case 'p': case 'P': return s.reg.text ? R(put({ ...s, pending: '' }, k === 'P', count), 'changed') : R({ ...s, pending: '' });
     case 'v': return R({ ...s, mode: 'VISUAL', anchor: p });
     case 'V': return R({ ...s, mode: 'V-LINE', anchor: p });
     case 'u': { const prev = s.undo[s.undo.length - 1]; if (!prev) return R(s); return R({ ...s, text: prev.text, pos: clampN(prev.text, prev.pos), undo: s.undo.slice(0, -1), redo: [...s.redo, snap(s)] }, 'changed'); }
@@ -236,8 +243,9 @@ function applyOp(s: TextState, op: string, a: number, b: number, line: boolean):
   return R({ ...edit(s, text, clampN(text, a)), reg, pending: '', mode: 'NORMAL' }, 'changed');
 }
 
-function put(s: TextState, before: boolean): TextState {
-  const { text: r, line } = s.reg; if (!r) return s;
+function put(s: TextState, before: boolean, count = 1): TextState {
+  const { text: one, line } = s.reg; if (!one) return s;
+  const r = Array(Math.min(count, 500)).fill(one).join(line ? '\n' : '');
   const t = s.text;
   if (line) {
     const at = before ? lineStart(t, s.pos) : lineEnd(t, s.pos);

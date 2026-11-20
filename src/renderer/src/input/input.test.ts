@@ -4,6 +4,8 @@ import { keyOf } from './keys';
 import { bindInVimrc, fromVimKeys, Keymap, parseVimrc, toVimKeys } from './keymap';
 import { kb } from './platform';
 import { init, step, type TextState } from './vimtext';
+import { Count, findAll, fromHere, nextHit, repeat, wrapNotice } from './readerkeys';
+import { forPut, fromClipboard, setReg } from './register';
 
 const ev = (key: string, code: string, m: Partial<{ ctrl: boolean; alt: boolean; shift: boolean; meta: boolean }> = {}) =>
   ({ key, code, ctrlKey: !!m.ctrl, altKey: !!m.alt, shiftKey: !!m.shift, metaKey: !!m.meta });
@@ -144,5 +146,93 @@ describe('vim text engine', () => {
     expect(step(n('x'), 'esc').fx).toEqual(['leave']);
     expect(step(n('x'), 'enter').fx).toEqual(['enter']);
     expect(step(init('x'), 'esc').s.mode).toBe('NORMAL');
+  });
+});
+
+describe('fields: counts, yank and put', () => {
+  const n = (t: string, pos = 0) => ({ ...init(t, 'NORMAL'), pos });
+  it('5G and 5gg go to line 5, G alone to the last line', () => {
+    const t = 'a\nb\nc\nd\ne\nf';
+    expect(run(n(t), '5 G').pos).toBe(8);
+    expect(run(n(t, 10), '2 g g').pos).toBe(2);
+    expect(run(n(t), 'G').pos).toBe(10);
+    expect(run(n(t), '9 9 G').pos).toBe(10);       // past the end: the last line
+    expect(run(n(t, 4), 'd 1 G').text).toBe('d\ne\nf');
+    expect(run(n(t, 4), 'd g g').text).toBe('d\ne\nf');
+  });
+  it('a count before or after the operator (or both) multiplies', () => {
+    expect(run(n('a b c d e f g'), 'd 2 w').text).toBe('c d e f g');
+    expect(run(n('a b c d e f g'), '2 d w').text).toBe('c d e f g');
+    expect(run(n('a b c d e f g'), '2 d 2 w').text).toBe('e f g');
+    expect(run(n('a\nb\nc\nd'), 'd 2 d').text).toBe('c\nd');
+    expect(run(n('abc'), 'r 5').text).toBe('5bc');
+  });
+  it('y yy p P put the register, with counts', () => {
+    expect(run(n('ab'), 'y l 3 p').text).toBe('aaaab');
+    expect(run(n('ab'), 'y l P').text).toBe('aab');
+    expect(run(n('one\ntwo'), 'y y j p').text).toBe('one\ntwo\none');
+    expect(run(n('one\ntwo', 4), 'y y k P').text).toBe('two\none\ntwo');
+    expect(run(n('one'), 'y y 2 p').text).toBe('one\none\none');
+    expect(run(n('foo bar'), 'd w $ p').text).toBe('barfoo ');
+  });
+  it('p with an empty register does nothing and clears a count', () => {
+    const s = run(n('abc'), '3 p');
+    expect(s.text).toBe('abc'); expect(s.pending).toBe('');
+  });
+  it('the register can come from outside (another field, the clipboard)', () => {
+    const s = { ...n('x'), reg: fromClipboard('hello') };
+    expect(run(s, 'p').text).toBe('xhello');
+    const l = { ...n('x'), reg: fromClipboard('line one\n') };
+    expect(l.reg).toEqual({ text: 'line one', line: true });
+    expect(run(l, 'p').text).toBe('x\nline one');
+  });
+});
+
+describe('the shared register', () => {
+  it('p takes the system clipboard only while the register is empty', async () => {
+    setReg({ text: '', line: false });
+    expect(await forPut(async () => 'from the clipboard')).toEqual({ text: 'from the clipboard', line: false });
+    expect(await forPut(async () => 'a\r\nb\r\n')).toEqual({ text: 'a\nb', line: true });
+    expect(await forPut(async () => { throw new Error('denied'); })).toEqual({ text: '', line: false });
+    setReg({ text: 'yanked', line: false });
+    expect(await forPut(async () => 'from the clipboard')).toEqual({ text: 'yanked', line: false });
+    setReg({ text: '', line: false });
+  });
+});
+
+describe('reader keys: counts and search', () => {
+  it('a count gathers digits; 0 is a motion until a count starts', () => {
+    const c = new Count();
+    expect(c.feed('0')).toBe(false);
+    expect(c.feed('1')).toBe(true); expect(c.feed('0')).toBe(true);
+    expect(c.explicit).toBe(true);
+    expect(c.take()).toBe(10);
+    expect(c.take()).toBe(1);
+    expect(c.explicit).toBe(false);
+    let at = 0;
+    expect(repeat(5, () => (at < 3 ? (at++, true) : false))).toBe(3);
+  });
+  it('finds every match, smart case, literally', () => {
+    const items = ['Foo foo', 'bar', 'a.b foo'];
+    expect(findAll(items, 'foo')).toEqual([{ i: 0, o: 0, len: 3 }, { i: 0, o: 4, len: 3 }, { i: 2, o: 4, len: 3 }]);
+    expect(findAll(items, 'Foo')).toEqual([{ i: 0, o: 0, len: 3 }]);
+    expect(findAll(items, '.')).toEqual([{ i: 2, o: 1, len: 1 }]);
+    expect(findAll(items, '')).toEqual([]);
+  });
+  it('n and N go to the next match from the cursor and wrap at the ends', () => {
+    const hits = findAll(['x', 'foo', 'x', 'foo foo'], 'foo');
+    expect(nextHit(hits, { i: 0, o: 0 }, 1)).toMatchObject({ hit: { i: 1, o: 0 }, wrapped: false });
+    expect(nextHit(hits, { i: 3, o: 0 }, 1)).toMatchObject({ hit: { i: 3, o: 4 }, wrapped: false });
+    expect(nextHit(hits, { i: 3, o: 4 }, 1)).toMatchObject({ hit: { i: 1, o: 0 }, wrapped: true });
+    expect(nextHit(hits, { i: 1, o: 0 }, -1)).toMatchObject({ hit: { i: 3, o: 4 }, wrapped: true });
+    expect(nextHit(hits, { i: 2, o: 0 }, -1)).toMatchObject({ hit: { i: 1, o: 0 }, wrapped: false });
+    expect(nextHit([], { i: 0, o: 0 }, 1)).toBeNull();
+    expect(wrapNotice(1)).toMatch(/BOTTOM/);
+  });
+  it('lists matches nearest first in the search direction, marking the wrapped ones', () => {
+    const hits = findAll(['a', 'b', 'a', 'b', 'a'], 'a');   // lines 0 2 4
+    expect(fromHere(hits, { i: 1, o: 0 }, 1).map(x => [x.hit.i, x.wrapped])).toEqual([[2, false], [4, false], [0, true]]);
+    expect(fromHere(hits, { i: 3, o: 0 }, -1).map(x => [x.hit.i, x.wrapped])).toEqual([[2, false], [0, false], [4, true]]);
+    expect(fromHere(hits, { i: 4, o: 0 }, 1).map(x => [x.hit.i, x.wrapped])).toEqual([[0, true], [2, true], [4, true]]);
   });
 });

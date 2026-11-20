@@ -138,10 +138,15 @@ interface Row { label: string; desc?: string; seg?: [string, string][]; get?: ()
 export function openSettings() { openLayer(close => <Settings close={close} />); }
 const setSetting = async (patch: Partial<typeof S.settings>) => { const s = await api.app.setSettings(patch); update(st => { st.settings = s; }); };
 
+// Keys (VIM-MODEL section 4, Settings): two lists side by side. The section list has the keys first: j / k move
+// over sections (the page follows), l / enter / tab go into the section's rows. In the rows, j / k move,
+// h / l lower and raise a row's value (a choice, a switch), enter presses it, and esc, shift-tab, or h on a row
+// with no value go back to the section list. esc there closes. H / L (tabs elsewhere) do nothing in this dialog.
 function Settings({ close }: { close: () => void }) {
   const s = useApp();
   const [sec, setSec] = useState(0);
   const [row, setRow] = useState(0);
+  const [col, setCol] = useState<'nav' | 'rows'>('nav');
   const sections: [string, string, Row[]][] = [
     ['General', 'sliders', [
       { label: 'Theme', seg: [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], get: () => s.settings.theme, set: v => setSetting({ theme: v as never }) },
@@ -169,30 +174,39 @@ function Settings({ close }: { close: () => void }) {
   const r = rows[Math.min(row, rows.length - 1)];
   const step = (x: Row, d: number) => { if (!x.seg || !x.get || !x.set) return; const i = x.seg.findIndex(o => o[0] === x.get!()); x.set(x.seg[(i + d + x.seg.length) % x.seg.length][0]); };
   const press = (x: Row) => { if (x.seg) step(x, 1); else if (x.toggle) x.toggle(); else x.run?.(); };
+  const goSec = (i: number) => { setSec(Math.max(0, Math.min(sections.length - 1, i))); setRow(0); };
   useDialogSurface({
-    onEsc: close,
+    onEsc: () => (col === 'rows' ? setCol('nav') : close()),
     key: k => {
-      const n = sections.length;
+      if (k === 'q') { close(); return true; }
+      if (col === 'nav') {
+        if (k === 'j' || k === 'down') { goSec(sec + 1); return true; }
+        if (k === 'k' || k === 'up') { goSec(sec - 1); return true; }
+        if (k === 'G') { goSec(sections.length - 1); return true; }
+        if (k === 'g') { goSec(0); return true; }
+        if (k === 'l' || k === 'right' || k === 'enter' || k === 'tab' || k === 'space') { setCol('rows'); setRow(0); return true; }
+        return k.length === 1 || k === 'shift-tab';
+      }
       if (k === 'j' || k === 'down') { setRow(Math.min(rows.length - 1, row + 1)); return true; }
       if (k === 'k' || k === 'up') { setRow(Math.max(0, row - 1)); return true; }
-      if (k === 'tab' || k === 'J' || k === 'pagedown') { setSec((sec + 1) % n); setRow(0); return true; }
-      if (k === 'shift-tab' || k === 'K' || k === 'pageup') { setSec((sec - 1 + n) % n); setRow(0); return true; }
-      if ((k === 'l' || k === 'right') && r?.seg) { step(r, 1); return true; }
-      if ((k === 'h' || k === 'left') && r?.seg) { step(r, -1); return true; }
+      if (k === 'G') { setRow(rows.length - 1); return true; }
+      if (k === 'g') { setRow(0); return true; }
+      if (k === 'shift-tab') { setCol('nav'); return true; }
+      if (k === 'l' || k === 'right') { if (r?.seg) step(r, 1); else if (r?.sw && !r.sw()) r.toggle?.(); return true; }
+      if (k === 'h' || k === 'left') { if (r?.seg) step(r, -1); else if (r?.sw?.()) r.toggle?.(); else setCol('nav'); return true; }
       if (k === 'enter' || k === 'space') { if (r) press(r); return true; }
-      if (k === 'q') { close(); return true; }
-      return k.length === 1;
+      return k.length === 1 || k === 'tab';
     },
-  }, [sec, row, rows.length, s.settings]);
+  }, [sec, row, col, rows.length, s.settings]);
   return (
     <Dialog onClose={close} className="settings" label="Settings">
-      <nav className="settings-nav"><h4>Settings</h4>
-        {sections.map(([n, i], k) => <button key={n} className={cx(k === sec && 'on')} onClick={() => { setSec(k); setRow(0); }}><Icon name={i} /><span>{n}</span></button>)}
+      <nav className={cx('settings-nav', s.settings.vim && col === 'nav' && 'kf')}><h4>Settings</h4>
+        {sections.map(([n, i], k) => <button key={n} className={cx(k === sec && 'on')} aria-current={k === sec || undefined} onClick={() => { setSec(k); setRow(0); setCol('nav'); }}><Icon name={i} /><span>{n}</span></button>)}
       </nav>
       <section className="s-body">
         <header><h3>{sections[sec][0]}</h3><IconButton icon="x" label="Close" small onClick={close} /></header>
         {rows.map((x, i) => (
-          <div key={x.label} className={cx('s-row', s.settings.vim && i === row && 'cur')} onMouseEnter={() => setRow(i)}>
+          <div key={x.label} className={cx('s-row', s.settings.vim && col === 'rows' && i === row && 'cur')} onMouseEnter={() => { setRow(i); setCol('rows'); }}>
             <div className="s-txt"><b>{x.label}</b>{x.desc && <span>{x.desc}</span>}</div>
             {x.extra}
             {x.seg ? <div className="seg txt">{x.seg.map(([v, n]) => <button key={v} className={cx(x.get?.() === v && 'on')} onClick={() => x.set?.(v)}>{n}</button>)}</div>

@@ -5,6 +5,7 @@ import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useRef } f
 import type { KeyLike } from '../input/keys';
 import type { Mode, Surface } from '../input/dispatcher';
 import { registerTab } from '../input/surfaces';
+import { forPut, getReg, setReg } from '../input/register';
 import { init, setText, step, typed, vrange, type Effect, type TextState } from '../input/vimtext';
 import { S, update } from '../state/store';
 import { cx } from './primitives';
@@ -65,7 +66,7 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
       if (f === 'leave') props.current.onLeave?.();
       if (f === 'leave-up') props.current.onLeaveUp?.();
       if (f === 'leave-down') props.current.onLeaveDown?.();
-      if (f === 'yank') void navigator.clipboard?.writeText(s.reg.text).catch(() => {});
+      if (f === 'yank') void navigator.clipboard?.writeText(s.reg.text + (s.reg.line ? '\n' : '')).catch(() => {});
     }
   };
 
@@ -81,8 +82,15 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
         if (k === 'esc') { if (!vim) { props.current.onLeave?.(); return true; } const r = step(s, 'esc'); apply(r.s, r.fx); return true; }
         return false;
       }
-      const r = step(s, k);
-      if (r.handled) apply(r.s, r.fx);
+      // one register for every field (input/register); p / P with it empty put the system clipboard
+      const shared = getReg();
+      const before = { ...s, reg: shared };
+      if ((k === 'p' || k === 'P') && s.mode === 'NORMAL' && /^\d*$/.test(s.pending) && !shared.text) {
+        void forPut().then(reg => { if (!reg.text) { st.current = { ...st.current, pending: '' }; return; } const r = step({ ...st.current, reg }, k); apply(r.s, r.fx); });
+        return true;
+      }
+      const r = step(before, k);
+      if (r.handled) { if (r.s.reg !== before.reg) setReg(r.s.reg); apply(r.s, r.fx); }
       return r.handled; // unhandled plain keys go on to the app's normal layer (H L | \\ :); the dispatcher stops them typing
     },
     imap: first => {
