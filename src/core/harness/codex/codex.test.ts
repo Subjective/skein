@@ -92,6 +92,12 @@ describe('Codex driver', () => {
     return { srv, h, d };
   };
 
+  it('sends the ultra effort through as it is', async () => {
+    const { srv, d } = setup();
+    await d.send({ text: 'think hard', effort: 'Ultra' });
+    expect(srv.got.find(g => g.method === 'turn/start')?.params).toMatchObject({ effort: 'ultra' });
+  });
+
   it('starts a thread, links its id, and runs a turn', async () => {
     const { srv, h, d } = setup();
     await d.send({ text: 'hello', model: 'GPT-6.2 Sol', effort: 'High', perm: 'Auto' });

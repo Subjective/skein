@@ -3,7 +3,9 @@
 //   Codex: `codex app-server` over JSON-RPC (stdio, or over ssh), shared with the TUI through `codex --remote`.
 // This file is the seam; the adapters live in ./harness/ (createHarnesses in ./harness/index.ts).
 import type { ChatSend } from '../shared/api';
-import type { Machine, ThreadEvent, ThreadMeta, ViewKind } from '../shared/types';
+import type { HarnessCommands } from '../shared/commands';
+import type { HarnessOptions } from '../shared/models';
+import type { Harness, Machine, ThreadEvent, ThreadMeta, ViewKind } from '../shared/types';
 
 export interface ChatDriver {
   send(msg: ChatSend): Promise<void>;
@@ -31,6 +33,11 @@ export interface Harnesses {
   attach?(t: ThreadMeta): Promise<{ args: string[]; env: Record<string, string> } | null>;
   /** Drop whatever is kept for this thread (it moved): the next driver or attach starts from its record. */
   forget?(threadId: string): void;
+  /** What the harness offers on the machine (models, effort levels, permission modes), asked from the harness
+   *  and cached; the bundled lists (shared/models.ts) with the reason when it can't be asked. */
+  options?(m: Machine, h: Harness): Promise<HarnessOptions>;
+  /** What the harness offers in the / menu in that folder (commands, skills), asked and cached like options. */
+  commands?(m: Machine, h: Harness, dir: string): Promise<HarnessCommands>;
   dispose?(): void;
 }
 
