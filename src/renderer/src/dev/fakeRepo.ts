@@ -64,8 +64,8 @@ const commits: CommitRec[] = [
   { hash: hex(2) + 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2', subject: 'Track when a session last changed', when: '1 day ago', tree: c2, parent: 2 },
   { hash: hex(1) + 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1', subject: 'First version of session restore', when: '3 days ago', tree: c1, parent: -1 },
 ];
-let branch = 'fix-restore';
-const branches: Record<string, number> = { main: 0, 'fix-restore': 0 };
+let branch = 'fix/restore-race';
+const branches: Record<string, number> = { main: 0, 'fix/restore-race': 0 };
 let head = (): CommitRec => commits[branches[branch] ?? 0];
 
 // working tree and index

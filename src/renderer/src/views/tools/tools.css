@@ -108,3 +108,7 @@
 .src .dl { content-visibility: auto; contain-intrinsic-size: auto 19.8px; }
 .src .dl.curl, .src .dl.vsel { content-visibility: visible; }
 .ib.flip svg.i { transform: rotate(180deg); }
+
+/* narrow panes: the header's chips give way before its actions */
+.tool-h > .chip { flex: 0 1 auto; min-width: 0; }
+.tool-h > .split, .tool-h > .ib, .tool-h > .btn, .tool-h > .seg { flex: none; }

@@ -27,7 +27,7 @@ import { Markdown } from './md';
 import { fileNav, openFile, readText } from './open';
 import { ProjectTree, toggleDir, useLister, type TreeState } from './ProjectTree';
 import { ctxOf, join, refreshNow, useRepo, viewState } from './repo';
-import { halfPage, nativeTarget, useSurface } from './surface';
+import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
 
 interface Doc { disk?: string; err?: string; binary?: boolean; gen: number; base?: string | null; baseGen?: number; loading?: boolean }
 /** Loaded files and unsaved text, by machine + folder + path. Unsaved text outlives the tab, for this session. */
@@ -37,7 +37,7 @@ const EDIT_N = new Set(['i', 'a', 'I', 'A', 'o', 'O', 's', 'S', 'c', 'C', 'd', '
 const EDIT_V = new Set(['d', 'x', 'c', 's', 'J', '~', 'r', 'delete']);
 const HL_MAX = 8000;   // lines highlighted; the rest of a huge file is plain
 
-interface View { rs: TextState; mode: 'read' | 'edit'; md: 'preview' | 'source'; tree: boolean; ts: TreeState; find: string; opened: string }
+interface View { rs: TextState; mode: 'read' | 'edit'; md: 'preview' | 'source'; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string }
 
 const fakeKey = (k: string): KeyLike => ({ key: k.length === 1 ? k : k === 'esc' ? 'Escape' : k, code: '', ctrlKey: k.startsWith('ctrl-'), altKey: false, shiftKey: false, metaKey: false });
 const lineStarts = (t: string) => { const a = [0]; for (let i = 0; i < t.length; i++) if (t.charCodeAt(i) === 10) a.push(i + 1); return a; };
@@ -53,6 +53,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   const lister = useLister(ctx, re);
   const nav = fileNav(t);
   const v = viewState<View>(t.id, () => ({ rs: init('', 'NORMAL'), mode: 'read', md: 'preview', tree: true, ts: { open: new Set(), cur: null, q: '' }, find: '', opened: '' }));
+  const side = useSideTree(v);
   const key = `${ctx.machine}\u0000${ctx.dir}\u0000${path}`;
   const doc = docs.get(key) || { gen: -1 };
   const lang = langOf(path);
@@ -301,7 +302,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   };
   const showLines = v.mode === 'read' && !preview && doc.disk != null && !doc.binary;
   return (
-    <div className="file-v" onMouseDown={e => { if (v.mode === 'read' && !(e.target as HTMLElement).closest('.ctree, .tool-h')) own(); }}>
+    <div className="file-v" ref={side.ref} onMouseDown={e => { if (v.mode === 'read' && !(e.target as HTMLElement).closest('.ctree, .tool-h')) own(); }}>
       <header className={cx('tool-h', dirty && 'dirty')}>
         <IconButton icon="chev" className="flip" small label="Back" keys="ctrl-o" disabled={nav.hi === 0} onClick={() => histStep(-1)} />
         <IconButton icon="chev" small label="Forward" keys="ctrl-i" disabled={nav.hi >= nav.hist.length - 1} onClick={() => histStep(1)} />
@@ -319,9 +320,9 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
         {isMd && <Seg text label="Preview or source" value={preview ? 'preview' : 'source'} onChange={x => { if (v.mode === 'edit') stopEdit(); v.md = x; update(); }}
           options={[{ v: 'preview', label: 'Preview' }, { v: 'source', label: 'Source' }]} />}
         <IconButton data-k="find" icon="search" small label="Find in file" keys="/" onClick={e => find(e.currentTarget.getBoundingClientRect())} />
-        <IconButton icon="panelR" small on={v.tree} aria-pressed={v.tree} label="Project files" onClick={() => { v.tree = !v.tree; update(); }} />
+        <IconButton icon="panelR" small on={side.show} aria-pressed={side.show} label="Project files" onClick={side.toggle} />
       </header>
-      <div className={cx('cbody', v.tree && 'tree')}>
+      <div className={cx('cbody', side.show && 'tree')}>
         <div className={cx('tool-b', focused && v.mode === 'read' && 'rd')} data-read ref={body}>
           {doc.err ? <div className="r-empty"><Icon name="alert" size="xl" /><span>{doc.err}</span></div>
             : doc.binary ? <div className="r-empty bin"><Icon name="file" size="xl" /><span>Binary file, not shown</span></div>
@@ -350,7 +351,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
           )}
           {v.mode === 'read' && preview && doc.disk != null && <article className="doc prose" onDoubleClick={() => startEdit('i')}><Markdown text={text} /></article>}
         </div>
-        {v.tree && (
+        {side.show && (
           <aside className="ctree" aria-label="Project files">
             <ProjectTree l={lister} st={v.ts} active={path} label="Project files" onOpen={n => { if (n.dir) toggleDir(lister, v.ts, n.rel); else openFile(ctx, n.rel, { from: t }); }} />
           </aside>

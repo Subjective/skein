@@ -20,7 +20,7 @@ import { openCommit, type CommitAction } from './CommitDialog';
 import { baseName, langOf, tokenize, type HlState } from './highlight';
 import { openFile } from './open';
 import { ctxOf, refreshNow, turnFor, useRepo, viewState } from './repo';
-import { halfPage, nativeTarget, useSurface } from './surface';
+import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
 
 const SCOPES: { k: Exclude<DiffScope, 'commits'>; label: string; icon: string }[] = [
   { k: 'turn', label: 'Last agent turn', icon: 'retry' },
@@ -48,6 +48,7 @@ interface View {
   gaps: Map<string, string[] | null>;
   texts: Map<string, Promise<string[]>>;
   tree: boolean;
+  treeN?: boolean;
   tq: string;
   cur: number;
   anchor: number | null;
@@ -80,6 +81,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
   const body = useRef<HTMLDivElement>(null);
   const tq = useRef<VimFieldHandle>(null);
   const turn = repo ? turnFor(t, ctx.machine, repo.root) : undefined;
+  const side = useSideTree(v);
 
   const spec = (s: DiffScope = v.scope): ScopeSpec | null => {
     if (s === 'turn') return turn ? { scope: 'turn', base: turn.base, head: turn.head } : null;
@@ -207,9 +209,9 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
     const items: MenuItem<DiffScope>[] = [
       ...SCOPES.map(x => {
         const c = v.counts[x.k], none = x.k === 'turn' && !turn;
-        return { label: x.label, icon: <Icon name={x.icon} />, on: v.scope === x.k, dis: none, hint: none ? 'No agent turn yet' : '', right: c ? <Nums add={c.add} del={c.del} small /> : undefined, data: x.k };
+        return { label: x.label, icon: <Icon name={x.icon} />, on: v.scope === x.k, dis: none, hint: none ? 'None yet' : '', right: c ? <Nums add={c.add} del={c.del} small /> : undefined, data: x.k };
       }),
-      { label: 'Commits', icon: <Icon name="branch" />, on: v.scope === 'commits', right: <Icon name="chev" />, data: 'commits' as DiffScope, dis: !v.commits.length, hint: v.commits.length ? '' : 'No commits yet' },
+      { label: 'Commits', icon: <Icon name="branch" />, on: v.scope === 'commits', right: <Icon name="chev" />, data: 'commits' as DiffScope, dis: !v.commits.length, hint: v.commits.length ? '' : 'None yet' },
     ];
     openMenu<DiffScope>({ anchor, place: 'bottom-start', width: 270, items, onPick: it => { if (it.data === 'commits') pickCommits(anchor); else setScope(it.data!); } });
   };
@@ -252,7 +254,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
   };
 
   // ---------- keys ----------
-  const searchTree = () => { if (!v.tree) { v.tree = true; update(); } requestAnimationFrame(() => tq.current?.focus(true)); };
+  const searchTree = () => { if (!side.show) side.set(true); requestAnimationFrame(() => tq.current?.focus(true)); };
   const yank = () => {
     const [a, b] = [Math.min(v.anchor ?? v.cur, v.cur), Math.max(v.anchor ?? v.cur, v.cur)];
     const text = rows.slice(a, b + 1).map(r => (r.k === 'line' ? (r.l.k === ' ' ? ' ' : r.l.k) + r.l.text : r.k === 'file' ? r.f.path : '')).filter(Boolean).join('\n');
@@ -299,7 +301,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
         case 'x': if (r && working(v.scope)) void revert(r.f); return true;
         case 'u': if (v.lastUndo) void unrevert(v.lastUndo.undo); else toast('Nothing to undo'); return true;
         case '/': searchTree(); return true;
-        case 't': v.tree = !v.tree; update(); return true;
+        case 't': side.toggle(); return true;
         case 'c': commit('commit'); return true;
         case 'C': commitMenu(); return true;
         case 'V': if (v.vmode === 'V') { v.vmode = 'n'; v.anchor = null; } else { v.vmode = 'V'; v.anchor = v.cur; } update(); return true;
@@ -332,7 +334,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
 
   let fileI = -1;
   return (
-    <div className="changes" onMouseDown={e => { if (!(e.target as HTMLElement).closest('.tq')) own(); }}>
+    <div className="changes" ref={side.ref} onMouseDown={e => { if (!(e.target as HTMLElement).closest('.tq')) own(); }}>
       <header className="tool-h">
         <Chip data-k="scope" icon={scopeIcon(v.scope)} label={<>{scopeLabel}{counts && <Nums add={counts.add} del={counts.del} />}</>} caret
           title={`What to compare · ${kb('g s')}`} onClick={e => pickScope(e.currentTarget.getBoundingClientRect())} />
@@ -341,9 +343,9 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
         {v.loading && v.files && <Spinner label="Refreshing" />}
         <span className="sp" />
         <SplitButton label={commitLabel} keys="c" disabled={!total?.files} onClick={() => commit('commit')} onMenu={r => commitMenu(r)} menuLabel="More commit actions" />
-        <IconButton icon="panelR" small on={v.tree} label="Changed files" keys="t" aria-pressed={v.tree} onClick={() => { v.tree = !v.tree; update(); }} />
+        <IconButton icon="panelR" small on={side.show} label="Changed files" keys="t" aria-pressed={side.show} onClick={side.toggle} />
       </header>
-      <div className={cx('cbody', v.tree && 'tree')}>
+      <div className={cx('cbody', side.show && 'tree')}>
         <div className="tool-b" data-read ref={body} role="region" aria-label="Diff">
           {v.err ? <div className="r-empty"><Icon name="alert" size="xl" /><span>{v.err}</span></div>
             : !v.files ? <div className="r-empty"><Spinner label="Loading changes" /></div>
@@ -382,7 +384,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
               );
             })}
         </div>
-        {v.tree && (
+        {side.show && (
           <aside className="ctree" aria-label="Changed files">
             <label className="tq"><Icon name="search" size="sm" />
               <VimField ref={tq} tabId={t.id} value={v.tq} onChange={x => { v.tq = x.replace(/\n/g, ''); update(); }} placeholder="Search files" className="tq-f"
@@ -430,10 +432,11 @@ function CommitsMenu({ v, anchor, close, onBack }: { v: View; anchor: DOMRect | 
   useApp();
   const n = v.commits.length, r = v.range, all = !!r && r[0] === 0 && r[1] === n - 1;
   const box = (st: boolean | 'mix') => <span className={cx('cb', st === 'mix' ? 'mix' : st && 'on')}>{st === true && <Icon name="check" />}</span>;
-  const items: MenuItem<number>[] = [
+  // the list only changes with the picked run (a new array each render would re-register the menu's keys forever)
+  const items = useMemo((): MenuItem<number>[] => [
     { label: 'All commits', icon: box(all ? true : r ? 'mix' : false), data: -1, right: r ? <span className="age">{r[1] - r[0] + 1} of {n}</span> : undefined },
     ...v.commits.map((c, j) => ({ label: `${c.short} ${c.subject}`, display: <><span className="hash">{c.short}</span> {c.subject}</>, icon: box(!!r && j >= r[0] && j <= r[1]), right: <span className="age">{c.when.replace(/ ago$/, '')}</span>, data: j })),
-  ];
+  ], [r?.[0], r?.[1], v.commits]); // eslint-disable-line react-hooks/exhaustive-deps
   const tick = (c: number) => {
     let x = v.range;
     if (c < 0) x = all ? null : [0, n - 1];

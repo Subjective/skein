@@ -39,11 +39,11 @@ function CommitDialog({ p, id, close }: { p: CommitPlan; id: string; close: () =
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const refs = { branch: useRef<VimFieldHandle>(null), msg: useRef<VimFieldHandle>(null) } as Record<string, React.RefObject<VimFieldHandle | null>>;
-  const st = useRef({ cur, busy }); st.current = { cur, busy };
+  const st = useRef({ cur, busy, branch, msg }); st.current = { cur, busy, branch, msg };  // the key surface is made once: read live values
 
   const submit = async () => {
     if (st.current.busy) return;
-    const b = branch.trim(), m = msg.trim();
+    const b = st.current.branch.trim(), m = st.current.msg.trim();
     if (p.newBranch && !b) { setErr('Name the branch'); return focus('branch'); }
     if (p.newBranch && !/^(?!\/|.*\/\/|.*\.\.|.*@\{)[^\s~^:?*[\\]+(?<![./]|\.lock)$/.test(b)) { setErr('That is not a valid branch name'); return focus('branch'); }
     if (p.action !== 'branch' && !m) { setErr('Write a commit message'); return focus('msg'); }

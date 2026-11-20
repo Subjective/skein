@@ -50,7 +50,7 @@ export function useLister(ctx: Ctx, re: RepoEntry): Lister {
     void Promise.all([api.git.files(ctx.machine, repo.root), api.fs.list(ctx.machine, ctx.dir).catch(() => [] as DirEntry[])]).then(([fs, top]) => {
       cache.files = fs.filter(p => !sub || p.startsWith(sub + '/')).map(p => (sub ? p.slice(sub.length + 1) : p));
       const tracked = new Set(cache.files.map(p => p.split('/')[0]));
-      cache.ign = top.filter(e => e.dir && !tracked.has(e.name)).map(e => ({ name: e.name, rel: e.name, dir: true, ign: true }));
+      cache.ign = top.filter(e => e.dir && e.name !== '.git' && !tracked.has(e.name)).map(e => ({ name: e.name, rel: e.name, dir: true, ign: true }));
       cache.kids = new Map(); cache.error = undefined; update();
     }, e => { cache.error = String(e instanceof Error ? e.message : e); update(); }).finally(() => cache.loading.delete('*'));
   }, [repo?.root, re.gen, ctx.dir]); // eslint-disable-line react-hooks/exhaustive-deps

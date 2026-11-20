@@ -1,7 +1,7 @@
 // Run every UI spec in Chromium against `pnpm dev:web` (the fake API). Starts the server if nothing answers.
 // Usage: pnpm test:ui [name-filter]     e.g. pnpm test:ui changes   (matches test names and spec files)
 import { spawn } from 'node:child_process';
-import { readdirSync, mkdirSync } from 'node:fs';
+import { readdirSync, mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -29,6 +29,7 @@ for (const f of readdirSync(here).filter(f => f.endsWith('.spec.mjs')).sort()) {
 const browser = await chromium.launch();
 _setBrowser(browser);
 const shots = join(here, 'failures');
+rmSync(shots, { recursive: true, force: true });
 let failed = 0, ran = 0, file = '';
 for (const t of _tests()) {
   if (only && !only.test(t.name) && !only.test(t.file)) continue;

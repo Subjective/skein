@@ -19,6 +19,7 @@ export const _setBrowser = b => { browser = b; };
 /** A fresh page on the app with page errors collected (a test fails on any). */
 export async function page(o = {}) {
   const p = await browser.newPage({ viewport: o.viewport || { width: 1280, height: 800 } });
+  p.setDefaultTimeout(o.timeout || 8000);
   p.errors = [];
   p.on('pageerror', e => p.errors.push(e.message));
   p.on('console', m => { if (m.type() === 'error') p.errors.push(m.text()); });
