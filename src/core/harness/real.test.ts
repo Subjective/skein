@@ -32,7 +32,7 @@ describe.skipIf(!process.env.SKEIN_REAL_CLAUDE)('real Claude Code', () => {
     await idle('s1');
     expect(h.events.filter(x => x.thread === 's1').map(x => text(x.e)).join(' ')).toContain('41');
     const second = h.view().filter(e => e.t === 'user')[1];
-    await d.send({ text: 'Remember the number 77. Reply with just ok.', rewind: second.id } as never);
+    await d.send({ text: 'Remember the number 77. Reply with just ok.', rewind: second.id });
     await idle('t1');
     await d.release(); await s.release();
     const hist = await hs.history(h.thread('t1'), h.host.machine('local'));

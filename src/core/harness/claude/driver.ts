@@ -19,8 +19,6 @@ import { ClaudeFold, toolArg, toolName } from './fold';
 import { parseClaudeTranscript, readClaudeTranscript } from './history';
 
 export type QueryFn = (p: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => Query;
-/** Fields the chat UI adds to ChatSend (see shared/api.ts). Read defensively until they land there. */
-type Send = ChatSend & { rewind?: string; retry?: boolean; sub?: string };
 
 interface Pending { req: ApprovalRequest; arg: string; input: Record<string, unknown>; done: (r: PermissionResult) => void; suggestions?: unknown[] }
 
@@ -110,8 +108,7 @@ export class ClaudeDriver implements ChatDriver {
   private ev = (e: ThreadEvent, replace = false) => this.host.event(this.id, e, replace);
   private status(s: ThreadMeta['status']) { if (this.t.status !== s) this.host.update(this.id, { status: s }); }
 
-  async send(msg0: ChatSend): Promise<void> {
-    const msg = msg0 as Send;
+  async send(msg: ChatSend): Promise<void> {
     if (msg.sub) { this.ev({ t: 'notice', id: 'n-' + randomUUID(), text: 'Claude Code cannot message a subagent directly. Send it to the thread instead.' }); return; }
     let text = msg.text, images = msg.images;
     let rewind = msg.rewind;
@@ -136,7 +133,7 @@ export class ClaudeDriver implements ChatDriver {
     this.lastSend = { text, images };
     this.sentText.set(uuid, text);
     const content = [...imageBlocks(images), ...(text ? [{ type: 'text' as const, text }] : [])];
-    this.ev({ t: 'user', id: uuid, text, ...(images?.length ? { images } : {}), at: Date.now() } as ThreadEvent);
+    this.ev({ t: 'user', id: uuid, text, ...(images?.length ? { images } : {}), at: Date.now() });
     if (!this.running) this.startTurn(uuid);
     this.inbox!.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, uuid: uuid as SDKUserMessage['uuid'] } as SDKUserMessage);
   }
@@ -285,7 +282,7 @@ export class ClaudeDriver implements ChatDriver {
         if (r.duration_ms >= 1000) this.fold.worked('w-' + this.turnId, r.duration_ms);
         const window = Math.max(0, ...Object.values((r as { modelUsage?: Record<string, { contextWindow?: number }> }).modelUsage ?? {}).map(x => x.contextWindow ?? 0));
         const ctx = window && this.contextUsed ? { ctx: Math.min(100, Math.round((this.contextUsed / window) * 100)) } : {};
-        this.host.update(this.id, { status: r.is_error ? 'error' : 'idle', updatedAt: Date.now(), ...ctx } as Partial<ThreadMeta>);
+        this.host.update(this.id, { status: r.is_error ? 'error' : 'idle', updatedAt: Date.now(), ...ctx });
         this.endTurn();
         return;
       }

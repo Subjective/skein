@@ -22,7 +22,6 @@ import type { ThreadItem } from './protocol/v2/ThreadItem';
 import type { UserInput } from './protocol/v2/UserInput';
 import { Rpc } from './rpc';
 
-type Send = ChatSend & { rewind?: string; retry?: boolean; sub?: string };
 type Params = Record<string, unknown> & { threadId?: string; conversationId?: string };
 
 export interface ThreadListener {
@@ -177,8 +176,7 @@ export class CodexDriver implements ChatDriver {
   private status(s: ThreadMeta['status']) { if (this.t.status !== s) this.host.update(this.id, { status: s }); }
   private error(text: string, kind = errorKind(text)) { this.ev({ t: 'error', id: 'e-' + randomUUID(), kind, text: tidy(text, 600) }); this.status('error'); }
 
-  async send(msg0: ChatSend): Promise<void> {
-    const msg = msg0 as Send;
+  async send(msg: ChatSend): Promise<void> {
     let text = msg.text, images = msg.images;
     const t0 = this.t;
     const patch: Partial<ThreadMeta> = {};
@@ -207,7 +205,7 @@ export class CodexDriver implements ChatDriver {
     ];
     this.sent.add(clientId);
     this.lastUser = { id: clientId, text, images };
-    this.ev({ t: 'user', id: clientId, text, ...(images?.length ? { images } : {}), at: Date.now() } as ThreadEvent);
+    this.ev({ t: 'user', id: clientId, text, ...(images?.length ? { images } : {}), at: Date.now() });
 
     const t = this.t;
     try {
@@ -391,7 +389,7 @@ export class CodexDriver implements ChatDriver {
       case 'thread/tokenUsage/updated': {
         const u = p.tokenUsage as { last?: { inputTokens?: number; totalTokens?: number }; modelContextWindow?: number | null } | undefined;
         const used = u?.last?.inputTokens ?? u?.last?.totalTokens;
-        if (u?.modelContextWindow && used != null) this.host.update(this.id, { ctx: Math.min(100, Math.round((used / u.modelContextWindow) * 100)) } as Partial<ThreadMeta>);
+        if (u?.modelContextWindow && used != null) this.host.update(this.id, { ctx: Math.min(100, Math.round((used / u.modelContextWindow) * 100)) });
         return;
       }
       case 'serverRequest/resolved': {
