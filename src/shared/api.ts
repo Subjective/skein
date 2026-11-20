@@ -65,6 +65,49 @@ export interface NewThread {
 export interface GitFile { path: string; status: 'M' | 'A' | 'D' | 'R' | '?'; add: number; del: number; staged: boolean }
 export interface GitStatus { branch?: string; files: GitFile[]; ahead?: number; behind?: number; isRepo: boolean }
 
+// ---- Changes and Files (src/core/git.ts) ----
+/** One line of a diff. `a` is its number in the old file, `b` in the new one. */
+export interface DiffLine { k: ' ' | '+' | '-'; a?: number; b?: number; text: string }
+export interface Hunk { a: number; b: number; an: number; bn: number; lines: DiffLine[] }
+export interface FileDiff {
+  path: string;
+  /** the old path of a rename */
+  old?: string;
+  status: 'M' | 'A' | 'D' | 'R';
+  add: number;
+  del: number;
+  binary?: boolean;
+  hunks: Hunk[];
+  /** For working-tree scopes: whether the file's changes are in the index. */
+  staged?: 'yes' | 'no' | 'part';
+}
+/** What Changes compares. turn: `base` is the tree when the agent's turn began, `head` the tree when it ended
+ *  (absent while it runs). commits: `base` is the oldest commit of the run, `head` the newest. */
+export type DiffScope = 'uncommitted' | 'staged' | 'unstaged' | 'turn' | 'commits';
+export interface ScopeSpec { scope: DiffScope; base?: string; head?: string; path?: string }
+export interface ScopeCounts { files: number; add: number; del: number }
+export interface RepoState {
+  root: string;
+  /** The asked-for folder relative to the root ('' at the root), with /. */
+  prefix: string;
+  branch?: string;
+  /** HEAD's hash; absent before the first commit */
+  head?: string;
+  ahead: number;
+  behind: number;
+  upstream?: string;
+  /** The default branch (main / master), where Commit makes a branch first. */
+  trunk?: string;
+  /** Changes whenever the working tree, the index or HEAD does: cheap polling compares it. */
+  key: string;
+  /** Uncommitted files and what happened to them (new files are A), relative to the root. For tree marks. */
+  changed: Record<string, 'M' | 'A' | 'D' | 'R'>;
+}
+export interface Commit { hash: string; short: string; subject: string; when: string; author: string }
+export interface Branch { name: string; current: boolean; when: string }
+/** What a revert threw away, kept so Undo can put it back. */
+export interface RevertUndo { id: string; paths: string[] }
+
 export interface SkeinApi {
   app: {
     info(): Promise<AppInfo>;
@@ -126,9 +169,27 @@ export interface SkeinApi {
     status(machine: string, dir: string): Promise<GitStatus>;
     diff(machine: string, dir: string, opts: { path?: string; staged?: boolean; range?: string }): Promise<string>;
     stage(machine: string, dir: string, paths: string[], on: boolean): Promise<void>;
-    revert(machine: string, dir: string, paths: string[]): Promise<void>;
+    /** Throw a file's changes away (back to HEAD, index too). Returns what Undo needs. */
+    revert(machine: string, dir: string, paths: string[]): Promise<RevertUndo>;
+    unrevert(machine: string, dir: string, undo: RevertUndo): Promise<void>;
+    /** With nothing staged, `all` stages everything (new files too) first. `branch` creates and switches to it first. */
     commit(machine: string, dir: string, message: string, opts?: { branch?: string; all?: boolean }): Promise<void>;
     log(machine: string, dir: string, n: number): Promise<{ hash: string; subject: string; when: string }[]>;
+    /** null when `dir` is not in a repository. */
+    repo(machine: string, dir: string): Promise<RepoState | null>;
+    changes(machine: string, root: string, spec: ScopeSpec): Promise<FileDiff[]>;
+    counts(machine: string, root: string, specs: ScopeSpec[]): Promise<ScopeCounts[]>;
+    /** A file's text: 'worktree', 'index', or any revision (a commit or tree hash). */
+    show(machine: string, root: string, path: string, rev: string): Promise<string>;
+    commits(machine: string, root: string, n: number): Promise<Commit[]>;
+    branches(machine: string, root: string): Promise<Branch[]>;
+    switch(machine: string, root: string, branch: string, create?: boolean): Promise<void>;
+    /** Push the branch (setting its upstream). `pr` is the forge's page for opening a pull request, when known. */
+    push(machine: string, root: string): Promise<{ pr?: string }>;
+    /** The working tree as a tree object (new files included), for "Last agent turn". */
+    snapshot(machine: string, root: string): Promise<string>;
+    /** Tracked and untracked files, ignored ones left out. Paths relative to the root, with /. */
+    files(machine: string, root: string): Promise<string[]>;
   };
 }
 
@@ -157,5 +218,5 @@ export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
   chat: ['send', 'interrupt', 'answer', 'drive'],
   pty: ['spawn', 'write', 'resize', 'kill'],
   images: ['toInbox'],
-  git: ['status', 'diff', 'stage', 'revert', 'commit', 'log'],
+  git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files'],
 };

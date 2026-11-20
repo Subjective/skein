@@ -1,0 +1,456 @@
+// Changes: what a scope changed, file by file, with the changed files as a tree on the right.
+// Scopes: last agent turn, uncommitted, staged, unstaged, and any unbroken run of commits.
+// Keys (a reader over rows): j k move, { } between files, enter / o open or fold, h l fold and unfold,
+// s stage, S stage all, x revert (u undoes it), / searches the tree, V selects lines and y copies them,
+// gs scope, gb branch, c commit, C the commit menu, t the tree. The mouse reaches the same things.
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import type { Commit, DiffLine, DiffScope, FileDiff, RepoState, RevertUndo, ScopeCounts, ScopeSpec } from '@shared/api';
+import { api } from '../../api';
+import type { Mode } from '../../input/dispatcher';
+import { kb } from '../../input/platform';
+import type { Tab } from '../../state/layout';
+import { openLayer, S, thread, toast, update, useApp } from '../../state/store';
+import { openMenu } from '../../shell/overlays';
+import { Menu, type MenuItem } from '../../ui/Menu';
+import { animate, MOTION } from '../../ui/motion';
+import { Checkbox, Chip, cx, Icon, IconButton, SplitButton, Spinner } from '../../ui/primitives';
+import { VimField, type VimFieldHandle } from '../../ui/VimField';
+import { CodeLine, LangBadge, Nums } from './code';
+import { openCommit, type CommitAction } from './CommitDialog';
+import { baseName, langOf, tokenize, type HlState } from './highlight';
+import { openFile } from './open';
+import { ctxOf, refreshNow, turnFor, useRepo, viewState } from './repo';
+import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
+
+const SCOPES: { k: Exclude<DiffScope, 'commits'>; label: string; icon: string }[] = [
+  { k: 'turn', label: 'Last agent turn', icon: 'retry' },
+  { k: 'uncommitted', label: 'Uncommitted', icon: 'diff' },
+  { k: 'staged', label: 'Staged', icon: 'check' },
+  { k: 'unstaged', label: 'Unstaged', icon: 'pencil' },
+];
+const BIG = 1200;   // a file with a longer diff starts folded
+
+interface View {
+  scope: DiffScope;
+  /** commits: [newest, oldest] indexes into `commits` (0 is the newest) */
+  range: [number, number] | null;
+  before: DiffScope;
+  commits: Commit[];
+  files: FileDiff[] | null;
+  counts: Partial<Record<DiffScope, ScopeCounts>>;
+  loadedKey: string;
+  loading: boolean;
+  err: string;
+  /** folded files (by path); big files fold unless opened */
+  closed: Set<string>;
+  opened: Set<string>;
+  /** unfolded runs of unchanged lines: key -> their text (null while loading) */
+  gaps: Map<string, string[] | null>;
+  texts: Map<string, Promise<string[]>>;
+  tree: boolean;
+  treeN?: boolean;
+  tq: string;
+  cur: number;
+  anchor: number | null;
+  vmode: 'n' | 'V';
+  g: boolean;
+  lastUndo: { undo: RevertUndo; name: string } | null;
+  flash?: string;
+}
+
+type Row =
+  | { k: 'file'; f: FileDiff }
+  | { k: 'line'; f: FileDiff; l: DiffLine; toks: [string, string][] }
+  | { k: 'gap'; f: FileDiff; key: string; n: number; a: number; b: number }
+  | { k: 'note'; f: FileDiff; text: string };
+
+const scopeIcon = (s: DiffScope) => (s === 'commits' ? 'branch' : SCOPES.find(x => x.k === s)!.icon);
+const working = (s: DiffScope) => s !== 'commits';
+const isTrunk = (r?: RepoState | null) => !!r?.branch && (r.branch === r.trunk || (!r.trunk && /^(main|master|trunk|develop)$/.test(r.branch)));
+const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+
+export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
+  useApp();
+  const ctx = ctxOf(t);
+  const re = useRepo(ctx.machine, ctx.dir);
+  const repo = re.repo;
+  const v = viewState<View>(t.id, () => ({
+    scope: 'uncommitted', range: null, before: 'uncommitted', commits: [], files: null, counts: {}, loadedKey: '', loading: false, err: '',
+    closed: new Set(), opened: new Set(), gaps: new Map(), texts: new Map(), tree: true, tq: '', cur: 0, anchor: null, vmode: 'n', g: false, lastUndo: null,
+  }));
+  const body = useRef<HTMLDivElement>(null);
+  const tq = useRef<VimFieldHandle>(null);
+  const turn = repo ? turnFor(t, ctx.machine, repo.root) : undefined;
+  const side = useSideTree(v);
+
+  const spec = (s: DiffScope = v.scope): ScopeSpec | null => {
+    if (s === 'turn') return turn ? { scope: 'turn', base: turn.base, head: turn.head } : null;
+    if (s === 'commits') { const r = v.range, c = v.commits; return r && c[r[1]] && c[r[0]] ? { scope: 'commits', base: c[r[1]].hash, head: c[r[0]].hash } : null; }
+    return { scope: s };
+  };
+  const cur = spec();
+  const loadKey = `${re.gen}|${repo?.root}|${JSON.stringify(cur)}`;
+
+  // load the scope's diff and every scope's counts whenever the repository or the scope changes
+  useEffect(() => {
+    if (!repo || v.loadedKey === loadKey) return;
+    let gone = false;
+    v.loading = true; update();
+    const specs = SCOPES.map(x => spec(x.k));
+    void (async () => {
+      try {
+        const [files, counts, commits] = await Promise.all([
+          cur ? api.git.changes(ctx.machine, repo.root, cur) : Promise.resolve([] as FileDiff[]),
+          api.git.counts(ctx.machine, repo.root, specs.map(s => s || { scope: 'uncommitted' })),
+          api.git.commits(ctx.machine, repo.root, 60),
+        ]);
+        if (gone) return;
+        // the commit list moved (a new commit): keep the same commits picked
+        if (v.range && v.commits.length && commits[0]?.hash !== v.commits[0]?.hash) {
+          const a = commits.findIndex(c => c.hash === v.commits[v.range![0]]?.hash), b = commits.findIndex(c => c.hash === v.commits[v.range![1]]?.hash);
+          v.range = a >= 0 && b >= 0 ? [a, b] : null; if (!v.range) v.scope = v.before;
+        }
+        v.commits = commits;
+        v.files = files; v.err = ''; v.loadedKey = loadKey;
+        v.counts = Object.fromEntries(SCOPES.map((x, i) => [x.k, specs[i] ? counts[i] : undefined]));
+        if (cur?.scope === 'commits') v.counts.commits = { files: files.length, add: files.reduce((a, f) => a + f.add, 0), del: files.reduce((a, f) => a + f.del, 0) };
+        v.gaps = new Map([...v.gaps].filter(([, x]) => x)); v.texts = new Map();
+      } catch (e) { if (!gone) { v.err = errText(e); v.loadedKey = loadKey; } }
+      finally { if (!gone) { v.loading = false; update(); } }
+    })();
+    return () => { gone = true; };
+  }, [loadKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const files = v.files || [];
+  const staged = (f: FileDiff) => f.staged === 'yes' ? true : f.staged === 'part' ? 'mix' as const : false;
+  const isOpen = (f: FileDiff) => !v.closed.has(f.path) && (v.opened.has(f.path) || f.hunks.reduce((a, h) => a + h.lines.length, 0) < BIG);
+  const newRev = () => (v.scope === 'staged' ? 'index' : v.scope === 'commits' ? cur?.head || 'HEAD' : v.scope === 'turn' ? turn?.head || 'worktree' : 'worktree');
+
+  // ---------- rows ----------
+  const rows = useMemo(() => {
+    const out: Row[] = [];
+    for (const f of files) {
+      out.push({ k: 'file', f });
+      if (!isOpen(f)) continue;
+      if (f.binary) { out.push({ k: 'note', f, text: 'Binary file' }); continue; }
+      if (!f.hunks.length) { out.push({ k: 'note', f, text: f.status === 'R' ? `Renamed from ${f.old}` : 'No text changes' }); continue; }
+      const lang = langOf(f.path);
+      let st: HlState = '';
+      let prevA = 1, prevB = 1;
+      f.hunks.forEach((h, hi) => {
+        const n = h.b - prevB;
+        if (n > 0 && f.status !== 'A' && f.status !== 'D') {
+          const key = `${f.path}:${hi}`, got = v.gaps.get(key);
+          if (got) got.forEach((text, i) => out.push({ k: 'line', f, l: { k: ' ', a: prevA + i, b: prevB + i, text }, toks: tokenize(text, lang).toks }));
+          else out.push({ k: 'gap', f, key, n, a: prevA, b: prevB });
+        }
+        for (const l of h.lines) { const r = tokenize(l.text, lang, st); if (l.k !== '-') st = r.state; out.push({ k: 'line', f, l, toks: r.toks }); }
+        prevA = h.a + h.an; prevB = h.b + h.bn;
+      });
+    }
+    return out;
+  }, [v.files, v.closed.size, v.opened.size, v.gaps.size, [...v.gaps.values()].filter(Boolean).length]); // eslint-disable-line react-hooks/exhaustive-deps
+  v.cur = Math.max(0, Math.min(v.cur, rows.length - 1));
+  const rowFile = (i = v.cur) => rows[i]?.f;
+  const fileRow = (p: string) => rows.findIndex(r => r.k === 'file' && r.f.path === p);
+
+  // ---------- actions ----------
+  const refresh = () => void refreshNow(ctx.machine, ctx.dir);
+  const run = async (what: () => Promise<unknown>) => { try { await what(); } catch (e) { toast(errText(e), { icon: 'alert' }); } refresh(); };
+  const stage = (ps: string[], on: boolean) => repo && run(() => api.git.stage(ctx.machine, repo.root, ps, on));
+  const stageAll = () => { const all = files.every(f => f.staged === 'yes'); void stage(files.map(f => f.path), !all); };
+  const revert = (f: FileDiff) => repo && run(async () => {
+    const undo = await api.git.revert(ctx.machine, repo.root, [f.path]);
+    const name = baseName(f.path);
+    v.lastUndo = { undo, name };
+    toast(`Reverted ${name}`, { icon: 'retry', action: { label: 'Undo', run: () => void unrevert(undo) } }, 7000);
+  });
+  const unrevert = (undo: RevertUndo) => repo && run(async () => {
+    await api.git.unrevert(ctx.machine, repo.root, undo);
+    if (v.lastUndo?.undo.id === undo.id) v.lastUndo = null;
+    toast(`Restored ${baseName(undo.paths[0])}`, { icon: 'check' });
+  });
+  const toggle = (f: FileDiff, open?: boolean) => {
+    const now = isOpen(f), want = open ?? !now;
+    if (want === now) return;
+    if (want) { v.closed.delete(f.path); v.opened.add(f.path); } else { v.closed.add(f.path); v.opened.delete(f.path); }
+    const i = fileRow(f.path); if (i >= 0 && !want) v.cur = i;
+    update();
+  };
+  const openGap = (r: Extract<Row, { k: 'gap' }>) => {
+    if (!repo) return;
+    const rev = newRev(), tk = `${r.f.path}@${rev}`;
+    let p = v.texts.get(tk);
+    if (!p) { p = api.git.show(ctx.machine, repo.root, r.f.path, rev).then(x => x.split(/\r?\n/)); v.texts.set(tk, p); }
+    v.gaps.set(r.key, null); update();
+    p.then(ls => { v.gaps.set(r.key, ls.slice(r.b - 1, r.b - 1 + r.n)); update(); }, e => { v.gaps.delete(r.key); toast(errText(e)); update(); });
+  };
+  const jump = (p: string) => {
+    const f = files.find(x => x.path === p); if (!f) return;
+    toggle(f, true);
+    requestAnimationFrame(() => {
+      const i = fileRow(p); if (i >= 0) v.cur = i;
+      v.flash = p; update();
+      const el = body.current?.querySelector(`[data-p="${CSS.escape(p)}"]`);
+      el?.scrollIntoView({ block: 'start', behavior: S.settings.vim ? 'auto' : 'smooth' });
+      setTimeout(() => { if (v.flash === p) { v.flash = undefined; update(); } }, 700);
+    });
+  };
+  const openAt = (r: Row) => {
+    if (r.k !== 'line' || !repo) return;
+    const line = r.l.b ?? r.l.a ?? 1;
+    if (r.f.status === 'D' || r.l.k === '-' && r.l.b == null && v.scope !== 'commits') { /* the line is gone; open the file where it was */ }
+    openFile({ machine: ctx.machine, dir: repo.root }, r.f.path, { line, from: t, newTab: true });
+  };
+
+  // ---------- header menus ----------
+  const anchorOf = (sel: string) => body.current?.closest('.changes')?.querySelector(sel)?.getBoundingClientRect() || null;
+  const pickScope = (anchor = anchorOf('[data-k=scope]')) => {
+    const items: MenuItem<DiffScope>[] = [
+      ...SCOPES.map(x => {
+        const c = v.counts[x.k], none = x.k === 'turn' && !turn;
+        return { label: x.label, icon: <Icon name={x.icon} />, on: v.scope === x.k, dis: none, hint: none ? 'None yet' : '', right: c ? <Nums add={c.add} del={c.del} small /> : undefined, data: x.k };
+      }),
+      { label: 'Commits', icon: <Icon name="branch" />, on: v.scope === 'commits', right: <Icon name="chev" />, data: 'commits' as DiffScope, dis: !v.commits.length, hint: v.commits.length ? '' : 'None yet' },
+    ];
+    openMenu<DiffScope>({ anchor, place: 'bottom-start', width: 270, items, onPick: it => { if (it.data === 'commits') pickCommits(anchor); else setScope(it.data!); } });
+  };
+  const setScope = (s: DiffScope) => { if (v.scope === s) return; v.scope = s; if (s !== 'commits') v.range = null; v.cur = 0; v.anchor = null; update(); };
+  const pickCommits = (anchor: DOMRect | null) => openLayer(close => <CommitsMenu v={v} anchor={anchor} close={close} onBack={() => { close(); pickScope(anchor); }} />);
+  const pickBranch = async (anchor = anchorOf('[data-k=branch]')) => {
+    if (!repo) return;
+    let list: Awaited<ReturnType<typeof api.git.branches>> = [];
+    try { list = await api.git.branches(ctx.machine, repo.root); } catch (e) { toast(errText(e)); return; }
+    openMenu<{ name: string; create?: boolean }>({
+      anchor, place: 'bottom-start', width: 280, search: { placeholder: 'Switch branch or name a new one' }, empty: 'No branches',
+      items: q => [
+        ...list.map(b => ({ label: b.name, icon: <Icon name="branch" />, on: b.current, right: <span className="age">{b.when.replace(/ ago$/, '')}</span>, data: { name: b.name } })),
+        ...(q.trim() && !list.some(b => b.name === q.trim()) ? [{ label: `Create branch “${q.trim()}”`, display: <>Create branch <b>{q.trim()}</b></>, icon: <Icon name="plus" />, data: { name: q.trim(), create: true } }] : []),
+      ],
+      onPick: it => { if (it.data && !(list.find(b => b.current)?.name === it.data.name)) void run(async () => { await api.git.switch(ctx.machine, repo.root, it.data!.name, it.data!.create); toast(`On ${it.data!.name}`, { icon: 'branch' }); }); },
+    });
+  };
+  const trunk = isTrunk(repo);
+  const total = v.counts.uncommitted;
+  const anyStaged = (v.counts.staged?.files || 0) > 0;
+  const commitWhat = anyStaged ? `${v.counts.staged!.files} staged file${v.counts.staged!.files === 1 ? '' : 's'}` : `All ${total?.files || 0} changed file${total?.files === 1 ? '' : 's'}`;
+  const th = thread(t.thread);
+  const slug = (th?.title || 'changes').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'changes';
+  const commitLabel = trunk ? 'Create branch & commit' : 'Commit';
+  const commit = (action: CommitAction) => {
+    if (!repo) return;
+    if (action !== 'branch' && !total?.files) { toast('Nothing to commit'); return; }
+    const titles: Record<CommitAction, string> = trunk
+      ? { commit: 'Create branch & commit', push: 'Create branch, commit & push', pr: 'Create branch, commit & open PR', branch: 'Create branch' }
+      : { commit: 'Commit', push: 'Commit & push', pr: 'Commit & open PR', branch: 'Create branch' };
+    openCommit({ machine: ctx.machine, root: repo.root, newBranch: trunk || action === 'branch', action, what: commitWhat, message: th?.title || '', branch: slug, title: titles[action], done: refresh });
+  };
+  const commitMenu = (anchor = anchorOf('.split')) => {
+    const items: MenuItem<CommitAction>[] = (trunk
+      ? [['Create branch, commit & push', 'push', 'upload'], ['Create branch, commit & open PR', 'pr', 'globe'], ['Create branch', 'branch', 'branch']]
+      : [['Commit & push', 'push', 'upload'], ['Commit & open PR', 'pr', 'globe'], ['Create branch', 'branch', 'branch']]
+    ).map(([label, data, icon]) => ({ label, data: data as CommitAction, icon: <Icon name={icon} />, dis: data !== 'branch' && !total?.files }));
+    openMenu<CommitAction>({ anchor, place: 'bottom-end', width: 250, items, onPick: it => commit(it.data!) });
+  };
+
+  // ---------- keys ----------
+  const searchTree = () => { if (!side.show) side.set(true); requestAnimationFrame(() => tq.current?.focus(true)); };
+  const yank = () => {
+    const [a, b] = [Math.min(v.anchor ?? v.cur, v.cur), Math.max(v.anchor ?? v.cur, v.cur)];
+    const text = rows.slice(a, b + 1).map(r => (r.k === 'line' ? (r.l.k === ' ' ? ' ' : r.l.k) + r.l.text : r.k === 'file' ? r.f.path : '')).filter(Boolean).join('\n');
+    void navigator.clipboard?.writeText(text).catch(() => {});
+    toast(`Copied ${b - a + 1} line${b === a ? '' : 's'}`);
+    v.anchor = null; v.vmode = 'n'; update();
+  };
+  const press = (r: Row | undefined) => {
+    if (!r) return;
+    if (r.k === 'file') toggle(r.f);
+    else if (r.k === 'gap') openGap(r);
+    else if (r.k === 'line') openAt(r);
+  };
+  const go = (i: number) => { v.cur = Math.max(0, Math.min(rows.length - 1, i)); update(); };
+  const nextFile = (d: number) => { let i = v.cur + d; while (rows[i] && rows[i].k !== 'file') i += d; if (rows[i]) go(i); else if (d < 0) go(0); };
+  const { own } = useSurface(t.id, focused, {
+    mode: (): Mode => (v.vmode === 'V' ? 'V-LINE' : 'NORMAL'),
+    key: k => {
+      if (nativeTarget() && (k === 'enter' || k === 'space')) return false;
+      if (v.g) {
+        v.g = false;
+        if (k === 'g') { go(0); return true; }
+        if (k === 's') { pickScope(); return true; }
+        if (k === 'b') { void pickBranch(); return true; }
+        if (k === 'f') { const r = rows[v.cur]; if (r) openFile({ machine: ctx.machine, dir: repo?.root || ctx.dir }, r.f.path, { line: r.k === 'line' ? r.l.b ?? r.l.a : 1, from: t, newTab: true }); return true; }
+        return true;
+      }
+      const r = rows[v.cur];
+      switch (k) {
+        case 'j': case 'down': go(v.cur + 1); return true;
+        case 'k': case 'up': go(v.cur - 1); return true;
+        case 'G': case 'end': go(rows.length - 1); return true;
+        case 'home': go(0); return true;
+        case 'g': v.g = true; return true;
+        case 'ctrl-d': case 'pagedown': go(v.cur + halfPage(body.current)); return true;
+        case 'ctrl-u': case 'pageup': go(v.cur - halfPage(body.current)); return true;
+        case '}': case ']': nextFile(1); return true;
+        case '{': case '[': nextFile(-1); return true;
+        case 'enter': case 'o': press(r); return true;
+        case 'l': case 'right': if (r?.k === 'file') toggle(r.f, true); else if (r?.k === 'gap') openGap(r); return true;
+        case 'h': case 'left': if (r) toggle(r.f, false); return true;
+        case 's': case 'space': if (r && working(v.scope)) void stage([r.f.path], r.f.staged !== 'yes'); return true;
+        case 'S': if (working(v.scope)) stageAll(); return true;
+        case 'x': if (r && working(v.scope)) void revert(r.f); return true;
+        case 'u': if (v.lastUndo) void unrevert(v.lastUndo.undo); else toast('Nothing to undo'); return true;
+        case '/': searchTree(); return true;
+        case 't': side.toggle(); return true;
+        case 'c': commit('commit'); return true;
+        case 'C': commitMenu(); return true;
+        case 'V': if (v.vmode === 'V') { v.vmode = 'n'; v.anchor = null; } else { v.vmode = 'V'; v.anchor = v.cur; } update(); return true;
+        case 'y': if (v.vmode === 'V') yank(); return true;
+        case 'esc': if (v.vmode === 'V') { v.vmode = 'n'; v.anchor = null; update(); return true; } return false;
+      }
+      return k.length === 1;
+    },
+  });
+
+  // keep the cursor row in sight
+  useLayoutEffect(() => {
+    const el = body.current?.querySelector('.rowcur, .curl');
+    if (el && focused) (el as HTMLElement).scrollIntoView({ block: 'nearest' });
+  }, [v.cur, focused, rows.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------- render ----------
+  const counts = v.counts[v.scope] || (v.files ? { files: files.length, add: files.reduce((a, f) => a + f.add, 0), del: files.reduce((a, f) => a + f.del, 0) } : undefined);
+  const scopeLabel = v.scope === 'commits' ? rangeLabel(v) : SCOPES.find(x => x.k === v.scope)!.label;
+  const sel = v.vmode === 'V' && v.anchor != null ? [Math.min(v.anchor, v.cur), Math.max(v.anchor, v.cur)] : null;
+  const q = v.tq.trim().toLowerCase();
+  const shown = files.filter(f => !q || f.path.toLowerCase().includes(q));
+  const dirs = [...new Set(shown.map(f => (f.path.includes('/') ? f.path.replace(/\/[^/]*$/, '') : '')))].sort((a, b) => Number(a === '') - Number(b === '') || a.localeCompare(b));
+  const allOn = files.length > 0 && files.every(f => f.staged === 'yes'), someOn = files.some(f => f.staged && f.staged !== 'no');
+
+  if (repo === undefined) return <div className="changes"><div className="r-empty"><Spinner label="Reading the repository" /></div></div>;
+  if (repo === null) return (
+    <div className="changes"><div className="r-empty"><Icon name="diff" size="xl" /><span>{re.error || 'Not a git repository'}</span><span className="dim path">{ctx.dir}</span></div></div>
+  );
+
+  let fileI = -1;
+  return (
+    <div className="changes" ref={side.ref} onMouseDown={e => { if (!(e.target as HTMLElement).closest('.tq')) own(); }}>
+      <header className="tool-h">
+        <Chip data-k="scope" icon={scopeIcon(v.scope)} label={<>{scopeLabel}{counts && <Nums add={counts.add} del={counts.del} />}</>} caret
+          title={`What to compare · ${kb('g s')}`} onClick={e => pickScope(e.currentTarget.getBoundingClientRect())} />
+        <Chip data-k="branch" icon="branch" label={repo.branch || (repo.head ? repo.head.slice(0, 7) : 'No commits')} caret title={`Branch · ${kb('g b')}`}
+          onClick={e => void pickBranch(e.currentTarget.getBoundingClientRect())} />
+        {v.loading && v.files && <Spinner label="Refreshing" />}
+        <span className="sp" />
+        <SplitButton label={commitLabel} keys="c" disabled={!total?.files} onClick={() => commit('commit')} onMenu={r => commitMenu(r)} menuLabel="More commit actions" />
+        <IconButton icon="panelR" small on={side.show} label="Changed files" keys="t" aria-pressed={side.show} onClick={side.toggle} />
+      </header>
+      <div className={cx('cbody', side.show && 'tree')}>
+        <div className="tool-b" data-read ref={body} role="region" aria-label="Diff">
+          {v.err ? <div className="r-empty"><Icon name="alert" size="xl" /><span>{v.err}</span></div>
+            : !v.files ? <div className="r-empty"><Spinner label="Loading changes" /></div>
+            : !files.length ? <div className="r-empty"><Icon name="diff" size="xl" /><span>{v.scope === 'staged' ? 'Nothing staged yet' : v.scope === 'turn' && !turn ? 'No agent turn yet' : 'No changes'}</span></div>
+            : files.map(f => {
+              const start = fileRow(f.path), open = isOpen(f), rs: { r: Row; i: number }[] = [];
+              for (let i = start + 1; i < rows.length && rows[i].k !== 'file'; i++) rs.push({ r: rows[i], i });
+              fileI++;
+              return (
+                <details key={f.path} className={cx('cfile', v.flash === f.path && 'flash')} open={open} data-p={f.path}>
+                  <summary className={cx(v.cur === start && focused && 'rowcur', sel && start >= sel[0] && start <= sel[1] && 'vsel')}
+                    onClick={e => { e.preventDefault(); v.cur = start; toggle(f); }}>
+                    <Icon name="chev" className="ch" /><LangBadge path={f.path} />
+                    <span className="f">{f.old ? <>{f.old} <span className="dim">→</span> {f.path}</> : f.path}</span>
+                    <Nums add={f.add} del={f.del} />
+                    {f.status === 'A' && <span className="tag">New</span>}{f.status === 'D' && <span className="tag del">Deleted</span>}
+                    {!open && f.hunks.reduce((a, h) => a + h.lines.length, 0) >= BIG && <span className="tag dim">Large diff</span>}
+                    <span className="sp" />
+                    {working(v.scope) && <IconButton icon="retry" small label="Revert file" keys="x" onMouseDown={e => e.preventDefault()} onClick={e => { e.stopPropagation(); void revert(f); }} />}
+                    {working(v.scope) && <Checkbox on={staged(f)} label={`Stage ${f.path}`} onChange={on => void stage([f.path], on)} />}
+                  </summary>
+                  {open && <div className="diff flat">
+                    {rs.map(({ r, i }) => r.k === 'gap'
+                      ? <button key={i} type="button" className={cx('dgap', v.cur === i && focused && 'rowcur')} title={`Show ${r.n} unmodified lines`}
+                          onMouseDown={e => e.preventDefault()} onClick={() => { v.cur = i; openGap(r); }}>
+                          {v.gaps.has(r.key) ? <Spinner label="Loading" /> : <Icon name="down" size="sm" />}<span>{r.n} unmodified line{r.n === 1 ? '' : 's'}</span>
+                        </button>
+                      : r.k === 'note' ? <div key={i} className={cx('dl note', v.cur === i && focused && 'curl')}><span className="n" /><span className="c dim">{r.text}</span></div>
+                      : r.k === 'line' ? <div key={i} className={cx('dl', r.l.k === '+' ? 'add' : r.l.k === '-' ? 'del' : '', v.cur === i && focused && 'curl', sel && i >= sel[0] && i <= sel[1] && 'vsel')}
+                          onMouseDown={() => { v.cur = i; update(); }} onDoubleClick={() => openAt(r)}>
+                          <span className="n">{r.l.k === '-' ? r.l.a : r.l.b}</span><span className="c"><CodeLine toks={r.toks} unit={0} /></span>
+                        </div>
+                      : null)}
+                  </div>}
+                </details>
+              );
+            })}
+        </div>
+        {side.show && (
+          <aside className="ctree" aria-label="Changed files">
+            <label className="tq"><Icon name="search" size="sm" />
+              <VimField ref={tq} tabId={t.id} value={v.tq} onChange={x => { v.tq = x.replace(/\n/g, ''); update(); }} placeholder="Search files" className="tq-f"
+                onEnter={() => { const first = shown[0]; own(); (document.activeElement as HTMLElement | null)?.blur(); if (first) jump(first.path); }}
+                onLeave={() => { own(); (document.activeElement as HTMLElement | null)?.blur(); }} />
+            </label>
+            {working(v.scope) && files.length > 0 && (
+              <div className="tf all"><Checkbox on={allOn ? true : someOn ? 'mix' : false} label="Stage all" onChange={() => stageAll()} /><span className="t">{files.length} file{files.length === 1 ? '' : 's'} changed</span></div>
+            )}
+            {!working(v.scope) && files.length > 0 && <div className="tf all"><span className="t">{files.length} file{files.length === 1 ? '' : 's'} changed</span></div>}
+            {dirs.map(d => (
+              <div key={d || '.'} role="group" aria-label={d || 'root'}>
+                {d && <div className="td"><Icon name="folder" size="sm" /><span>{d}</span></div>}
+                {shown.filter(f => (f.path.includes('/') ? f.path.replace(/\/[^/]*$/, '') : '') === d).map(f => (
+                  <div key={f.path} className={cx('tf', d && 'in', rowFile()?.path === f.path && 'on')}>
+                    {working(v.scope) && <Checkbox on={staged(f)} label={`Stage ${f.path}`} onChange={on => void stage([f.path], on)} />}
+                    <button type="button" className="tfn" title={f.path} onMouseDown={e => e.preventDefault()} onClick={() => { own(); jump(f.path); }}><LangBadge path={f.path} /><span className="t">{baseName(f.path)}</span></button>
+                    <Nums add={f.add} del={f.del} small />
+                    <span className={cx('fst', f.status.toLowerCase())} title={({ A: 'Added', M: 'Modified', D: 'Deleted', R: 'Renamed' } as Record<string, string>)[f.status]} />
+                  </div>
+                ))}
+              </div>
+            ))}
+            {q && !shown.length && <div className="tf none">No matching files</div>}
+          </aside>
+        )}
+      </div>
+    </div>
+  );
+  void fileI;
+}
+
+/** "a1b2c3d" for one commit, "oldest^..newest" for a run, "All commits" for all. */
+function rangeLabel(v: View) {
+  const r = v.range, c = v.commits;
+  if (!r || !c[r[0]]) return 'Commits';
+  if (r[0] === 0 && r[1] === c.length - 1 && c.length > 1) return 'All commits';
+  return r[0] === r[1] ? c[r[0]].short : `${c[r[1]].short}^..${c[r[0]].short}`;
+}
+
+/** The commits list: tick commits to diff an unbroken run of them (history is a line, so a pick is a range).
+ *  Nothing ticked + tick one -> that commit; tick outside the run -> it grows to reach it; untick an end -> it
+ *  shrinks; untick one in the middle -> it and everything older go; untick the last -> back to the old scope. */
+function CommitsMenu({ v, anchor, close, onBack }: { v: View; anchor: DOMRect | null; close: () => void; onBack: () => void }) {
+  useApp();
+  const n = v.commits.length, r = v.range, all = !!r && r[0] === 0 && r[1] === n - 1;
+  const box = (st: boolean | 'mix') => <span className={cx('cb', st === 'mix' ? 'mix' : st && 'on')}>{st === true && <Icon name="check" />}</span>;
+  // the list only changes with the picked run (a new array each render would re-register the menu's keys forever)
+  const items = useMemo((): MenuItem<number>[] => [
+    { label: 'All commits', icon: box(all ? true : r ? 'mix' : false), data: -1, right: r ? <span className="age">{r[1] - r[0] + 1} of {n}</span> : undefined },
+    ...v.commits.map((c, j) => ({ label: `${c.short} ${c.subject}`, display: <><span className="hash">{c.short}</span> {c.subject}</>, icon: box(!!r && j >= r[0] && j <= r[1]), right: <span className="age">{c.when.replace(/ ago$/, '')}</span>, data: j })),
+  ], [r?.[0], r?.[1], v.commits]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tick = (c: number) => {
+    let x = v.range;
+    if (c < 0) x = all ? null : [0, n - 1];
+    else if (!x) x = [c, c];
+    else if (c < x[0] || c > x[1]) x = [Math.min(x[0], c), Math.max(x[1], c)];
+    else if (x[0] === x[1]) x = null;
+    else if (c === x[0]) x = [c + 1, x[1]];
+    else x = [x[0], c - 1];
+    if (x && v.scope !== 'commits') v.before = v.scope;
+    v.range = x; v.scope = x ? 'commits' : v.before === 'commits' ? 'uncommitted' : v.before; v.cur = 0;
+    update();
+  };
+  return <Menu<number> anchor={anchor} place="bottom-start" width={380} keep items={items} search={{ placeholder: 'Filter commits' }} normal className="commits-m"
+    onPick={it => tick(it.data!)} onClose={close} keys={k => { if (k === 'h' || k === 'backspace') { onBack(); return true; } return false; }} empty="No matching commits" />;
+}
+
+void animate; void MOTION;

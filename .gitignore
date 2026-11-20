@@ -6,4 +6,4 @@ release/
 .DS_Store
 .vite/
 *.tsbuildinfo
-e2e/*.png
+tests/ui/failures/

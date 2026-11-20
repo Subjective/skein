@@ -18,7 +18,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
     "smoke": "node scripts/smoke.mjs",
-    "e2e:chat": "node e2e/chat.e2e.mjs",
+    "test:ui": "node tests/ui/run.mjs",
     "dist": "electron-vite build && electron-builder --dir",
     "gen:codex": "codex app-server generate-ts --out src/core/harness/codex/protocol"
   },
@@ -48,6 +48,7 @@
     "electron": "^45.4.1",
     "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
+    "playwright": "1.63.0",
     "typescript": "^5.9.3",
     "vite": "^8.3.8",
     "vitest": "^5.1.1"

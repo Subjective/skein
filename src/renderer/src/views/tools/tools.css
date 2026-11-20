@@ -1,0 +1,114 @@
+/* Changes, Files and the open file: what the real views need on top of the mockup's classes in skein.css
+   (.tool-h, .cbody, .ctree, .cfile, .diff.flat, .dl, .dgap, .src, .crumbs, .tf / .td, .lang, .gst, .sx-*). */
+
+.changes, .files-v, .file-v { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.changes .r-empty, .files-v .r-empty, .file-v .r-empty { flex: 1; display: grid; place-items: center; align-content: center; gap: 8px; text-align: center; padding: 24px; }
+.r-empty .path { font: var(--mono-w) 12px var(--mono); }
+.tool-h .spin { margin: 0 4px; }
+.tool-h .chip .nums { margin-left: 7px; }
+.cfile > summary.rowcur { box-shadow: none; }
+.tool-h .split .btn[disabled] { opacity: .45; cursor: default; }
+.tool-h .split .btn:focus-visible, .tool-h .ib:focus-visible, .tool-h .chip:focus-visible, .crumb:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 1px; }
+
+/* rows under the reader's cursor */
+.diff .dl, .src .dl { scroll-margin: 36px 0 8px; }
+.diff.flat .dl.curl { background: var(--active); }
+.diff.flat .dl.add.curl { background: color-mix(in srgb, var(--add-bg) 100%, var(--fg) 6%); }
+.diff.flat .dl.del.curl { background: color-mix(in srgb, var(--del-bg) 100%, var(--fg) 6%); }
+.diff.flat .dl.curl .n { color: var(--fg-2); }
+.dl.vsel, .cfile > summary.vsel, .src .dl.vsel { background: rgba(74, 163, 255, .16) !important; }
+.dl.note .c { font-family: var(--sans); font-size: 12px; }
+.cfile > summary { padding: 0 2px; border-radius: 6px; transition: background var(--ease); }
+.cfile > summary .f { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cfile > summary .sp { flex: 1; }
+.cfile .tag.del { color: var(--red); }
+.cfile > .diff { animation: unfold var(--ease, 120ms) ease-out; }
+.dgap { scroll-margin: 36px 0 8px; transition: background var(--ease), color var(--ease); }
+.dgap .spin { width: 10px; height: 10px; }
+@keyframes unfold { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+
+/* the changed-files tree */
+.ctree { display: flex; flex-direction: column; }
+.tq textarea { flex: 1; min-width: 0; height: 18px !important; padding: 0; border: 0; outline: 0; resize: none; overflow: hidden; background: none; color: var(--fg); font: inherit; line-height: 18px; white-space: nowrap; }
+.tf .tfn { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; height: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.tf.on { background: var(--hover); color: var(--fg); }
+.fst.d { color: var(--red); } .fst.r { color: var(--blue); }
+.fst.d::after { content: ""; position: absolute; left: 50%; top: 50%; width: 5px; height: 1.3px; background: currentColor; transform: translate(-50%, -50%); }
+.fst.r::after { content: ""; position: absolute; inset: 4px; border-radius: 1px; background: currentColor; }
+.gst.d { color: var(--red); } .gst.r { color: var(--blue); } .gst.u { color: var(--green); }
+.lang-f { width: 13px; height: 13px; flex: none; color: var(--fg-4); }
+.commits-m .hash { font: var(--mono-w) 12px var(--mono); color: var(--fg-2); }
+.commits-m .mi .cb { margin-right: 2px; }
+
+/* code: indent guides, cursor, selection, search hits */
+.igi, .igc { font-style: normal; }
+.igi { box-shadow: inset 1px 0 0 var(--line); }
+.vc { background: var(--fg); color: var(--bg) !important; border-radius: 1px; }
+.vs { background: rgba(74, 163, 255, .32); }
+.hit { background: rgba(226, 165, 60, .28); border-radius: 2px; }
+.hit.now { background: rgba(226, 165, 60, .6); }
+
+/* Files: the project tree as the tab's body */
+.files-v .tool-b { padding: 4px 8px 14px; }
+.ptree { display: flex; flex-direction: column; font-size: 13px; }
+.ptree .pr { height: 26px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 6px; border: 0; border-radius: 6px; background: none; color: var(--fg-2); font: inherit; text-align: left; cursor: pointer; white-space: nowrap; scroll-margin: 8px; }
+.ptree .pr:hover { background: var(--hover); }
+.ptree .pr .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ptree .pr .dim { margin-left: 6px; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.ptree .pr.dir { color: var(--fg-2); }
+.ptree .pr.dir svg.i { width: 13px; height: 13px; color: var(--fg-3); }
+.ptree .pr.ign { color: var(--fg-4); }
+.ptree .pr.on { background: var(--active); color: var(--fg); }
+.ptree .pr.rowcur { background: var(--active); color: var(--fg); }
+.ptree .pr .gst { margin-left: auto; padding-left: 8px; }
+.ptree .pr .tw { width: 10px; height: 10px; flex: none; opacity: .55; transition: transform var(--ease); }
+.ptree .pr .tw.open { transform: rotate(90deg); }
+.ptree .kids { display: flex; flex-direction: column; animation: unfold 120ms ease-out; }
+.ctree .ptree { font-size: 12.5px; margin: 0 -4px; }
+.ctree .ptree .pr { height: 24px; }
+.ptree .none { padding: 6px; color: var(--fg-4); font-size: 12.5px; }
+.files-v .tq, .ctree .tq { flex: none; }
+
+/* the open file */
+.file-v .src { margin: 0 -14px 10px; }
+.file-v .src .dl { min-height: 19.8px; }
+.file-v .src .dl .n { cursor: default; }
+.file-v .src .dl.g-del .n { box-shadow: inset 3px -2px 0 -1px var(--red); }
+.file-v .tool-b.rd { cursor: text; }
+.file-v .ed { position: relative; }
+.file-v .ed textarea.file-ed { flex: 1; min-width: 0; height: auto; border: 0; outline: 0; resize: none; background: none; color: var(--fg); overflow: hidden; tab-size: 4; }
+.src .c { tab-size: 4; }
+.tool-h .lang { margin-left: 2px; }
+.tool-h .crumbs { flex: 0 1 auto; }
+.tool-h .mod { align-items: center; }
+.tool-h .mod-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-2); margin: 0 4px 0 2px; }
+.file-v .doc { padding-top: 10px; }
+.file-v .bin { color: var(--fg-3); }
+.tab .mod-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-2); flex: none; }
+
+/* commit dialog (the .auth panel) */
+.auth.commit textarea.auth-i { width: 100%; height: 34px; padding: 7px 12px; line-height: 19px; resize: none; overflow: hidden; }
+.auth.commit textarea.auth-i.msg { min-height: 34px; }
+.auth.commit .fw { display: flex; }
+.auth.commit .err { font-size: 12.5px; }
+.auth.commit .af { align-items: center; }
+.auth.commit .af .hint { margin-right: auto; font-size: 11.5px; }
+.auth.commit .btn .spin { width: 11px; height: 11px; }
+
+@media (prefers-reduced-motion: reduce) { .cfile > .diff, .ptree .kids { animation: none; } }
+
+/* Markdown preview additions */
+.doc pre.code { margin: 0 0 .8em; padding: 10px 12px; border-radius: 10px; background: var(--code); font: var(--mono-w) 12px/1.6 var(--mono); overflow-x: auto; }
+.doc pre.code div { white-space: pre; }
+.doc blockquote { margin: 0 0 .6em; padding: 2px 0 2px 12px; border-left: 2px solid var(--line-2); color: var(--fg-2); }
+.doc hr { border: 0; border-top: 1px solid var(--line); margin: 1.2em 0; }
+.doc a { color: var(--blue); text-decoration: none; cursor: pointer; }
+.doc a:hover { text-decoration: underline; }
+.doc .mlink { color: var(--blue); }
+.src .dl { content-visibility: auto; contain-intrinsic-size: auto 19.8px; }
+.src .dl.curl, .src .dl.vsel { content-visibility: visible; }
+.ib.flip svg.i { transform: rotate(180deg); }
+
+/* narrow panes: the header's chips give way before its actions */
+.tool-h > .chip { flex: 0 1 auto; min-width: 0; }
+.tool-h > .split, .tool-h > .ib, .tool-h > .btn, .tool-h > .seg { flex: none; }

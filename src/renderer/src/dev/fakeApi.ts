@@ -2,6 +2,7 @@
 // Data is a small sample; terminals echo what you type.
 import type { SkeinBridge, SkeinEvent } from '@shared/api';
 import type { Machine, Settings, ThreadMeta } from '@shared/types';
+import { fakeFs, fakeGit } from './fakeRepo';
 import { extraThreads, fakeChat } from './fakeChat';
 
 const listeners = new Set<(e: SkeinEvent) => void>();
@@ -83,9 +84,9 @@ export const fakeApi: SkeinBridge = {
     remove: async () => {}, connect: async id => fakeConnect(id), answer: async (id, v) => fakeAnswer(id, v), sshHosts: async () => ['devbox', 'gpu-01'],
   },
   fs: {
-    list: async (_m, dir) => (dir.split(/[\\/]/).length > 4 ? [] : ['projects', 'repo', 'scratch', '.config', 'notes.md'].map(n => ({ name: n, dir: !n.includes('.') || n === '.config', hidden: n.startsWith('.') }))),
-    read: async () => '', write: async () => {}, resolve: async (_m, p) => p,
-    find: async () => ['README.md', 'package.json', 'src/main/index.ts', 'src/core/pty.ts', 'src/core/files.ts', 'src/renderer/src/shell/App.tsx', 'src/renderer/src/shell/overlays.tsx', 'docs/VIM-MODEL.md'],
+    list: async (_m, dir) => fakeFs.owns(dir) ? fakeFs.list(dir) : (dir.split(/[\\/]/).length > 4 ? [] : ['projects', 'repo', 'scratch', '.config', 'notes.md'].map(n => ({ name: n, dir: !n.includes('.') || n === '.config', hidden: n.startsWith('.') }))),
+    read: async (_m, p) => (fakeFs.owns(p) ? fakeFs.read(p) : ''), write: async (_m, p, t) => { if (fakeFs.owns(p)) await fakeFs.write(p, t); }, resolve: async (_m, p) => p,
+    find: async (_m, dir) => (fakeFs.owns(dir) ? fakeFs.files() : ['README.md', 'package.json', 'src/main/index.ts', 'src/core/pty.ts', 'src/core/files.ts', 'src/renderer/src/shell/App.tsx', 'src/renderer/src/shell/overlays.tsx', 'docs/VIM-MODEL.md']),
   },
   threads: {
     list: async () => threads, discover: async () => [],
@@ -112,5 +113,5 @@ export const fakeApi: SkeinBridge = {
     resize: () => {}, kill: () => {},
   },
   images: { toInbox: async (_m, _png, name) => '~/.skein/inbox/' + (name || 'paste.png') },
-  git: { status: async () => ({ isRepo: true, branch: 'main', files: [] }), diff: async () => '', stage: async () => {}, revert: async () => {}, commit: async () => {}, log: async () => [] },
+  git: fakeGit,
 };

@@ -66,7 +66,11 @@ export function openCmdline() {
   const names = Object.keys(COMMANDS);
   openMenu<string>({
     modal: true, className: 'pal', search: { prefix: ':' },
-    items: q => names.filter(n => !q || n.startsWith(q.trim().split(' ')[0]) || n.includes(q)).map(n => ({ label: n, hint: COMMANDS[n], data: n })),
+    // exact name first, then names it starts, then names that contain it (so `:w` enter runs w)
+    items: q => {
+      const w = q.trim().split(' ')[0], rank = (n: string) => (n === w ? 0 : n.startsWith(w) ? 1 : 2);
+      return names.filter(n => !w || n.startsWith(w) || n.includes(w)).sort((a, b) => (w ? rank(a) - rank(b) : 0)).map(n => ({ label: n, hint: COMMANDS[n], data: n }));
+    },
     onPick: (it, q) => run(it.data || q),
   });
 }

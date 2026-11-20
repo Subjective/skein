@@ -2,6 +2,7 @@
 // reach the same result (VIM-MODEL rule 10).
 import type { ThreadMeta, ViewKind } from '@shared/types';
 import { api } from '../api';
+import { openFile as openFileTab } from '../views/tools/open';
 import {
   activeTab, allTabs, findPane, leaves, mkPane, mkTab, neighbour, removePane, resize as resizeTree, splitAt, swap as swapPanes,
   type Pane, type Rect, type Tab, type Workspace,
@@ -130,18 +131,9 @@ export function openThread(id: string, o: { split?: boolean; view?: ViewKind } =
   save();
 }
 
-/** Open a file (path relative to dir, forward slashes) in the focused pane, or switch to its tab there.
- * The files view (views/tools) may take this over with its own opener, which keeps back/forward history. */
-export function openFile(machine: string, dir: string, path: string) {
-  update(s => {
-    const w = ws(), g = focusedPane(w);
-    const hit = g.tabs.find(t => t.kind === 'file' && t.path === path && t.machine === machine);
-    if (hit) g.active = hit.id;
-    else { const a = activeTab(g), t = mkTab('file', { machine, dir, path }); if (a.kind === 'new') { g.tabs[g.tabs.indexOf(a)] = t; g.active = t.id; } else addTab(g, t); }
-    w.pf = null; s.sideFocus = false; s.tick++;
-  });
-  save();
-}
+/** Open a file (path relative to dir, forward slashes): an open tab for it is reused, else it opens in the
+ *  focused pane (replacing a new-tab launcher). The file view keeps back / forward history (views/tools/open). */
+export function openFile(machine: string, dir: string, path: string) { openFileTab({ machine, dir }, path); }
 
 /** Start a thread from a launcher tab: the tab becomes the thread. */
 export async function startThread(t: Tab, harness: 'claude' | 'codex', view: ViewKind): Promise<ThreadMeta> {

@@ -50,6 +50,9 @@ export const COMMANDS: Record<string, string> = {
   popout: 'Pop the tab out',
   quote: 'Quote selection to chat',
   quoteside: 'Quote selection to a side chat',
+  changes: 'Changes, beside this tab',
+  filesview: 'Files, beside this tab',
+  w: 'Save this file',
   termall: 'Every thread as terminal',
   chatall: 'Every thread as chat',
 };
