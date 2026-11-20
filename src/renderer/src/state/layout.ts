@@ -17,6 +17,9 @@ export interface Tab {
   dir?: string;
   /** file tabs */
   path?: string;
+  /** browser tabs: the address as the user means it (a remote thread's localhost stays localhost) and the page's title */
+  url?: string;
+  title?: string;
   /** new-thread launcher choices */
   model?: string;
   effort?: string;

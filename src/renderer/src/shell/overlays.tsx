@@ -54,7 +54,7 @@ export function openPalette(mode: 'all' | 'file' = 'all') {
     const out: MenuItem<() => void>[] = [{ head: true, label: 'Threads' }];
     for (const t of th.slice(0, q ? 200 : 8)) out.push({ label: t.title, hint: `${machine(t.machine)?.name ?? t.machine} · ${t.dir}`, icon: <Icon name={t.harness} />, right: <span className="age">{ago(t.updatedAt)}</span>, data: () => A.openThread(t.id) });
     out.push({ head: true, label: 'Actions' });
-    const acts: [string, string, string][] = [['New thread', 'compose', 'tabnew'], ['Workspaces', 'layers', 'workspaces'], ['Settings', 'sliders', 'settings'], ['Keyboard shortcuts', 'keyboard', 'keys'], ['Split right', 'splitR', 'vsplit'], ['Split down', 'splitD', 'split'], ['Shell', 'terminal', 'vshell']];
+    const acts: [string, string, string][] = [['New thread', 'compose', 'tabnew'], ['Workspaces', 'layers', 'workspaces'], ['Settings', 'sliders', 'settings'], ['Keyboard shortcuts', 'keyboard', 'keys'], ['Split right', 'splitR', 'vsplit'], ['Split down', 'splitD', 'split'], ['Shell', 'terminal', 'vshell'], ['Browser', 'globe', 'browser']];
     const km = keymap();
     for (const [label, icon, cmd] of acts) { const b = km.keysFor(cmd)[0]; out.push({ label, icon: <Icon name={icon} />, kbd: b ? kb(b.layer === 'leader' ? 'ldr ' + b.keys : b.keys) : undefined, data: () => run(cmd) }); }
     return out;

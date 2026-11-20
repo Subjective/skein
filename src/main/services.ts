@@ -4,6 +4,7 @@ import type { SkeinApi } from '../shared/api';
 import type { Settings } from '../shared/types';
 import { unimplemented, type ChatDriver, type Harnesses } from '../core/chat';
 import { emit } from '../core/events';
+import { Forwards } from '../core/forward';
 import { log } from '../core/log';
 import * as files from '../core/files';
 import * as git from '../core/git';
@@ -29,6 +30,8 @@ export interface ShellHooks {
   home: string;
   openExternal(url: string): Promise<void>;
   notify(title: string, body: string, thread?: string): void;
+  /** The keys Skein keeps while a Browser tab's page has focus (main's before-input-event reads them). */
+  browserKeys?(keys: string[]): void;
 }
 
 export function createServices(store: Store, shell: ShellHooks, harnesses: Harnesses = unimplemented) {
@@ -50,6 +53,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
     return d;
   };
   const M = (id: string) => machines.get(id);
+  const forwards = new Forwards(M);
 
   const api: SkeinApi = {
     app: {
@@ -133,6 +137,10 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       snapshot: (m, r) => git.snapshot(M(m), r),
       files: (m, r) => git.files(M(m), r),
     },
+    browser: {
+      forward: (m, port) => forwards.forward(m, port),
+      keys: keys => shell.browserKeys?.(keys),
+    },
   };
-  return { api, dispose: () => { ptys.killAll(); machines.dispose(); } };
+  return { api, dispose: () => { ptys.killAll(); forwards.dispose(); machines.dispose(); } };
 }

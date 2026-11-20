@@ -77,7 +77,7 @@ export const fakeApi: SkeinBridge = {
     info: async () => ({ platform: /Mac/.test(navigator.platform) ? 'mac' : 'win', version: 'dev', home: '~', pty: true }),
     load: async k => kv.get(k), save: async (k, v) => { kv.set(k, v); },
     settings: async () => settings, setSettings: async p => (settings = { ...settings, ...p }),
-    openExternal: async () => {}, notify: async () => {},
+    openExternal: async url => { (window as unknown as { __external?: string[] }).__external = [...((window as unknown as { __external?: string[] }).__external || []), url]; }, notify: async () => {},
   },
   machines: {
     list: async () => machines, add: async (name, ssh) => { const m: Machine = { id: name, name, ssh, link: 'down', has: [] }; machines.push(m); return m; },
@@ -111,6 +111,11 @@ export const fakeApi: SkeinBridge = {
       lines.set(id, (lines.get(id) || '') + d); emit({ type: 'pty.data', id, data: d });
     },
     resize: () => {}, kill: () => {},
+  },
+  // a forward "succeeds" on the port itself (the page loads from this computer); a machine that is down fails
+  browser: {
+    forward: async (m, port) => { await new Promise(r => setTimeout(r, 150)); const x = machines.find(y => y.id === m); if (x?.ssh && x.link !== 'up') throw new Error(x.note || 'Connection timed out'); return port; },
+    keys: () => {},
   },
   images: { toInbox: async (_m, _png, name) => '~/.skein/inbox/' + (name || 'paste.png') },
   git: fakeGit,
