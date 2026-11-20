@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { DirEntry, Machine } from '../shared/types';
+import { execFile } from 'node:child_process';
 import { run } from './exec';
 import { sqPath } from './shell';
 
@@ -36,4 +37,35 @@ export async function resolve(m: Machine, path: string): Promise<string> {
   if (!m.ssh) return expandLocal(path);
   if (!path.startsWith('~')) return path;
   return (m.home || '~') + path.slice(1);
+}
+
+// ---------- file search ----------
+const FIND_CAP = 20000;
+const SKIP = new Set(['.git', 'node_modules', 'out', 'dist', 'build', '.next', 'target', '__pycache__', '.venv', 'venv']);
+
+/** Every file under dir, relative to it: git's list (tracked and untracked, ignores applied) in a repo, else a capped walk. */
+export async function find(m: Machine, dir: string): Promise<string[]> {
+  const root = await resolve(m, dir);
+  if (m.ssh) {
+    const r = await run(m, `cd ${sqPath(root)} && { git ls-files -co --exclude-standard 2>/dev/null || find . -type f -not -path '*/.git/*' -not -path '*/node_modules/*' | sed 's#^\\./##'; } | head -n ${FIND_CAP}`);
+    if (r.code !== 0 && !r.stdout) throw new Error(r.stderr.trim() || `Could not search ${dir}`);
+    return r.stdout.split('\n').filter(Boolean);
+  }
+  const git = await new Promise<string[] | null>(res => {
+    execFile('git', ['ls-files', '-co', '--exclude-standard'], { cwd: root, maxBuffer: 64 << 20, windowsHide: true }, (e, out) => res(e ? null : out.split('\n').filter(Boolean).slice(0, FIND_CAP)));
+  });
+  if (git) return git;
+  const out: string[] = [];
+  const walk = async (rel: string, depth: number): Promise<void> => {
+    if (out.length >= FIND_CAP || depth > 12) return;
+    let es;
+    try { es = await readdir(join(root, rel), { withFileTypes: true }); } catch { return; }
+    for (const e of es) {
+      if (out.length >= FIND_CAP) return;
+      const p = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) { if (!SKIP.has(e.name)) await walk(p, depth + 1); } else if (e.isFile()) out.push(p);
+    }
+  };
+  await walk('', 0);
+  return out;
 }

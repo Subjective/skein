@@ -7,7 +7,8 @@ import type { Surface } from '../input/dispatcher';
 import { api } from '../api';
 import * as A from '../state/actions';
 import { allTabs } from '../state/layout';
-import { machine, openLayer, S, toast, update, useApp, ws } from '../state/store';
+import { machine, openLayer, S, thread, toast, update, useApp, ws } from '../state/store';
+import { fuzzyTop } from '../ui/fuzzy';
 import { Menu, type MenuItem, type MenuProps } from '../ui/Menu';
 import { Dialog, useDialogSurface } from '../ui/Dialog';
 import { cx, Icon, IconButton, Switch } from '../ui/primitives';
@@ -22,8 +23,32 @@ export function openMenu<D>(p: Omit<MenuProps<D>, 'onClose'> & { onClose?: () =>
 
 const ago = (t: number) => { const m = (Date.now() - t) / 60000; return m < 1 ? 'now' : m < 60 ? `${Math.round(m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
 
+/** Where the focused tab works: its thread's folder, or the tab's or workspace's. */
+function here(): { machine: string; dir: string } {
+  const t = A.currentTab(), th = t.thread ? thread(t.thread) : undefined, w = ws();
+  return th ? { machine: th.machine, dir: th.dir } : { machine: t.machine || w.machine, dir: t.dir || w.dir };
+}
+
+const found = new Map<string, { at: number; list: string[] }>();
+async function openFiles() {
+  const { machine: m, dir } = here(), key = m + '\0' + dir;
+  let hit = found.get(key);
+  if (!hit || Date.now() - hit.at > 30_000) {
+    try { hit = { at: Date.now(), list: await api.fs.find(m, dir) }; found.set(key, hit); }
+    catch (e) { return toast(`Couldn't list files in ${dir}: ${(e as Error).message}`, { icon: 'alert' }, 5000); }
+  }
+  const list = hit.list;
+  const base = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+  openMenu<string>({
+    modal: true, className: 'pal files', ranked: true, empty: list.length ? 'No matching files' : 'No files here',
+    search: { placeholder: `Search files in ${dir}` },
+    items: q => fuzzyTop(q, list, 60).map(p => ({ label: base(p), hint: p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '', icon: <Icon name="file" />, data: p })),
+    onPick: it => { if (it.data) A.openFile(m, dir, it.data); },
+  });
+}
+
 export function openPalette(mode: 'all' | 'file' = 'all') {
-  if (mode === 'file') return toast('File search is not built yet');
+  if (mode === 'file') { void openFiles(); return; }
   const items = (q: string): MenuItem<() => void>[] => {
     const th = [...S.threads].filter(t => !t.archived && !t.side).sort((a, b) => b.updatedAt - a.updatedAt);
     const out: MenuItem<() => void>[] = [{ head: true, label: 'Threads' }];
