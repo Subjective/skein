@@ -1,5 +1,6 @@
 // A thread's events as a conversation: your messages as bubbles, each reply as one block of prose,
 // tool rows, diffs, plans and requests. Rows the reader treats as one line carry the classes in reader.ts ROWS.
+import { openLightbox } from '../../ui/Lightbox';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Harness, ThreadEvent, ThreadMeta } from '@shared/types';
 import { api } from '../../api';
@@ -74,7 +75,7 @@ function Approval({ e, thread, count }: { e: Ev<'approval'>; thread: ThreadMeta;
 }
 
 const ERR: Record<Ev<'error'>['kind'], { act?: string; icon: string }> = {
-  crash: { act: 'Restart', icon: 'alert' }, rate: { act: 'Retry now', icon: 'clock' }, auth: { act: 'Sign in', icon: 'lock' },
+  crash: { act: 'Restart', icon: 'alert' }, rate: { act: 'Retry now', icon: 'alert' }, auth: { act: 'Sign in', icon: 'alert' },
   missing: { act: 'Copy install command', icon: 'alert' }, other: { icon: 'alert' },
 };
 export function errorText(e: Ev<'error'>, h: Harness, m?: string) {
@@ -85,7 +86,7 @@ export function errorText(e: Ev<'error'>, h: Harness, m?: string) {
 export function fixError(th: ThreadMeta, e: Ev<'error'>, signIn: () => void) {
   if (e.kind === 'crash' || e.kind === 'rate') void api.chat.send(th.id, { text: '', retry: true });
   else if (e.kind === 'auth') signIn();
-  else if (e.kind === 'missing') { void navigator.clipboard?.writeText(INSTALL[th.harness]).then(() => toast('Install command copied', { icon: 'copy' })).catch(() => toast(INSTALL[th.harness])); }
+  else if (e.kind === 'missing') { void navigator.clipboard?.writeText(INSTALL[th.harness]).then(() => toast(`Copied ${INSTALL[th.harness]}`, { icon: 'copy' })).catch(() => toast(INSTALL[th.harness])); }
 }
 
 /** The status line at the end of a running turn. */
@@ -104,7 +105,7 @@ function Event({ e, c, all }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEve
       return (
         <div className={cx('m-user', c.onEdit && 'can-edit')} data-user data-ev={e.id} data-src={src} title={c.onEdit ? 'Click to edit and resend' : undefined}
           onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img')) return; c.onEdit(e.id); }}>
-          {e.images?.map((u, i) => <img key={i} className="m-img" src={u} alt="" />)}
+          {e.images?.map((u, i) => <img key={i} className="m-img" src={u} alt="" data-zoom onClick={ev => { ev.stopPropagation(); openLightbox(u); }} />)}
           {e.text && <div className="mt"><Inline text={e.text} /></div>}
         </div>
       );
@@ -119,17 +120,18 @@ function Event({ e, c, all }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEve
     case 'tool': {
       const [verb, icon] = VERB[e.name] || [e.name, 'bolt'];
       const body = e.out ? <pre className="out">{e.out}</pre> : undefined;
-      return <Row src={src} icon={icon} verb={verb} status={e.status} arg={<code>{e.arg}</code>} meta={e.meta} body={body} />;
+      const file = e.name === 'Read' && !!e.arg;   // a Read names a file: its path opens it
+      return <Row src={src} icon={icon} verb={verb} status={e.status} arg={file ? <code className="flink" data-p={e.arg} title={`Open ${e.arg} · g f`}>{e.arg}</code> : <code>{e.arg}</code>} meta={e.meta} body={body} />;
     }
     case 'edit':
-      return <Row src={src} icon="diff" verb="Edited" status={e.status} open={!!e.diff && all.filter(x => x.t === 'edit').slice(-1)[0] === e}
-        arg={<code className="flink">{e.path}</code>} meta={<><span className="c-add">+{e.add}</span> <span className="c-del">−{e.del}</span></>} body={e.diff ? <Diff text={e.diff} /> : undefined} />;
+      return <Row src={src} icon="diff" verb="Edited" status={e.status} open={!!e.diff}
+        arg={<code className="flink" data-p={e.path} title={`Open ${e.path} · g f`}>{e.path}</code>} meta={<><span className="c-add">+{e.add}</span> <span className="c-del">−{e.del}</span></>} body={e.diff ? <Diff text={e.diff} /> : undefined} />;
     case 'todo':
       return <div className="todo" data-src={src}>{e.items.map((it, i) => {
         const now = !it.done && e.items.findIndex(x => !x.done) === i;
         return <div key={i} className={cx('ti', it.done ? 'is-done' : now ? 'is-now' : 'is-todo')}><span className="box">{it.done && <Icon name="check" />}</span>{it.text}</div>;
       })}</div>;
-    case 'image': return <figure className="m-fig" data-src={src}><img src={e.src} alt="" />{e.cap && <figcaption>{e.cap}</figcaption>}</figure>;
+    case 'image': return <figure className="m-fig" data-src={src}><img src={e.src} alt="" data-zoom onClick={() => openLightbox(e.src)} />{e.cap && <figcaption>{e.cap}</figcaption>}</figure>;
     case 'approval': {
       const p = pending(c.thread.id);
       if (p[0]?.id !== e.id) return null;   // one card: the oldest; y / n answer it
@@ -138,13 +140,13 @@ function Event({ e, c, all }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEve
     case 'error': {
       const x = ERR[e.kind];
       return (
-        <div className="err-row" data-src={src} role="alert"><Icon name={x.icon} /><span>{errorText(e, c.thread.harness, machine(c.thread.machine)?.name)}</span>
+        <div className={cx('err-row', x.act && 'kbrow')} data-src={src} role="alert"><Icon name={x.icon} /><span>{errorText(e, c.thread.harness, machine(c.thread.machine)?.name)}</span>
           {x.act && <><span className="sp" /><Button small onClick={() => c.onFix?.(e)}>{x.act}</Button></>}</div>
       );
     }
     case 'notice': return <div className="err-row info" data-src={src} role="status"><Icon name="layers" /><span>{e.text}</span></div>;
     case 'interrupted': return <div className="note-row" data-src={src}><Icon name="stop" /><span>Interrupted</span></div>;
-    case 'worked': return <div className="worked" data-src={src}>Worked for {dur(e.ms)}</div>;
+    case 'worked': return <div className="worked" data-src={src}>Worked for {dur(e.ms)} <Icon name="chev" /></div>;
     case 'sub': return null;   // grouped: see Subagents
   }
 }
@@ -165,13 +167,13 @@ function Subagents({ subs, c }: { subs: Ev<'sub'>[]; c: TranscriptCtx }) {
 }
 
 /** Copy, fork and side chat, under the last reply of each finished turn. */
-function Acts({ c, at, text, last }: { c: TranscriptCtx; at: string; text: string; last: boolean }) {
+function Acts({ c, at, text, last, when }: { c: TranscriptCtx; at: string; text: string; last: boolean; when?: number }) {
   return (
     <div className={cx('m-acts', !last && 'old')}>
       <IconButton small icon="copy" label="Copy" onClick={() => void navigator.clipboard?.writeText(plain(text)).then(() => toast('Copied', { icon: 'copy' }), () => {})} />
       {c.onFork && <IconButton small icon="branch" label="Fork into a new thread" onClick={() => c.onFork!(at)} />}
       {c.onSide && <IconButton small icon="chat" label="Side chat about this reply" keys="mod-shift-s" onClick={() => c.onSide!(at)} />}
-      {last && <span className="dim">{ago(c.thread.updatedAt)}</span>}
+      {(last || when != null) && <span className="dim">{ago(last ? c.thread.updatedAt : when!)}</span>}
     </div>
   );
 }
@@ -204,7 +206,7 @@ export function Transcript({ events, c, running, since }: { events: ThreadEvent[
     if (lastGroup && running && !streaming) body.push(<Live key="live" since={since} />);
     const texts = g.reply.filter((e): e is Ev<'text'> => e.t === 'text');
     const done = !lastGroup || !running;
-    if (done && texts.length && c.main) body.push(<Acts key="acts" c={c} at={texts[texts.length - 1].id} text={texts.map(x => x.text).join('\n\n')} last={lastGroup} />);
+    if (done && texts.length && c.main) body.push(<Acts key="acts" c={c} at={texts[texts.length - 1].id} text={texts.map(x => x.text).join('\n\n')} last={lastGroup} when={groups[gi + 1]?.user?.at} />);
     if (body.length) out.push(<div key={'r' + gi} className="reply">{body}</div>);
   });
   return <>{out}</>;

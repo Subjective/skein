@@ -8,17 +8,19 @@ import type { Surface } from '../../input/dispatcher';
 import { registerTab, tabSurface } from '../../input/surfaces';
 import { api } from '../../api';
 import type { Tab } from '../../state/layout';
-import { machine, S, thread, update, useApp } from '../../state/store';
+import { machine, S, thread, toast, update, useApp, ws } from '../../state/store';
 import * as A from '../../state/actions';
 import { Button, cx, Dot, Icon, Spinner } from '../../ui/primitives';
 import { harnessName, setSubNames } from '../../shell/meta';
-import { Composer, type ComposerHandle } from './Composer';
-import { Reader } from './reader';
+import { clipImages, Composer, type ComposerHandle } from './Composer';
+import { Reader, SEL_BLOCK } from './reader';
 import { Ticks } from './Ticks';
 import { fixError, Transcript, type TranscriptCtx } from './Transcript';
 import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, startChat, tabChat, useChat, type Draft } from './state';
 import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, registerChatTab, subList } from './threads';
+import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
+import { shownToRaw } from './markdown';
 import './chat.css';
 
 type Sub = Extract<ThreadEvent, { t: 'sub' }>;
@@ -44,10 +46,63 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const running = t.kind === 'sub' ? sub?.status === 'running' : th.status === 'running';
   const mirror = t.kind !== 'sub' && th.harness === 'claude' && th.drive === 'term';
   const [taking, setTaking] = useState(false);
+  // an image pasted anywhere in the focused tab (reader, nothing focused) lands in its composer (app.js paste → curTab)
+  useEffect(() => {
+    if (!focused || mirror) return;
+    const paste = (e: ClipboardEvent) => {
+      const el = e.target as Element | null;
+      if (el?.closest?.('textarea, input, [contenteditable=true]')) return;   // a field takes its own paste
+      const fs = clipImages(e.clipboardData); if (!fs.length) return;
+      e.preventDefault();
+      for (const f of fs) { const r = new FileReader(); r.onload = () => { const d = tc.edit ? tc.edit.draft : tc.draft; d.images = [...d.images, String(r.result)]; bump(); }; r.readAsDataURL(f); }
+    };
+    document.addEventListener('paste', paste);
+    return () => document.removeEventListener('paste', paste);
+  }, [focused, mirror, tc]);
+  // a mouse drag in the transcript stays inside the block it started in, live, as it moves (annot.js boundDrag)
+  useEffect(() => {
+    let root: Element | null = null;
+    const down = (e: MouseEvent) => { const el = e.target as Element; root = e.button === 0 && read.current?.contains(el) && !el.closest('input, textarea, [contenteditable=true]') ? read.current : null; };
+    const up = () => { root = null; };
+    const bound = () => {
+      const s = getSelection(); if (!root || !s || s.isCollapsed || !s.anchorNode || !root.contains(s.anchorNode)) return;
+      const an = s.anchorNode.nodeType === 1 ? s.anchorNode as Element : s.anchorNode.parentElement, block = an?.closest(SEL_BLOCK);
+      if (!block || !s.focusNode || block.contains(s.focusNode)) return;
+      const forward = !!(s.anchorNode.compareDocumentPosition(s.focusNode) & Node.DOCUMENT_POSITION_FOLLOWING);
+      const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT), texts: Text[] = []; let n: Node | null;
+      while ((n = w.nextNode())) if ((n as Text).data.trim()) texts.push(n as Text);
+      const end = forward ? texts[texts.length - 1] : texts[0];
+      if (end) s.extend(end, forward ? end.length : 0);
+    };
+    document.addEventListener('mousedown', down, true); document.addEventListener('mouseup', up, true); document.addEventListener('selectionchange', bound);
+    return () => { document.removeEventListener('mousedown', down, true); document.removeEventListener('mouseup', up, true); document.removeEventListener('selectionchange', bound); };
+  }, []);
+  // the terminal hands the thread back: say so (the mockup's hand → chat)
+  const wasMirror = useRef(mirror);
+  useEffect(() => { if (wasMirror.current && !mirror) toast('Chat has the thread again', { icon: 'chat' }); wasMirror.current = mirror; }, [mirror]);
+  const mirrorRef = useRef<(() => void) | null>(null), mirrorRow = useRef<HTMLDivElement>(null);
+  mirrorRef.current = mirror && !taking ? () => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); } : null;
   const [sel, setSel] = useState<string | null>(null);
   const since = useRef(Date.now());
   useEffect(() => { if (running) since.current = Date.now(); }, [running]);
-  useEffect(() => registerChatTab(t.id, { thread: th.id, draft: key, composer, reader: () => reader }), [t.id, th.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => registerChatTab(t.id, { thread: th.id, draft: key, composer, reader: () => reader, enter: () => !!read.current && reader.enter(read.current) }), [t.id, th.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  // rule 15: a popup over this pane notes where the keyboard was (the reader's cursor, or the composer's mode and
+  // position) and puts it back when it closes
+  useEffect(() => registerHooks(t.id, {
+    place: () => {
+      if (reader.on && reader.root && reader.f) return { root: reader.root, f: { ...reader.f } };
+      const s = composer.current?.field()?.state();
+      return s ? { ins: s.mode === 'INSERT', pos: s.pos } : null;
+    },
+    restore: (pl: unknown) => {
+      const r = pl as { root?: HTMLElement; f?: { n: Text; o: number }; ins?: boolean; pos?: number } | null;
+      if (r?.root && r.f && r.root.isConnected && r.f.n.isConnected) { reader.begin(r.root, 'n', r.f); return; }
+      const c = composer.current, f = c?.field(); if (!c || !f) { idle(); return; }
+      const pos = Math.min(r?.pos ?? f.state().text.length, f.state().text.length);
+      if (r?.ins === false) { c.focus(false); f.at(pos); }
+      else { f.set(f.state().text, pos); c.focus(true); }
+    },
+  }), [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- the reader over this tab's transcript ----
   const reader = useMemo(() => new Reader({
@@ -78,6 +133,18 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     key: k => {
       if ((k === 'y' || k === 'n') && answerKey(k === 'y')) return true;
       if ((k === 'i' || k === 'a' || k === 'enter') && composer.current) { composer.current.focus(true); return true; }
+      if ((k === 'i' || k === 'a') && mirrorRef.current) { mirrorRef.current(); return true; }   // the mirror bar: i / a take the thread back
+      // the mirror bar is a row of buttons (rule 16): h / l along it, enter / space press, esc presses Cancel
+      const row = mirrorRow.current;
+      if (row && ['h', 'l', 'left', 'right', 'enter', 'space', 'esc'].includes(k)) {
+        const bs = [...row.querySelectorAll<HTMLButtonElement>('button:not([disabled])')]; if (!bs.length) return false;
+        const cur = bs.indexOf(document.activeElement as HTMLButtonElement), i = cur < 0 ? Math.max(0, bs.findIndex(b => b.classList.contains('primary'))) : cur;
+        if (k === 'h' || k === 'left') bs[Math.max(0, i - 1)].focus();
+        else if (k === 'l' || k === 'right') bs[Math.min(bs.length - 1, i + 1)].focus();
+        else if (k === 'esc') { const out = row.querySelector<HTMLButtonElement>('[data-esc]'); if (!out) return false; out.click(); }
+        else bs[i].click();
+        return true;
+      }
       if ((k === 'k' || k === 'G' || k === 'up') && read.current) { reader.enter(read.current); return true; }
       return false;
     },
@@ -124,11 +191,30 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     requestAnimationFrame(() => {
       const f = editor.current?.field(); if (!f) return;
       if (offset === undefined) { f.focus(true); return; }
-      f.focus(false); f.set(f.state().text, Math.min(offset, f.state().text.length));
+      // the reader counted rendered characters: map past the Markdown marks (` ** * [label](url)) to the raw text
+      const raw = f.state().text, map = shownToRaw(raw), at = map[Math.min(offset, map.length - 1)] ?? raw.length;
+      // NORMAL never rests past the end of a line (the mockup's Vim.block)
+      let pos = Math.min(at, raw.length);
+      if (pos > 0 && (pos === raw.length || raw[pos] === '\n') && raw[pos - 1] !== '\n') pos--;
+      f.focus(false); f.set(raw, pos);
       if (key) tabSurface(t.id)?.key(key, { key, code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
     });
   };
-  const cancelEdit = () => { tc.edit = undefined; bump(); composer.current?.focus(false); };
+  // k on the edit box's first line reads the conversation above it, with the box left open (the mockup's 'up')
+  const readAboveEdit = () => {
+    const root = read.current, box = root?.querySelector('.m-edit'); if (!root || !box) return;
+    const before = reader.texts(root).filter(n => box.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_PRECEDING);
+    const n = before[before.length - 1]; if (!n) return;
+    reader.begin(root, 'n', { n, o: Math.max(0, n.data.trimEnd().length - 1) }); reader.key('0');
+  };
+  // esc out of an edit box puts the reader's cursor back on that message (the mockup's editCancel), not the composer
+  const cancelEdit = () => {
+    const id = tc.edit?.event; tc.edit = undefined; bump();
+    requestAnimationFrame(() => {
+      const root = read.current, el = id && root?.querySelector(`.m-user[data-ev="${CSS.escape(id)}"] .mt`);
+      if (root && el) { reader.root = root; reader.at(el); } else composer.current?.focus(false);
+    });
+  };
   const resend = () => {
     const ed = tc.edit; if (!ed) return;
     const text = outgoing(ed.draft); if (!text && !ed.draft.images.length) return;
@@ -159,17 +245,28 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
       const f = composer.current?.field(); const s = f?.state(); if (f && s) f.set(s.text);
       reader.enter(read.current, 'top'); return true;
     }
-    if (k === '{' && read.current) { reader.enter(read.current, 'block'); return true; }
+    if (k === '{' && read.current) {   // the thread above, unless the draft has a blank line above the cursor
+      const st = composer.current?.field()?.state();
+      if (st && /\n[ \t]*\n/.test(st.text.slice(0, st.pos))) return false;
+      reader.enter(read.current, 'block'); return true;
+    }
+    // [[ : your last message (rule 7)
+    if (k === '[' && prev.k === '[' && Date.now() - prev.at < 800 && read.current) {
+      lastKey.current = { k: '', at: 0 };
+      if (reader.enter(read.current)) { reader.key('['); reader.key('['); }
+      return true;
+    }
+    if (k === '[') return true;
     return false;
   };
 
   const ctx: TranscriptCtx = {
-    thread: th, src: t.kind === 'sub' ? `sub:${t.sub}` : `ev:${th.id}`, main: t.kind !== 'sub',
+    thread: th, src: t.kind === 'sub' ? `sub:${t.sub}` : `ev:${th.id}`, main: t.kind !== 'sub' && !th.side,
     editing: tc.edit?.event,
     editBox: tc.edit && (
       <>
         <Composer ref={editor} tabId={t.id} thread={th} draft={tc.edit.draft} onDraft={d => { tc.edit!.draft = d; bump(); }} placeholder="Edit message"
-          onSend={resend} onLeave={cancelEdit} onCommand={onCommand} />
+          onSend={resend} onLeave={cancelEdit} onCommand={onCommand} onLeaveUp={readAboveEdit} />
         {laterSides > 0 && <div className="edit-note"><Icon name="branch" /><span>Resending keeps {laterSides === 1 ? 'the side chat' : `the ${laterSides} side chats`} from later replies, unlinked</span></div>}
       </>
     ),
@@ -187,7 +284,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const onMouseUp = (e: React.MouseEvent) => {
     const root = read.current; if (!root || e.button !== 0) return;
     const ev = e.nativeEvent, target = ev.target as Element;
-    if (target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, summary, [role=dialog]')) return;
+    if (target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, summary, [role=dialog], img[data-zoom], .flink')) return;
     if (target.closest('.m-user.can-edit') && !getSelection()?.toString()) return;   // that click opens the edit box
     setTimeout(() => {
       const s = getSelection();
@@ -201,6 +298,30 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
       }
     }, 0);
   };
+  // the selection toolbar (Add to chat / Add to side chat) goes with a click anywhere else, as in the mockup:
+  // the selection and the reader's VISUAL go with it (a click in this transcript then puts the cursor there)
+  useEffect(() => {
+    if (!sel) return;
+    const away = (e: MouseEvent) => {
+      if ((e.target as Element).closest?.('.seltb')) return;
+      setSel(null);
+      if (reader.mode !== 'n') reader.clear();
+      if (!read.current?.contains(e.target as Node)) getSelection()?.removeAllRanges();
+    };
+    // and when the selection itself goes (by keys or a script), the bar goes too (annot.js selectionchange)
+    const gone = () => { const g = getSelection(); if (!g || g.isCollapsed) setSel(null); };
+    document.addEventListener('mousedown', away, true);
+    document.addEventListener('selectionchange', gone);
+    return () => { document.removeEventListener('mousedown', away, true); document.removeEventListener('selectionchange', gone); };
+  }, [sel, reader]);
+  // a file named in a reply or a tool row (.flink): a click opens it beside, in the thread's folder (and does not fold its row)
+  const onLinkClick = (e: React.MouseEvent) => {
+    const link = (e.target as Element).closest<HTMLElement>('.flink'); if (!link || getSelection()?.toString()) return;
+    e.preventDefault(); e.stopPropagation();
+    const dir = th.dir.replace(/[\\/]$/, ''), path = link.dataset.p || link.textContent || '';
+    reader.clear();
+    A.openFile(th.machine, th.dir, path.startsWith(dir + '/') ? path.slice(dir.length + 1) : path);
+  };
   // a field in this tab taking the focus takes the cursor too: the reader's goes (never two cursors)
   const onFocusIn = (e: React.FocusEvent) => { if ((e.target as Element).matches('textarea, input') && reader.on) reader.clear(); };
 
@@ -209,7 +330,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const anchorText = th.side && th.parent?.at ? (log(th.parent.id).events.find(e => e.id === th.parent!.at) as { text?: string } | undefined)?.text : undefined;
   return (
     <div className={cx('chat', (th.side || t.kind === 'sub') && 'side')} onFocus={onFocusIn}>
-      <div className="thread" ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp}>
+      <div className="thread" ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} onClick={onLinkClick}>
         <div className="col" data-read ref={read}>
           {t.kind === 'sub' && sub && <div className="sub-h"><Icon name="agent" /><span>{sub.task}</span></div>}
           {th.side && parent && (
@@ -222,24 +343,24 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
             : <Transcript events={events} c={ctx} running={!!running} since={since.current} />}
         </div>
       </div>
-      {t.kind !== 'sub' && <Ticks scroller={scroller} version={events.length} />}
+      {t.kind !== 'sub' && !th.side && <Ticks scroller={scroller} version={events.length} />}
       <div className="compw"><div className="col">
         {m?.ssh && m.link !== 'up' && (
           <div className="link-note" role="status"><Dot color={m.link === 'down' ? 'red' : 'amber'} pulse={m.link !== 'down'} />
             <span>{m.link === 'reconnecting' ? `Reconnecting to ${m.name}. The turn keeps running there.` : m.link === 'down' ? `${m.name} is offline${m.note ? ': ' + m.note : ''}` : m.link === 'auth' ? `${m.name} needs you to sign in` : `Connecting to ${m.name}`}</span></div>
         )}
         {mirror ? (
-          <div className="mirror kbrow" role="status"><Icon name="terminal" />
+          <div className="mirror kbrow" role="status" ref={mirrorRow}><Icon name="terminal" />
             <span>{taking ? 'Chat takes over when this turn finishes' : `${harnessName(th.harness)} is driving this thread in its terminal`}</span><span className="sp" />
             {taking
-              ? <Button small onClick={() => { setTaking(false); void api.chat.drive(th.id, 'term'); }}>Cancel</Button>
+              ? <Button small data-esc onClick={() => { setTaking(false); void api.chat.drive(th.id, 'term'); }}>Cancel</Button>
               : <><Button small onClick={() => A.setView(t, 'term')}>Show terminal</Button>
                 <Button small variant="primary" title="Ends the terminal session and continues here" onClick={() => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); }}>Take back</Button></>}
           </div>
         ) : (
           <Composer ref={composer} tabId={t.id} persist={key} thread={th} draft={tc.draft} onDraft={setDraft} running={!!running} onSend={send} onStop={stop}
             placeholder={t.kind === 'sub' ? `Message ${sub?.name || 'subagent'}` : th.side ? 'Ask in this side chat' : undefined}
-            showContext={!th.side && t.kind !== 'sub'} bare={t.kind === 'sub'} onCommand={onCommand} onLeave={idle}
+            showContext={!th.side && t.kind !== 'sub'} bare={t.kind === 'sub'} onCommand={onCommand} onLeave={() => { if (ws().pf === t.id) A.closeFocusedPopup(); else idle(); }}
             onLeaveUp={() => { if (read.current && !reader.enter(read.current)) composer.current?.focus(false); }} onNormalKey={onNormalKey} />
         )}
         {t.kind === 'sub' && sub && (
@@ -260,5 +381,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
 function sendToThread(th: ThreadMeta, events: ThreadEvent[]) {
   const last = [...events].reverse().find(e => e.t === 'text');
   if (!last || last.t !== 'text' || !th.parent) return;
-  quoteInto(th.parent.id, { id: 'q' + Date.now(), text: last.text.replace(/[`*]/g, ''), src: `ev:${th.id}:${last.id}` });
+  // the whole reply is the quote, so it points at all of that reply's text
+  const src = `ev:${th.id}:${last.id}`, el = document.querySelector(`[data-src="${src}"]`);
+  quoteInto(th.parent.id, { id: 'q' + Date.now(), text: last.text.replace(/[`*]/g, ''), src, ...(el ? { start: 0, len: (el.textContent || '').length } : {}) });
 }

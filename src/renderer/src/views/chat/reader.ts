@@ -34,7 +34,7 @@ declare const Highlight: { new (...r: Range[]): unknown };
 /** Lines that are a single thing rather than prose. */
 export const ROWS = '.tool > summary, .tool > .sum, .ag, .sc-link, .sc-anchor, .appr .af, .worked, .err-row, .note-row, .think > summary';
 const BLOCKS = '[data-src], .ag, .sc-link, .sc-anchor';
-const SEL_BLOCK = '.diff, pre.out, summary, .ag, .sc-link, [data-src], .reply > *, [data-read] > :not(.reply)';
+export const SEL_BLOCK = '.diff, pre.out, summary, .ag, .sc-link, [data-src], .reply > *, [data-read] > :not(.reply)';
 
 export class Reader {
   on = false;
@@ -292,6 +292,9 @@ export class Reader {
     if (this.g) {
       this.g = false;
       if (k === 'g') { const p = this.firstText(this.root!); if (p && this.ok(p)) this.f = p; return settle(); }
+      // g f: open the file named under the cursor (a path in a reply or a tool row)
+      const link = k === 'f' ? f.n.parentElement?.closest<HTMLElement>('.flink') || this.row?.querySelector<HTMLElement>('.flink') : null;
+      if (link) { this.clear(); getSelection()?.removeAllRanges(); link.click(); }
       return true;
     }
     if (this.row && this.mode === 'n') {
@@ -306,14 +309,16 @@ export class Reader {
       if (k === 'h' || k === 'left') { if (det) det.open = false; this.draw(); return true; }
       if (k === 'enter' || k === 'o') {
         if (det) { det.open = !det.open; this.draw(); return true; }
-        const b = row.matches('button') ? row as HTMLButtonElement : row.querySelector('button');
-        if (b) { this.clear(); b.click(); }
+        // nothing to unfold: a row that names a file (Read) opens it; a button row is pressed
+        const link = row.querySelector<HTMLElement>('.flink'), b = row.matches('button') ? row as HTMLButtonElement : row.querySelector('button');
+        if (link) { this.clear(); getSelection()?.removeAllRanges(); link.click(); }
+        else if (b) { this.clear(); b.click(); }
         return true;
       }
       if ('wbe0$'.includes(k) && k.length === 1) return true;
     }
     // on one of your messages, an editing key edits it (edit and resend)
-    const mine = this.mode === 'n' && !this.row ? f.n.parentElement?.closest<HTMLElement>('.m-user[data-ev]') : null;
+    const mine = this.mode === 'n' && !this.row ? f.n.parentElement?.closest<HTMLElement>('.m-user.can-edit[data-ev]') : null;
     if (mine && ['i', 'a', 'I', 'A', 'c', 'C', 'd', 'D', 'x'].includes(k)) {
       const box = mine.querySelector(':scope > .mt') || mine, pre = document.createRange(); pre.selectNodeContents(box);
       if (box.contains(f.n)) pre.setEnd(f.n, f.o);
@@ -346,9 +351,12 @@ export class Reader {
       case 'n': if (this.mode === 'n' && this.host.answer?.(false)) return true; return true;
       case 'esc': if (this.mode !== 'n') { this.mode = 'n'; break; } if (this.search.clear()) break; this.exit(); return true;
       case 'q': this.exit(); return true;
-      case 'G': this.exit('end'); return true;
+      case 'G': {   // the last line of the conversation, just above the composer (the composer has i / a / esc)
+        if (this.mode !== 'n') { const ns = this.texts(this.root!), n = ns[ns.length - 1]; if (n) { const p = { n, o: Math.max(0, n.data.trimEnd().length - 1) }; if (this.ok(p)) this.f = p; } return settle(); }
+        this.enter(this.root!, 'end'); return true;
+      }
       case 'i': case 'a': this.exit('insert'); return true;
-      default: return k.length === 1;   // other plain keys do nothing here
+      default: return false;   // other keys go on to the app's NORMAL layer (: H L | \\ ?), which drops the rest
     }
     return settle();
   }
