@@ -80,7 +80,8 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       list: async () => threads.list(),
       discover: async m => threads.discover(m, m === 'local' ? undefined : machines.get(m)),
       create: async spec => {
-        const t = threads.create(spec);
+        // store the folder as an absolute path, the way discovered sessions record it, so both land in one project
+        const t = threads.create({ ...spec, dir: await files.resolve(M(spec.machine), spec.dir).catch(() => spec.dir) });
         if (!harnesses.start) return t;
         // Codex: the thread exists on the app-server before either view opens, so both views share one session id
         try { const s = await harnesses.start(t, host); return s.sessionId && s.sessionId !== t.sessionId ? threads.update(t.id, { sessionId: s.sessionId }) : t; }
