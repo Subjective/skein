@@ -21,7 +21,7 @@ inoremap jk <Esc>
 `;
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: 'system', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'term', notify: 'waiting', vimrc: DEFAULT_VIMRC,
+  theme: 'system', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'chat', notify: 'waiting', vimrc: DEFAULT_VIMRC,
 };
 
 export interface ShellHooks {

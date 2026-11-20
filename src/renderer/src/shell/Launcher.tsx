@@ -2,19 +2,21 @@
 // enter starts the thread with the prompt; an empty enter just opens the harness.
 import { useRef, useState } from 'react';
 import type { Harness } from '@shared/types';
+import { MODELS as SHARED_MODELS } from '@shared/models';
 import { api } from '../api';
 import * as A from '../state/actions';
 import { mkTab, type Tab } from '../state/layout';
 import { machine, S, toast, update, useApp } from '../state/store';
 import { openMenu } from './overlays';
 import { harnessName } from './meta';
-import { Chip, Dot, Icon } from '../ui/primitives';
+import { Chip, Dot, Icon, SendButton } from '../ui/primitives';
 import { VimField, type VimFieldHandle } from '../ui/VimField';
 
 /** Models per harness. CLI aliases, so they keep working as versions change. */
+// The model menu: the harness's own default first, then the shared list (@shared/models), which chat uses too.
 export const MODELS: Record<Harness, { id: string; label: string }[]> = {
-  claude: [{ id: '', label: 'Default' }, { id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }, { id: 'haiku', label: 'Haiku' }],
-  codex: [{ id: '', label: 'Default' }],
+  claude: [{ id: '', label: 'Default' }, ...SHARED_MODELS.claude],
+  codex: [{ id: '', label: 'Default' }, ...SHARED_MODELS.codex],
 };
 export const harnessOf = (t: Tab): Harness => (t.model?.startsWith('codex') ? 'codex' : t.model?.startsWith('claude') ? 'claude' : (S.settings as unknown as { lastHarness?: Harness }).lastHarness || 'claude');
 const modelLabel = (t: Tab) => { const h = harnessOf(t), id = t.model?.split(':')[1] || ''; return `${harnessName(h)}${id ? ' · ' + (MODELS[h].find(m => m.id === id)?.label || id) : ''}`; };
@@ -32,11 +34,16 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
     if (m.ssh && m.link !== 'up') { toast(`${m.name} is not connected`, { icon: 'host' }); void api.machines.connect(m.id); return; }
     if (missing) { toast(`${harnessName(h)} is not installed on ${m.name}`, { icon: 'alert' }); return; }
     const prompt = draft.trim();
-    const th = await A.startThread(t, h, 'term');
-    const model = t.model?.split(':')[1];
-    // the first prompt rides on the command line, so the TUI starts working on it straight away
-    pendingArgs.set(th.id, [...(model ? ['--model', model] : []), ...(prompt ? [prompt] : [])]);
+    const view = s.settings.defaultView;
+    const model = t.model?.split(':')[1] || undefined;
+    const th = await A.startThread(t, h, view);
     if (prompt) void api.threads.update(th.id, { title: prompt.replace(/\s+/g, ' ').slice(0, 60) });
+    if (view === 'chat') {
+      if (prompt) void api.chat.send(th.id, { text: prompt, model }).catch(e => toast(`Couldn't start: ${(e as Error).message}`, { icon: 'alert' }, 6000));
+    } else {
+      // the first prompt rides on the command line, so the TUI starts working on it straight away
+      pendingArgs.set(th.id, [...(model ? ['--model', model] : []), ...(prompt ? [prompt] : [])]);
+    }
     update(x => { x.tick++; });
   };
 
@@ -69,7 +76,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
         <div className="cf">
           <span className="sp" />
           <Chip icon={h} label={modelLabel(t)} caret onClick={e => pickModel(e.currentTarget)} title="Model" />
-          <button className="send" aria-label="Start" title="Start" onClick={() => void start()}><Icon name="up" /></button>
+          <SendButton label="Start" disabled={!!missing} onClick={() => void start()} />
         </div>
       </div>
       <div className="under pick">

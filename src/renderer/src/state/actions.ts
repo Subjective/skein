@@ -145,7 +145,7 @@ export function openFile(machine: string, dir: string, path: string) {
 
 /** Start a thread from a launcher tab: the tab becomes the thread. */
 export async function startThread(t: Tab, harness: 'claude' | 'codex', view: ViewKind): Promise<ThreadMeta> {
-  const th = await api.threads.create({ harness, machine: t.machine || 'local', dir: t.dir || '~', model: t.model, effort: t.effort, perm: t.perm, worktree: t.worktree, view });
+  const th = await api.threads.create({ harness, machine: t.machine || 'local', dir: t.dir || '~', model: t.model?.includes(':') ? t.model.split(':')[1] || undefined : t.model, effort: t.effort, perm: t.perm, worktree: t.worktree, view });
   update(s => {
     if (!s.threads.some(x => x.id === th.id)) s.threads = [th, ...s.threads];
     Object.assign(t, { kind: 'thread', thread: th.id, view });
