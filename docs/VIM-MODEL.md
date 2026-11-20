@@ -94,6 +94,7 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 | Side chat or subagent popup | Field | INSERT | opens ready to type into its composer |
 | Thread, side chat, subagent, file, diff, scrollback | Reader | NORMAL | entered from the field below, by click, or leader `[` |
 | Changes (diff + file tree) | Reader + Field | NORMAL | `/` searches the tree, `enter` there goes to the first match; on a file's header `s` stages, `x` reverts (Undo in the toast), `enter` on "N unmodified lines" shows them |
+| Browser tab | Terminal (the page) + Field (address) | NORMAL (a new tab: INSERT in the address) | `i` / `gi` or a click give the page the keys (TERMINAL), `esc` takes them back; while the page has them Skein keeps only rule 11's keys and mod-l. In NORMAL: `r` reload, `[` `]` and `ctrl-o` / `ctrl-i` back and forward, `o` / `ctrl-l` / mod-l the address (`enter` goes, `esc` `esc` puts it back), `j` `k` `ctrl-d` `ctrl-u` `gg` `G` scroll the page, `enter` on an error presses Retry, `H` / `L` tabs |
 | Open file | Reader | NORMAL | `ctrl-o` / `ctrl-i` back and forward through files opened in that tab; the path's folders and the tree switch file in place |
 | Rows inside a thread | List | NORMAL | `l` / `h` unfold / fold; `enter` opens |
 | Menus, settings, keyboard popup | List | NORMAL | `esc` closes |

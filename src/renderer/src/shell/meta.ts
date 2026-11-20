@@ -2,6 +2,7 @@
 import type { Harness } from '@shared/types';
 import type { Tab } from '../state/layout';
 import { machine, S, thread } from '../state/store';
+import { hostOf } from '../views/tools/address';
 
 export const harnessName = (h: Harness) => (h === 'claude' ? 'Claude Code' : 'Codex');
 /** A project's name in the sidebar: a name the user gave it, ~ for the home folder, else the folder's name. */
@@ -20,7 +21,7 @@ export function tabMeta(t: Tab): { icon: string; title: string; ssh?: boolean } 
     case 'file': return { icon: 'file', title: base(t.path) };
     case 'sub': return { icon: 'agent', title: subName(t) };
     case 'vimrc': return { icon: 'sliders', title: 'vimrc' };
-    case 'browser': return { icon: 'globe', title: 'Browser' };
+    case 'browser': return { icon: 'globe', title: t.title || hostOf(t.url || '') || 'Browser', ssh };
     default: return { icon: 'compose', title: 'New thread' };
   }
 }

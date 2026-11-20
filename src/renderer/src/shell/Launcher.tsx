@@ -67,7 +67,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
     },
   });
   const pickDir = (el: HTMLElement) => dirMenu(t, el, d => { update(() => { t.dir = d; }); A.save(); });
-  const open = (kind: 'shell' | 'changes' | 'files') => update(x => { Object.assign(t, mkTab(kind, { machine: t.machine, dir: t.dir }), { id: t.id }); x.tick++; });
+  const open = (kind: 'shell' | 'changes' | 'files' | 'browser') => update(x => { Object.assign(t, mkTab(kind, { machine: t.machine, dir: t.dir }), { id: t.id }); x.tick++; });
 
   return (
     <div className="newp"><div className="col">
@@ -86,7 +86,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
       </div>
       {missing && <div className="link-note"><Icon name="alert" /><span>{harnessName(h)} is not installed on {m?.name}.</span></div>}
       <div className="cards">
-        {([['shell', 'terminal', 'Shell'], ['changes', 'diff', 'Changes'], ['files', 'file', 'Files']] as const).map(([k, i, n]) => <button key={k} className="card" onClick={() => open(k)}><Icon name={i} /><span>{n}</span></button>)}
+        {([['shell', 'terminal', 'Shell'], ['changes', 'diff', 'Changes'], ['files', 'file', 'Files'], ['browser', 'globe', 'Browser']] as const).map(([k, i, n]) => <button key={k} className="card" onClick={() => open(k)}><Icon name={i} /><span>{n}</span></button>)}
       </div>
     </div></div>
   );

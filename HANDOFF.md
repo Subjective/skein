@@ -12,7 +12,7 @@ The app is in `src/`; the interactive HTML mockup it follows is in `mockups/`. H
 | `src/shared/api.ts` | The only contract between renderer and main: `SkeinApi` (request / response) and `SkeinEvent` (pushes). The preload builds `window.skein` from it. Replacing Electron (Tauri fallback) means reimplementing this transport only. |
 | `src/shared/types.ts` | Machine, ThreadMeta, ThreadEvent (normalized chat events), Settings |
 | `src/main/` | Electron shell only: window, our own menu (G3), IPC wiring. `services.ts` implements `SkeinApi` over `src/core`. |
-| `src/core/` | Node-only, no Electron: `store` (node:sqlite metadata), `machines` (local + SSH probe), `exec` (local spawn / system ssh with ControlMaster), `pty` (node-pty), `discover` (sessions in ~/.claude and ~/.codex), `threads`, `files`, `git`, `images` (inbox), `chat` (the seam for the chat drivers) |
+| `src/core/` | Node-only, no Electron: `store` (node:sqlite metadata), `machines` (local + SSH probe), `exec` (local spawn / system ssh with ControlMaster), `pty` (node-pty), `discover` (sessions in ~/.claude and ~/.codex), `threads`, `files`, `git`, `images` (inbox), `forward` (ssh port forwards for Browser tabs), `chat` (the seam for the chat drivers) |
 | `src/renderer/src/input/` | The input layer: `keys` (one key name form), `platform` (per-OS keys, `kb()`), `keymap` (commands, default bindings, vimrc), `dispatcher` (the single keydown handler), `vimtext` (the Vim engine for fields), `surfaces` (who owns the keyboard) |
 | `src/renderer/src/state/` | `store` (one mutable state + version), `layout` (pane tree, pure), `actions` (what commands do) |
 | `src/renderer/src/ui/` | The component library: `primitives` (Icon, IconButton, Button, Chip, Seg, Dot, Spinner, Kbd, Switch), `Menu` (every list), `Dialog`, `VimField` (every editable text), `motion` (animation tokens), `icons` |
@@ -50,6 +50,24 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   machine (each turn sends the thread's cwd); another machine gets the rollout at the same `sessions/YYYY/MM/DD/`
   path. Across machines, files go over SSH (text through `core/files`, folders as a tar stream). Originals are
   never deleted or archived, and code does not move (conversation only). The toast's Undo moves it back.
+- **Browser tab: an Electron `<webview>`**, not a WebContentsView managed from main. A webview is a DOM element, so
+  it follows splits, popups, zoom and hidden tabs with no bounds syncing, and menus and dialogs draw over it. It is
+  locked down in main: `will-attach-webview` drops any preload, turns Node off, sandboxes the page, forces its own
+  session (`persist:skein-browser`, which grants no permissions but clipboard write and fullscreen) and refuses
+  anything but http(s); the page's navigations and redirects stay on http(s) and its new windows open in the
+  system browser. The renderer's CSP is unchanged (a webview is not a frame to it); dev:web adds `frame-src`
+  for its `<iframe>` stand-in. Moving the tab to another pane re-creates the page (a webview reloads when it is
+  re-parented); switching tabs only hides it.
+- **Browser keys** follow a terminal (VIM-MODEL rule 11): `i` / `gi` / a click give the page the keys (TERMINAL),
+  `esc` takes them back. Keys pressed in a page never reach the window, so the renderer sends main the list it
+  keeps (esc, the leader, the terminal's global keys, mod-l) and main's `before-input-event` hands those back
+  as `browser.key` events, which go through the one dispatcher. mod-l on a Browser tab edits the address
+  instead of quoting a selection.
+- **Browser on an SSH machine**: localhost (and 127.0.0.1, ::1, 0.0.0.0) means that machine. Main forwards the
+  port with `ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:<free port>:localhost:<port>` on a connection of its
+  own (a ControlMaster would keep the forward after we let go), waits until the local port accepts, and the page
+  loads from it while the address bar keeps the remote's address, with `<machine> → :<local port>` beside it.
+  One forward per machine and port, kept until it dies or the app quits; a failure is a row with Retry.
 
 ## Read first
 

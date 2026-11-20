@@ -52,6 +52,7 @@ export const COMMANDS: Record<string, string> = {
   quoteside: 'Quote selection to a side chat',
   changes: 'Changes, beside this tab',
   filesview: 'Files, beside this tab',
+  browser: 'Browser, beside this tab',
   w: 'Save this file',
   termall: 'Every thread as terminal',
   chatall: 'Every thread as chat',

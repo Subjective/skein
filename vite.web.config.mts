@@ -7,7 +7,8 @@ const d = import.meta.dirname;
 export default defineConfig({
   root: resolve(d, 'src/renderer'),
   resolve: { alias: { '@shared': resolve(d, 'src/shared'), '@core': resolve(d, 'src/core'), '@': resolve(d, 'src/renderer/src') } },
-  plugins: [react()],
+  // the Browser tab's stand-in is an <iframe> here (the app uses a <webview>), so frames may load any web page
+  plugins: [react(), { name: 'skein-web-frames', transformIndexHtml: html => html.replace("default-src 'self';", "default-src 'self'; frame-src 'self' http: https:;") }],
   server: { port: 5199 },
   build: { outDir: resolve(d, 'out/web'), emptyOutDir: true },
 });

@@ -8,6 +8,7 @@
 import type {
   AuthPrompt, DirEntry, Harness, Machine, Platform, Settings, SshTarget, ThreadEvent, ThreadMeta, ThreadStatus, ViewKind,
 } from './types';
+import type { KeyLike } from './keys';
 
 export interface AppInfo {
   platform: Platform;
@@ -195,6 +196,14 @@ export interface SkeinApi {
     /** Tracked and untracked files, ignored ones left out. Paths relative to the root, with /. */
     files(machine: string, root: string): Promise<string[]>;
   };
+  browser: {
+    /** Forward a port on an SSH machine to this computer (`ssh -N -L`), so a Browser tab can load the remote's
+     *  localhost. Resolves with the local port once it accepts connections; one forward per machine and port is reused. */
+    forward(machine: string, port: number): Promise<number>;
+    /** The keys Skein keeps while a page has the keyboard (keyOf form): main stops them reaching the page and
+     *  sends them back as `browser.key`. */
+    keys(keys: string[]): void;
+  };
 }
 
 /** Pushes from main. */
@@ -208,12 +217,14 @@ export type SkeinEvent =
   | { type: 'thread.status'; id: string; status: ThreadStatus }
   | { type: 'chat'; thread: string; event: ThreadEvent; replace?: boolean }
   | { type: 'upload'; machine: string; name: string; pct: number; error?: string }
-  | { type: 'menu'; command: string };
+  | { type: 'menu'; command: string }
+  /** A kept key (browser.keys) pressed while a Browser tab's page had focus. `contents` is the page's webContents id. */
+  | { type: 'browser.key'; contents: number; key: KeyLike };
 
 /** What the preload exposes on window.skein. pty.write / resize / kill are fire-and-forget (ipc send). */
 export type SkeinBridge = SkeinApi & { on(fn: (e: SkeinEvent) => void): () => void; setTheme(dark: boolean): void };
 
-export const FIRE_AND_FORGET = new Set(['pty.write', 'pty.resize', 'pty.kill']);
+export const FIRE_AND_FORGET = new Set(['pty.write', 'pty.resize', 'pty.kill', 'browser.keys']);
 export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
   app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'notify'],
   machines: ['list', 'add', 'remove', 'connect', 'answer', 'sshHosts'],
@@ -223,4 +234,5 @@ export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
   pty: ['spawn', 'write', 'resize', 'kill'],
   images: ['toInbox'],
   git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files'],
+  browser: ['forward', 'keys'],
 };
