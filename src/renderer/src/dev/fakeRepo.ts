@@ -163,6 +163,7 @@ export const fakeFs = {
   owns: (p: string) => inRepo(p),
   files: async () => [...work.keys()].sort(),
   list: async (dir: string): Promise<DirEntry[]> => {
+    dir = dir.replace(/[\/]+$/, '');
     const r = dir === ROOT ? '' : rel(dir) + '/';
     const kids = new Map<string, boolean>();
     for (const p of work.keys()) if (p.startsWith(r)) { const rest = p.slice(r.length); kids.set(rest.split('/')[0], rest.includes('/')); }

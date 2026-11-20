@@ -1,32 +1,6 @@
-// Chat view UI tests: every interactive state, driven in Chromium against `pnpm dev:web` (the fake API).
-// Run: pnpm e2e:chat   (starts the dev server itself if nothing answers on :5199)
-import { spawn } from 'node:child_process';
-import assert from 'node:assert/strict';
-import { createRequire } from 'node:module';
-const require = createRequire(import.meta.url);
-const { chromium } = require('playwright');
+// Chat view: every interactive state.
+import { assert, mod, mode, settle, test } from './harness.mjs';
 
-const URL = 'http://localhost:5199/';
-let server = null;
-async function up() { try { await fetch(URL); return true; } catch { return false; } }
-if (!(await up())) {
-  server = spawn(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['dev:web'], { stdio: 'ignore', shell: process.platform === 'win32' });
-  for (let i = 0; i < 60 && !(await up()); i++) await new Promise(r => setTimeout(r, 500));
-}
-
-const browser = await chromium.launch();
-const results = [];
-const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
-
-async function page() {
-  const p = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  p.errors = [];
-  p.on('pageerror', e => p.errors.push(e.message));
-  p.on('console', m => { if (m.type() === 'error') p.errors.push(m.text()); });
-  await p.goto(URL);
-  await p.waitForSelector('#side');
-  return p;
-}
 /** Open a thread from the sidebar in its chat view. */
 async function openChat(p, title) {
   await p.locator('#side').getByText(title, { exact: true }).first().click();
@@ -34,18 +8,7 @@ async function openChat(p, title) {
   if ((await seg.getAttribute('aria-pressed')) !== 'true') await seg.click();
   await p.waitForSelector('.pane.focus .chat .col[data-read] > *');
 }
-const mode = p => p.locator('#status .vim').innerText();
 const composer = p => p.locator('.pane.focus .compw textarea');
-const settle = p => p.waitForTimeout(120);
-
-const only = process.argv[2] ? new RegExp(process.argv[2], 'i') : null;
-async function test(name, fn) {
-  if (only && !only.test(name)) return;
-  const p = await page();
-  try { await fn(p); assert.deepEqual(p.errors, [], 'no page errors'); results.push([name, true]); }
-  catch (e) { results.push([name, false, e.message.split('\n')[0]]); await p.screenshot({ path: `e2e/fail-${name.replace(/\W+/g, '-')}.png` }).catch(() => {}); }
-  await p.close();
-}
 
 await test('opens in INSERT with the composer focused', async p => {
   await openChat(p, 'Add timestamps to chat rows');
@@ -97,14 +60,15 @@ await test('/ that matches nothing (a path) opens nothing', async p => {
 
 await test('@ files: lists the folder, a folder goes in, a file is inserted', async p => {
   await openChat(p, 'Add timestamps to chat rows');
-  await composer(p).pressSequentially('look at @no');
-  await p.locator('.composer-menu .mi', { hasText: 'notes.md' }).waitFor();
+  // the thread's folder is the fake repo (dev/fakeRepo)
+  await composer(p).pressSequentially('look at @REA');
+  await p.locator('.composer-menu .mi', { hasText: 'README.md' }).waitFor();
   await composer(p).press('Enter');
-  assert.equal(await composer(p).inputValue(), 'look at @notes.md ');
-  await composer(p).pressSequentially('and @pro');
-  await p.locator('.composer-menu .mi', { hasText: 'projects/' }).waitFor();
+  assert.equal(await composer(p).inputValue(), 'look at @README.md ');
+  await composer(p).pressSequentially('and @ses');
+  await p.locator('.composer-menu .mi', { hasText: 'sessions/' }).waitFor();
   await composer(p).press('Enter');
-  assert.equal(await composer(p).inputValue(), 'look at @notes.md and @projects/');
+  assert.equal(await composer(p).inputValue(), 'look at @README.md and @sessions/');
 });
 
 await test('esc goes NORMAL, k reads the thread, j comes back', async p => {
@@ -344,10 +308,3 @@ await test('drafts survive switching threads', async p => {
   await openChat(p, 'Add timestamps to chat rows');
   assert.equal(await composer(p).inputValue(), 'half-written');
 });
-
-await browser.close();
-server?.kill();
-let failed = 0;
-for (const [n, ok, why] of results) { console.log(`${ok ? '✓' : '✗'} ${n}${ok ? '' : '\n    ' + why}`); if (!ok) failed++; }
-console.log(`\n${results.length - failed} passed, ${failed} failed`);
-process.exit(failed ? 1 : 0);
