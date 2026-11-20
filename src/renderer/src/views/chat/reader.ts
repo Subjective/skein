@@ -165,6 +165,23 @@ export class Reader {
   private alive() { return !!this.f && this.f.n.isConnected && !!this.root?.isConnected; }
 
   // ---------- painting ----------
+  /** Bring the cursor into view. On the conversation's first or last line (gg, G) the transcript goes all the way to
+   *  its edge, padding and all: showing just the cursor's line leaves the top of the first message (or the last
+   *  reply's actions) a few pixels out of sight. Otherwise just enough, with a line of margin. */
+  private reveal(at: Element | Range) {
+    const root = this.root; if (!root) return;
+    let sc: HTMLElement | null = root;
+    while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+    if (!sc) return;
+    const ns = this.texts(root), f = this.f;
+    if (f && this.mode === 'n' && ns.length) {
+      if (f.n === ns[0] || this.row && this.row.contains(ns[0])) { sc.scrollTop = 0; return; }
+      if (f.n === ns[ns.length - 1] || this.row && this.row.contains(ns[ns.length - 1])) { sc.scrollTop = sc.scrollHeight; return; }
+    }
+    const r = at.getBoundingClientRect(), b = sc.getBoundingClientRect(), m = 24;
+    if (r.top < b.top + m || r.height > b.height - 2 * m) sc.scrollTop += r.top - b.top - m;
+    else if (r.bottom > b.bottom - m) sc.scrollTop += r.bottom - b.bottom + m;
+  }
   draw() {
     const s = getSelection()!, { a, f, mode, root } = this; if (!f || !a || !root) return;
     const end = (p: Pt) => Math.min(p.o + 1, p.n.data.length);
@@ -176,7 +193,7 @@ export class Reader {
     if (this.row) {
       this.row.classList.add('rowcur'); HL?.delete('vcur'); s.removeAllRanges();
       if (this.row.matches(KROWS) && !this.row.querySelector('.kcur')) (this.row.querySelector('.primary') || this.row.querySelector('button'))?.classList.add('kcur');
-      this.row.scrollIntoView({ block: 'nearest' }); this.host.selection?.(null); update(x => { x.tick++; }); return;
+      this.reveal(this.row); this.host.selection?.(null); update(x => { x.tick++; }); return;
     }
     if (mode === 'n') { if (HL) s.removeAllRanges(); else s.setBaseAndExtent(f.n, f.o, f.n, end(f)); }
     else {
@@ -192,7 +209,7 @@ export class Reader {
         s.setBaseAndExtent(sn, so, fn, fo);
       }
     }
-    f.n.parentElement?.scrollIntoView({ block: 'nearest' });
+    { const c = document.createRange(); c.setStart(f.n, f.o); c.setEnd(f.n, end(f)); this.reveal(c); }
     if (HL) { const c = document.createRange(); c.setStart(f.n, f.o); c.setEnd(f.n, end(f)); HL.set('vcur', new Highlight(c)); }
     this.host.selection?.(mode === 'n' ? null : s.toString());
     update(x => { x.tick++; });

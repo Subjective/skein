@@ -395,6 +395,11 @@ textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit;
 .eff .et span { position: absolute; transform: translateX(-50%); }
 .eff .et span:first-child { transform: translateX(-7px); }
 .eff .et span:last-child { transform: translateX(calc(-100% + 7px)); }
+/* another model's levels (the one under the cursor): stops and labels slide to their new places, new ones fade in */
+.eff .stp, .eff .et span { transition: left var(--ease), transform var(--ease), color var(--ease); animation: eff-in var(--ease) both; }
+@keyframes eff-in { from { opacity: 0; } }
+.eff.pv .thumb { background: var(--pop); box-shadow: 0 0 0 2px var(--fg), 0 0 0 5px var(--pop); }   /* a preview: hollow until the model is picked */
+.eff.pv .fill { background: var(--fg-3); }
 .mhint { display: flex; gap: 14px; font-size: 11.500px; color: var(--fg-3); }
 .mhint span { display: inline-flex; align-items: center; gap: 4px; }
 .mx:last-child { padding-bottom: 5px; }
@@ -593,6 +598,7 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .menu { position: fixed; z-index: 50; max-height: min(420px, 70vh); display: flex; flex-direction: column; padding: 5px; background: var(--pop); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow); font-size: 13px; }
 .menu.none { display: none; }
 .m-l { overflow: auto; min-height: 0; }
+.m-pin { flex: none; }   /* rows that stay in view under a list that scrolls */
 .m-s { display: flex; align-items: center; gap: 9px; padding: 6px 9px 9px; margin-bottom: 5px; border-bottom: 1px solid var(--line); color: var(--fg-3); }
 .m-s input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--fg); font: 14px var(--sans); }
 .m-s input::placeholder { color: var(--fg-3); }

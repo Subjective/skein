@@ -10,6 +10,7 @@ import { init, step, typed, vrange, type TextState } from '../input/vimtext';
 import { forPut, getReg, setReg } from '../input/register';
 import { S, update } from '../state/store';
 import { cx, Icon } from './primitives';
+import { placeBy, placeStyle } from './place';
 
 export interface MenuItem<D = unknown> {
   label: string;
@@ -24,6 +25,8 @@ export interface MenuItem<D = unknown> {
   head?: boolean;
   /** A row that is not an option (with head): drawn as is, in a .mx block (the model picker's effort track, a gap). */
   block?: ReactNode;
+  /** Stays in view under the list instead of scrolling with it (the model picker's effort and Ultracode). */
+  pin?: boolean;
   data?: D;
 }
 
@@ -60,6 +63,8 @@ export interface MenuProps<D = unknown> {
   /** Controlled selection (the ctrl-tab switcher moves it from outside); onSelect hears every move. */
   select?: number;
   onSelect?: (i: number) => void;
+  /** The row under the cursor (keys or pointer), each time it or the list changes. */
+  onCursor?: (it: MenuItem<D> | undefined) => void;
   /** Register as the keyboard owner (default true). */
   surface?: (s: Surface | undefined) => void;
 }
@@ -99,6 +104,7 @@ export function Menu<D>(p: MenuProps<D>) {
   useEffect(() => { prevLabel.current = items[i]?.label; }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (p.select != null) setI(p.select); }, [p.select]);
   useEffect(() => { p.onSelect?.(i); }, [i]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { p.onCursor?.(items[i]); }, [i, items]); // eslint-disable-line react-hooks/exhaustive-deps
   const ref = useRef<HTMLDivElement>(null);
   const inp = useRef<HTMLInputElement>(null);
   const st = useRef({ i, items, q, ins }); st.current = { i, items, q, ins };
@@ -217,16 +223,18 @@ export function Menu<D>(p: MenuProps<D>) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // place next to the anchor
+  // on its side of the anchor when it fits there, else flipped, else capped and scrolling (ui/place.ts); measured
+  // again when the list grows or shrinks, so a menu that fills in after opening still fits
   const [pos, setPos] = useState<React.CSSProperties>({});
   useLayoutEffect(() => {
     if (p.modal || !p.anchor) return;
     const r = p.anchor, w = Math.min(p.width === 'anchor' ? r.width : p.width || 260, innerWidth - 16);
-    const place = p.place || 'top-start';
-    const s: React.CSSProperties = { width: w };
-    if (place.startsWith('top')) s.bottom = innerHeight - r.top + 6; else s.top = r.bottom + 6;
-    if (place.endsWith('end')) s.right = Math.max(8, innerWidth - r.right); else s.left = Math.max(8, Math.min(r.left, innerWidth - w - 8));
-    setPos(s);
-  }, [p.anchor, p.modal, p.place, p.width]);
+    const place = p.place || 'top-start', el = ref.current;
+    if (el) { el.style.maxHeight = ''; el.style.width = w + 'px'; }
+    const h = el?.offsetHeight ?? 0;
+    const at = placeBy(r, w, h, place.startsWith('top') ? 'top' : 'bottom', place.endsWith('end') ? 'end' : 'start');
+    setPos({ width: w, ...placeStyle(r, at) });
+  }, [p.anchor, p.modal, p.place, p.width, items.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // a click outside closes
   useEffect(() => {
@@ -254,6 +262,20 @@ export function Menu<D>(p: MenuProps<D>) {
     const at = Math.min(f.pos, t.length - 1);
     return <>{t.slice(0, at)}<i className="ncur">{t[at]}</i>{t.slice(at + 1)}</>;
   };
+  const row = (it: MenuItem<D>, n: number) => (
+    it.block != null ? (it.head
+    ? <div key={'x' + n} className="mx" role="presentation">{it.block}</div>
+    // a block that is a row (the model picker's effort): the keyboard lands on it; the pointer works its contents
+    : <div key={'x' + n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-label={it.label} className={cx('mx', n === i && 'sel')}>{it.block}</div>) : it.head
+    ? <div key={'h' + n} className="mi head" role="presentation">{it.icon}{it.label}</div>
+    : <div key={n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-disabled={it.dis || undefined} className={cx('mi', n === i && 'sel', it.dis && 'off')}
+        onPointerMove={e => { if (composer && e.pointerType !== 'touch' && n !== i && !it.dis) setI(n); }}
+        onMouseDown={e => { e.preventDefault(); if (!it.dis) { st.current.i = n; pick(); } }}>
+        {it.icon && <span className="mic">{it.icon}</span>}
+        <span className="ml">{it.display ?? it.label}</span>
+        {it.hint && <span className="mh">{it.hint}</span>}
+        <span className="mr">{it.right}{it.kbd && <kbd>{it.kbd}</kbd>}{it.on && <Icon name="check" />}</span>
+      </div>);
   const body = (
     <div ref={ref} className={cx('menu', p.className, composer && 'composer-menu', !ins && 'nm', !p.search && !items.length && !emptyText && 'none')} style={p.modal ? undefined : pos} role="dialog">
       {p.search && (
@@ -268,21 +290,10 @@ export function Menu<D>(p: MenuProps<D>) {
         </div>
       )}
       <div className="m-l" role="listbox">
-        {items.map((it, n) => it.block != null ? (it.head
-          ? <div key={'x' + n} className="mx" role="presentation">{it.block}</div>
-          // a block that is a row (the model picker's effort): the keyboard lands on it; the pointer works its contents
-          : <div key={'x' + n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-label={it.label} className={cx('mx', n === i && 'sel')}>{it.block}</div>) : it.head
-          ? <div key={'h' + n} className="mi head" role="presentation">{it.icon}{it.label}</div>
-          : <div key={n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-disabled={it.dis || undefined} className={cx('mi', n === i && 'sel', it.dis && 'off')}
-              onPointerMove={e => { if (composer && e.pointerType !== 'touch' && n !== i && !it.dis) setI(n); }}
-              onMouseDown={e => { e.preventDefault(); if (!it.dis) { st.current.i = n; pick(); } }}>
-              {it.icon && <span className="mic">{it.icon}</span>}
-              <span className="ml">{it.display ?? it.label}</span>
-              {it.hint && <span className="mh">{it.hint}</span>}
-              <span className="mr">{it.right}{it.kbd && <kbd>{it.kbd}</kbd>}{it.on && <Icon name="check" />}</span>
-            </div>)}
+        {items.map((it, n) => (it.pin ? null : row(it, n)))}
         {!items.some(it => !it.head) && emptyText && <div className="m-empty" role="status">{emptyText}</div>}
       </div>
+      {items.some(it => it.pin) && <div className="m-pin" role="group">{items.map((it, n) => (it.pin ? row(it, n) : null))}</div>}
     </div>
   );
   return p.modal ? <div className="scrim" onMouseDown={e => { if (e.target === e.currentTarget) p.onClose(); }}>{body}</div> : body;

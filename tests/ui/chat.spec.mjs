@@ -273,8 +273,8 @@ await test('Codex pickers: its approval presets and its models with their own ef
   await p.locator('.pane.focus .cf .chip[title="Permissions"]').click();
   const menu = p.locator('.menu').last();
   await menu.waitFor();
-  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Read Only', 'Default', 'Full Access']);
-  assert.equal(await menu.locator('.mi:has(.i-check) .ml').innerText(), 'Default', 'no mode set: Codex\'s Default preset');
+  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Ask for approval', 'Approve for me', 'Full Access', 'Read Only'], 'Codex\'s /permissions menu, in its order');
+  assert.equal(await menu.locator('.mi:has(.i-check) .ml').innerText(), 'Ask for approval', 'no mode set: Codex\'s workspace preset, you approving');
   await menu.locator('.mi', { hasText: 'Full Access' }).click();
   await p.locator('.pane.focus .cf .chip', { hasText: 'Full Access' }).waitFor();
   await p.locator('.pane.focus .cf .chip[title="Model and effort"]').click();
@@ -537,9 +537,12 @@ await test('model picker: the effort track is a row j / k reach (wrapping), h / 
   await keys(p, 'h'); assert.equal(await eff(), 'Medium');
   await keys(p, 'j'); assert.equal(await sel(), 'GPT-6.2 Sol', 'j off the last row wraps to the top');
   await keys(p, 'k'); assert.equal(await sel(), 'effort', 'k from the top wraps to the effort row');
+  await keys(p, 'l'); assert.equal(await eff(), 'High');
   await keys(p, 'k'); assert.equal(await sel(), 'GPT-6.2 Astra');
-  await keys(p, 'l'); assert.equal(await eff(), 'High', 'h / l work from a model row too');
+  // on a model that is not picked, h / l set the effort it would get; the picked one keeps its own
+  await keys(p, 'h'); assert.equal(await eff(), 'Medium', 'h / l work from a model row too');
   await keys(p, 'j'); assert.equal(await sel(), 'effort');
+  assert.equal(await eff(), 'High', 'back on the picked model, its own effort');
   await p.keyboard.press('Enter');
   await menu.waitFor({ state: 'detached' });
   const chip = (await p.locator('.pane.focus .cf .chip[title="Model and effort"]').innerText()).replace(/\s+/g, ' ').trim();
@@ -552,6 +555,33 @@ await test('model picker: the effort track is a row j / k reach (wrapping), h / 
   await p.keyboard.press('Enter');
   await menu.waitFor({ state: 'detached' });
   assert.equal((await p.locator('.pane.focus .cf .chip[title="Model and effort"]').innerText()).replace(/\s+/g, ' ').trim(), 'GPT-6.2 Astra High');
+});
+
+await test('model picker: the effort track shows the levels of the model under the cursor; picking snaps the effort', async p => {
+  await p.locator('#side').getByText('New thread').first().click();
+  await p.locator('.pane.focus .newp textarea:visible').waitFor();
+  await p.locator('.pane.focus .newp .chip[title="Model and effort"]:visible').click();
+  const menu = p.locator('.menu.model');
+  await menu.waitFor();
+  await p.keyboard.press('Escape');                     // NORMAL
+  const labels = () => menu.locator('.eff .et span').allInnerTexts();
+  const eff = () => menu.locator('.eff .eh b').innerText();
+  const sel = () => menu.evaluate(m => m.querySelector('.mi.sel .ml')?.textContent);
+  assert.deepEqual(await labels(), ['Low', 'Medium', 'High', 'X-High', 'Max'], 'Claude: its five levels');
+  for (let i = 0; i < 4; i++) await keys(p, 'l');
+  assert.equal(await eff(), 'Max');
+  while ((await sel()) !== 'GPT-6.2 Sol') await keys(p, 'j');
+  assert.deepEqual(await labels(), ['Low', 'Medium', 'High', 'X-High'], 'a Codex model under the cursor: its levels');
+  assert.equal(await eff(), 'X-High', 'Max is not one: the nearest it has');
+  assert.ok(await menu.locator('.eff.pv').count(), 'shown as a preview');
+  await keys(p, 'j');
+  assert.deepEqual(await labels(), ['Low', 'Medium', 'High'], 'GPT-6.2 Astra');
+  assert.equal(await eff(), 'High');
+  await keys(p, 'k');
+  await p.keyboard.press('Enter');
+  await menu.waitFor({ state: 'detached' });
+  const chip = (await p.locator('.pane.focus .newp .chip[title="Model and effort"]:visible').innerText()).replace(/\s+/g, ' ').trim();
+  assert.equal(chip, 'GPT-6.2 Sol X-High');
 });
 
 await test('model picker on a machine without the harness: dimmed rows and Install copies', async p => {

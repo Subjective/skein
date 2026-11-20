@@ -66,6 +66,19 @@ export const EFFORTS: Choice[] = [
   { id: 'ultra', label: 'Ultra' },
 ];
 
+/** The effort a model gets when you switch to it: the same level when it has it, else its nearest level
+ *  (in EFFORTS order; a tie goes to the lower one), else its default; '' when it takes no effort setting. */
+export function snapEffort(effort: string, def: Pick<ModelDef, 'efforts' | 'effort'>): string {
+  const es = def.efforts;
+  if (!es.length) return '';
+  if (es.includes(effort)) return effort;
+  const rank = (id: string) => EFFORTS.findIndex(e => e.id === id), at = rank(effort);
+  if (at < 0) return def.effort && es.includes(def.effort) ? def.effort : es[es.length - 1];
+  let best = es[0];
+  for (const e of es) { const d = Math.abs(rank(e) - at), b = Math.abs(rank(best) - at); if (d < b) best = e; }
+  return best;
+}
+
 /** Permission modes. Claude: every value of the Agent SDK's PermissionMode (core/harness/options.ts checks
  *  the list against the type), in Claude Code's shift-tab order, with the SDK's descriptions. Codex: its
  *  built-in approval presets (codex `/approvals`: id, name and description), which set the approval
@@ -80,9 +93,12 @@ export const PERMS: Record<Harness, Choice[]> = {
     { id: 'bypassPermissions', label: 'Bypass permissions', hint: 'Never asks; runs everything', aka: ['Full access', 'bypass'] },
   ],
   codex: [
-    { id: 'read-only', label: 'Read Only', hint: 'Codex can read files in the current workspace. Approval is required to edit files or access the internet.' },
-    { id: 'auto', label: 'Default', hint: 'Codex can read and edit files in the current workspace, and run commands. Approval is required to access the internet or edit other files.', aka: ['Auto', 'Agent'] },
-    { id: 'full-access', label: 'Full Access', hint: 'Codex can edit files outside this workspace and access the internet without asking for approval. Exercise caution when using.', aka: ['full'] },
+    // Codex's /permissions menu, in its order and words (codex-rs tui permissions_menu.rs, 2026-11): the workspace
+    // preset twice, once with you approving and once with Codex's auto-review approving for you
+    { id: 'auto', label: 'Ask for approval', hint: 'Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace', aka: ['Default', 'Auto', 'Agent'] },
+    { id: 'auto-review', label: 'Approve for me', hint: 'Only ask for actions detected as potentially unsafe', aka: ['auto_review', 'guardian'] },
+    { id: 'full-access', label: 'Full Access', hint: 'Use with caution: Codex can edit files outside this workspace and access the internet without approval', aka: ['full'] },
+    { id: 'read-only', label: 'Read Only', hint: 'Read workspace files, with approval required for edits or internet access' },
   ],
 };
 

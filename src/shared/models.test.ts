@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bundledOptions, effortId, findModel, modelId, modelLabel, PERMS, permId } from './models';
+import { bundledOptions, effortId, findModel, modelId, modelLabel, PERMS, permId, snapEffort } from './models';
 
 describe('model catalog', () => {
   it('accepts labels or ids', () => {
@@ -40,10 +40,27 @@ describe('model catalog', () => {
 
   it('offers every Claude permission mode, bypass included', () => {
     expect(PERMS.claude.map(p => p.id)).toEqual(['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions']);
-    expect(PERMS.codex.map(p => p.label)).toEqual(['Read Only', 'Default', 'Full Access']);
+    expect(PERMS.codex.map(p => p.label)).toEqual(['Ask for approval', 'Approve for me', 'Full Access', 'Read Only']);
+    expect(permId('codex', 'Approve for me')).toBe('auto-review');
     // the fallback claims no ultra effort it doesn't know a model has
     expect(bundledOptions('codex').models.some(m => m.efforts.includes('ultra'))).toBe(false);
     const b = bundledOptions('codex', 'no codex');
     expect(b).toMatchObject({ source: 'bundled', error: 'no codex' });
+  });
+});
+
+describe('snapEffort', () => {
+  const codex = { efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'], effort: 'medium' };
+  const claude = { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] };
+  it('keeps a level the model has', () => { expect(snapEffort('high', claude)).toBe('high'); });
+  it('goes to the nearest level the model has', () => {
+    expect(snapEffort('ultra', claude)).toBe('max');
+    expect(snapEffort('max', { efforts: ['low', 'medium', 'high'] })).toBe('high');
+    expect(snapEffort('minimal', codex)).toBe('low');
+  });
+  it('takes the lower level on a tie', () => { expect(snapEffort('medium', { efforts: ['low', 'high'] })).toBe('low'); });
+  it('takes the default for an unknown level, and nothing for a model without efforts', () => {
+    expect(snapEffort('turbo', codex)).toBe('medium');
+    expect(snapEffort('high', { efforts: [] })).toBe('');
   });
 });
