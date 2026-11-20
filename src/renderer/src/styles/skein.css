@@ -459,6 +459,7 @@ textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit;
 .tool-h { height: 38px; flex: none; display: flex; align-items: center; gap: 4px; padding: 0 10px 0 8px; font-size: 12.500px; }
 .tool-h .path { margin-left: 4px; font: var(--mono-w) 12.500px var(--mono); color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-h .chip { height: 26px; font-size: 12.500px; }
+.tool-h .br { white-space: nowrap; }
 .btn.sm { height: 26px; padding: 0 11px; font-size: 12.500px; margin-left: 4px; }
 .seg.txt button { width: auto; height: 22px; padding: 0 10px; font-size: 12px; }
 svg.i.flip { transform: rotate(180deg); }
@@ -553,6 +554,8 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 }
 @container (max-width: 400px) {
   .under .path, .pa { display: none; }
+  /* tool headers: chips keep their icon and caret (the title names them), the branch note goes */
+  .tool-h .chip > span, .tool-h .br { display: none; }
   .cards { grid-template-columns: repeat(2, 1fr); }
   .t-foot span:last-child:not(:first-child) { display: none; }
 }
