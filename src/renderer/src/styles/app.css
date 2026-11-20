@@ -1,0 +1,71 @@
+/* Skein app: additions on top of the mockup stylesheet (skein.css), which stays the source of the look.
+   Only what the real app needs and the mockup did not have: real terminals, window chrome, overlays. */
+
+#root { height: 100%; }
+
+/* Window chrome. The tab bars and the sidebar's top row drag the window; their controls do not. */
+.s-top, .tb .drag, .tb, .peek .tb { -webkit-app-region: drag; }
+.s-top button, .tb button, .tb .tab, .tb .seg, .tabs, .peek .tb button { -webkit-app-region: no-drag; }
+/* macOS: traffic lights sit over the sidebar's top row (or the first tab bar when the sidebar is hidden) */
+[data-os="mac"] .s-top { padding-left: 78px; }
+[data-os="mac"] .tb.corner { padding-left: 78px; }
+/* Windows: the native caption buttons (titleBarOverlay) cover the top right 138px */
+[data-os="win"] .panes > .pane > .tb, [data-os="win"] .split.d-row > .cell:last-child .pane > .tb { padding-right: 144px; }
+[data-os="win"] .split.d-col > .cell:last-child .pane > .tb, [data-os="win"] .split.d-row > .cell:first-child .pane > .tb { padding-right: 6px; }
+.lights-space { display: none; }
+
+/* Panes keep every tab mounted; only the active one shows. */
+.keep { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* Terminals */
+.term-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+.term-host { flex: 1; min-height: 0; padding: 4px 4px 4px 12px; background: var(--bg); }
+.xterm-host { width: 100%; height: 100%; }
+.xterm-host .xterm { height: 100%; }
+.xterm .xterm-viewport { background: transparent !important; scrollbar-width: thin; }
+.t-exit { display: flex; align-items: center; gap: 9px; margin: 0 10px 10px; padding: 8px 8px 8px 14px; border: 1px solid var(--comp-line); border-radius: 14px; background: var(--comp); color: var(--fg-2); animation: fadeUp .16s ease; }
+.t-exit .sp { flex: 1; }
+.handoff-wrap { flex: 1; }
+
+/* Empty states and placeholders */
+.empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 40px 24px; text-align: center; color: var(--fg-3); }
+.empty b { color: var(--fg); font-weight: 500; font-size: 14px; }
+.empty .dim { max-width: 360px; }
+.empty .btn { margin-top: 6px; }
+
+/* vimrc tab */
+.vimrc-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.vimrc-view .tool-h { padding: 8px 14px; }
+.vimrc-view textarea.rc-ed { flex: 1; width: 100%; min-height: 0; padding: 10px 16px; border: 0; outline: 0; resize: none; background: var(--bg); color: var(--fg); font: var(--mono-w) 12.5px/1.6 var(--mono); height: 100% !important; }
+
+/* Vim cursor in a text field: NORMAL draws the one-character selection as a block */
+textarea.vn { caret-color: transparent; }
+textarea.vn::selection { background: var(--fg); color: var(--bg); }
+textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit; }
+
+/* Toasts stack under each other */
+.toasts { position: fixed; left: 50%; top: 52px; z-index: 70; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.toasts .toast { position: static; transform: none; pointer-events: auto; animation: fadeUp .16s ease; }
+
+/* Menus anchored to a control */
+.menu .m-empty { padding: 12px 10px; color: var(--fg-3); font-size: 12.5px; }
+.menu .mi .ml { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .mi .mh { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: 12px; }
+.menu .mi .mr { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--fg-3); }
+.layer { display: contents; }
+
+/* Settings rows: harness marks per machine */
+.s-meta { display: inline-flex; gap: 6px; align-items: center; }
+.s-meta .has svg.i { width: 15px; height: 15px; }
+.s-meta .has.no { opacity: .25; }
+.sw-btn { display: inline-flex; }
+
+/* status bar extras */
+#status kbd.seq { margin-left: 4px; }
+
+/* the sidebar floats over the panes in a narrow window (G10) */
+#app.float-side #side { position: fixed; left: 0; top: 0; bottom: 0; width: min(300px, 86vw); z-index: 45; box-shadow: var(--shadow); }
+#app.float-side { grid-template-columns: minmax(0, 1fr); }
+
+@keyframes fadeUp { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; } }

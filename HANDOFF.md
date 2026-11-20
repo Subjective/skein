@@ -2,8 +2,37 @@
 
 ## What this is
 
-A desktop app (Electron, not started) to run and view Claude Code and Codex agents, local and over SSH.
-The current deliverable is an interactive HTML mockup, `mockups/`. The Electron build waits on design approval.
+A desktop app (Electron) to run and view Claude Code and Codex agents, local and over SSH.
+The app is in `src/`; the interactive HTML mockup it follows is in `mockups/`. How to build: [README.md](README.md).
+
+## The app (`src/`)
+
+| Path | Holds |
+|---|---|
+| `src/shared/api.ts` | The only contract between renderer and main: `SkeinApi` (request / response) and `SkeinEvent` (pushes). The preload builds `window.skein` from it. Replacing Electron (Tauri fallback) means reimplementing this transport only. |
+| `src/shared/types.ts` | Machine, ThreadMeta, ThreadEvent (normalized chat events), Settings |
+| `src/main/` | Electron shell only: window, our own menu (G3), IPC wiring. `services.ts` implements `SkeinApi` over `src/core`. |
+| `src/core/` | Node-only, no Electron: `store` (node:sqlite metadata), `machines` (local + SSH probe), `exec` (local spawn / system ssh with ControlMaster), `pty` (node-pty), `discover` (sessions in ~/.claude and ~/.codex), `threads`, `files`, `git`, `images` (inbox), `chat` (the seam for the chat drivers) |
+| `src/renderer/src/input/` | The input layer: `keys` (one key name form), `platform` (per-OS keys, `kb()`), `keymap` (commands, default bindings, vimrc), `dispatcher` (the single keydown handler), `vimtext` (the Vim engine for fields), `surfaces` (who owns the keyboard) |
+| `src/renderer/src/state/` | `store` (one mutable state + version), `layout` (pane tree, pure), `actions` (what commands do) |
+| `src/renderer/src/ui/` | The component library: `primitives` (Icon, IconButton, Button, Chip, Seg, Dot, Spinner, Kbd, Switch), `Menu` (every list), `Dialog`, `VimField` (every editable text), `motion` (animation tokens), `icons` |
+| `src/renderer/src/shell/` | App frame: Sidebar, Workspace (panes, tabs, popups), StatusBar, Launcher (new tab), overlays (palette, : line, settings, keyboard sheet), commands |
+| `src/renderer/src/views/` | `terminal/` (xterm.js with WebGL and image addons, scrollback reader, image paste, Claude handoff), `chat/`, `tools/` |
+| `src/renderer/src/styles/` | `skein.css` is the mockup's stylesheet, the source of the look. `app.css` adds only what the real app needs. |
+
+Rules for new UI: use the `ui/` components (never hand-written buttons or menus), give the surface a kind
+(field, reader, list, terminal) and register it with `input/surfaces`, add commands to `keymap.ts` COMMANDS
+and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and the : line all see them.
+
+### Decisions made during the build (2026-11-20)
+
+- Metadata store is `node:sqlite` (built into Electron's Node), so there is no native database module to compile.
+- node-pty 1.1 ships prebuilt binaries for Windows and macOS, so Windows needs no Visual Studio Build Tools.
+- Threads open in the terminal view by default (Settings > General) until the chat view is complete.
+- Claude Code threads get their session id up front (`--session-id`), and the terminal resumes it if the
+  transcript exists, so a thread knows its session before the first turn.
+- A new thread's first prompt is passed on the TUI's command line.
+- Existing sessions are discovered from `~/.claude/projects` and `~/.codex/sessions` (local only for now).
 
 ## Read first
 
