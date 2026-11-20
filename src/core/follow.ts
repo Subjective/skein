@@ -13,7 +13,6 @@ import { jsonLines } from './harness/common';
 import { parseClaudeTranscript } from './harness/claude/history';
 import { parseCodexRollout } from './harness/codex/history';
 import { run } from './exec';
-import { log } from './log';
 import { sq } from './shell';
 import { LocalTail, RemoteTail, type TailSink } from './tail';
 
@@ -174,7 +173,7 @@ export class Follower {
     this.offset = Buffer.byteLength(whole);
     this.entries = jsonLines(whole);
     this.fresh = [];
-    const events = this.fold() ?? [];
+    const events = this.fold();
     this.snap = new Map(events.map(e => [e.id, JSON.stringify(e)]));
     this.loaded = true;
     if (following) this.start();
@@ -213,7 +212,6 @@ export class Follower {
     const t = this.t; if (!t) return;
     const owner = this.host.owner(this.id);
     const events = this.fold();
-    if (!events) return;
     const next = new Map<string, string>();
     for (const e of events) {
       const j = JSON.stringify(e);
@@ -247,20 +245,13 @@ export class Follower {
     return Infinity;
   }
 
-  /** The transcript's events. null when it could not be read: this runs on a timer in the main process, where
-   *  a throw would be an uncaught exception, so a transcript this code does not understand is logged instead. */
-  private fold(): ThreadEvent[] | null {
+  private fold(): ThreadEvent[] {
     const t = this.t; if (!t) return [];
-    try {
-      if (t.harness === 'codex') return parseCodexRollout(this.entries).events;
-      const h = parseClaudeTranscript(this.entries);
-      // a turn that is over has no running tools: the writer was interrupted or killed between a call and its result
-      if (claudeTurnState(this.entries) === 'idle') h.fold.settleRunning('done');
-      return h.events;
-    } catch (e) {
-      log('follow', 'could not read the transcript of', this.id, (e as Error).message);
-      return null;
-    }
+    if (t.harness === 'codex') return parseCodexRollout(this.entries).events;
+    const h = parseClaudeTranscript(this.entries);
+    // a turn that is over has no running tools: the writer was interrupted or killed between a call and its result
+    if (claudeTurnState(this.entries) === 'idle') h.fold.settleRunning('done');
+    return h.events;
   }
 }
 

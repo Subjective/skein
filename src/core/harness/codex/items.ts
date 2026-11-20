@@ -15,19 +15,16 @@ const injected = (s: string) => /^\s*<(environment_context|user_instructions|tur
 export function itemEvents(item: ThreadItem): ThreadEvent[] {
   switch (item.type) {
     case 'userMessage': {
-      if (!Array.isArray(item.content)) return [];
       const text = item.content.filter(c => c.type === 'text').map(c => (c as { text: string }).text).join('\n');
       if (injected(text)) return [];
       const images = item.content.flatMap(c => (c.type === 'image' && 'url' in c ? [c.url] : c.type === 'localImage' ? [c.path] : []));
       const mentions = item.content.flatMap(c => (c.type === 'mention' || c.type === 'skill' ? [`@${c.name}`] : []));
       return [{ t: 'user', id: item.id, text: [text, ...mentions].filter(Boolean).join(' '), ...(images.length ? { images } : {}) }];
     }
-    case 'agentMessage': case 'plan': { const text = textOfItem(item); return text.trim() ? [{ t: 'text', id: item.id, text }] : []; }
+    case 'agentMessage': return item.text.trim() ? [{ t: 'text', id: item.id, text: item.text }] : [];
+    case 'plan': return item.text.trim() ? [{ t: 'text', id: item.id, text: item.text }] : [];
     case 'reasoning': {
-      // the app-server sends summary / content; rollouts store the core item's summary_text / raw_content
-      const r = item as unknown as { summary?: string[]; content?: string[]; summaryText?: string[]; rawContent?: string[] };
-      const summary = r.summary ?? r.summaryText ?? [], content = r.content ?? r.rawContent ?? [];
-      const text = (summary.length ? summary : content).join('\n\n').trim();
+      const text = (item.summary.length ? item.summary : item.content).join('\n\n').trim();
       return text ? [{ t: 'thinking', id: item.id, text }] : [];
     }
     case 'commandExecution': {
@@ -37,12 +34,9 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
     }
     case 'fileChange': {
       const status = item.status === 'declined' ? 'failed' : st(item.status);
-      const changes = item.changes ?? [];
-      return changes.map((c, i) => {
-        const raw = c.diff ?? '';
-        // a new file arrives as its content: one + per line, without counting the final newline as a line
-        const diff = c.kind?.type === 'add' && !/^[-+@]/m.test(raw) ? raw.replace(/\n$/, '').split('\n').map(l => '+' + l).join('\n') : raw;
-        return { t: 'edit' as const, id: changes.length > 1 ? `${item.id}:${i}` : item.id, path: c.kind?.type === 'update' && c.kind.move_path ? c.kind.move_path : c.path, ...countDiff(diff), diff: clip(diff, 20000), status };
+      return item.changes.map((c, i) => {
+        const diff = c.kind.type === 'add' && !/^[-+@]/m.test(c.diff) ? c.diff.split('\n').map(l => '+' + l).join('\n') : c.diff;
+        return { t: 'edit' as const, id: item.changes.length > 1 ? `${item.id}:${i}` : item.id, path: c.kind.type === 'update' && c.kind.move_path ? c.kind.move_path : c.path, ...countDiff(diff), diff: clip(diff, 20000), status };
       });
     }
     case 'mcpToolCall': {
@@ -66,40 +60,9 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
     case 'imageView': return [{ t: 'tool', id: item.id, name: 'View image', arg: item.path, status: 'done' }];
     case 'contextCompaction': return [{ t: 'notice', id: item.id, text: 'Context compacted' }];
     case 'enteredReviewMode': return [{ t: 'notice', id: item.id, text: 'Reviewing' }];
-    case 'exitedReviewMode': return item.review?.trim() ? [{ t: 'text', id: item.id, text: item.review }] : [];
+    case 'exitedReviewMode': return item.review.trim() ? [{ t: 'text', id: item.id, text: item.review }] : [];
     default: return [];
   }
-}
-
-/** An agent message's or plan's text. The app-server sends `text`; rollouts store the core item, whose agent
- *  message has `content: [{ type: 'Text', text }]` instead. */
-function textOfItem(item: ThreadItem): string {
-  const o = item as unknown as { text?: unknown; content?: unknown };
-  if (typeof o.text === 'string') return o.text;
-  return Array.isArray(o.content) ? o.content.map(c => (c && typeof c === 'object' && typeof (c as { text?: unknown }).text === 'string' ? (c as { text: string }).text : '')).join('') : '';
-}
-
-/** The core item's fields that differ in shape (not only in case) from the app-server's. */
-function coreFields(raw: Record<string, unknown>): Record<string, unknown> {
-  const o = { ...raw };
-  if (Array.isArray(o.command)) {
-    const argv = o.command.map(String);
-    // `bash -lc <script>` (and Windows' `powershell -Command <script>`): the script is the command
-    const i = argv.findIndex(a => /^-(l?c|Command)$/i.test(a));
-    o.command = i >= 0 && i === argv.length - 2 ? argv[i + 1] : argv.join(' ');
-  }
-  const d = o.duration as { secs?: number; nanos?: number } | undefined;
-  if (o.duration_ms == null && d && typeof d === 'object') o.duration_ms = Math.round((d.secs ?? 0) * 1000 + (d.nanos ?? 0) / 1e6);
-  if (o.changes && typeof o.changes === 'object' && !Array.isArray(o.changes)) {
-    // { path: { type: 'add' | 'delete', content } | { type: 'update', unified_diff, move_path } }; paths are kept as they are
-    o.changes = Object.entries(o.changes as Record<string, Record<string, unknown>>).map(([path, c]) => {
-      const type = String(c?.type ?? 'update').toLowerCase();
-      const body = String(c?.unified_diff ?? c?.content ?? '');
-      const diff = type === 'delete' && !/^[-+@]/m.test(body) ? body.replace(/\n$/, '').split('\n').map(l => '-' + l).join('\n') : body;
-      return { path, kind: { type, move_path: c?.move_path ?? null }, diff };
-    });
-  }
-  return o;
 }
 
 const argText = (v: unknown) => {
@@ -119,11 +82,8 @@ export function turnError(id: string, e: TurnError): ThreadEvent {
   return { t: 'error', id, kind, text: tidy(text || 'The turn failed.', 600) };
 }
 
-/** Rollouts store the core's items: snake_case keys, PascalCase types, and some fields in another shape than
- *  the app-server's (a command as argv, file changes keyed by path, a duration as secs / nanos). This turns one
- *  into the app-server's camelCase ThreadItem. */
+/** Rollouts store items with snake_case keys and PascalCase types; the app-server sends camelCase. */
 export function camelItem(raw: Record<string, unknown>): ThreadItem {
-  raw = coreFields(raw);
   const camel = (v: unknown, depth: number): unknown => {
     if (Array.isArray(v)) return v.map(x => camel(x, depth + 1));
     if (!v || typeof v !== 'object' || depth > 6) return v;
