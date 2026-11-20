@@ -2,6 +2,7 @@
 // Data is a small sample; terminals echo what you type.
 import type { SkeinBridge, SkeinEvent } from '@shared/api';
 import type { Machine, Settings, ThreadMeta } from '@shared/types';
+import { extraThreads, fakeChat } from './fakeChat';
 
 const listeners = new Set<(e: SkeinEvent) => void>();
 const emit = (e: SkeinEvent) => setTimeout(() => listeners.forEach(f => f(e)), 0);
@@ -23,6 +24,10 @@ const threads: ThreadMeta[] = [
   T('t7', 'claude', 'linux', '~/repo/etl-config', 'Migrate ETL config to TOML', 30, { status: 'unread' }),
   T('t8', 'codex', 'build', '~/ci', 'Bump lockfile to fix CI', 300, { status: 'error' }),
 ];
+threads.push(...extraThreads(T));
+Object.assign(threads[0], { model: 'opus', effort: 'medium', perm: 'acceptEdits', ctx: 38, branch: 'fix/restore-race' });
+Object.assign(threads[6], { drive: 'term' });
+const chat = fakeChat(emit, threads);
 let settings: Settings = { theme: 'dark', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'term', notify: 'waiting', vimrc: '" Skein vimrc\n\ninoremap jk <Esc>\n' };
 const kv = new Map<string, unknown>();
 let ptyN = 0;
@@ -48,11 +53,14 @@ export const fakeApi: SkeinBridge = {
   },
   threads: {
     list: async () => threads, discover: async () => [],
-    create: async spec => { const t = T('n' + Date.now(), spec.harness, spec.machine, spec.dir, 'New thread', 0); threads.unshift(t); return t; },
+    create: async spec => {
+      const t = T('n' + Date.now(), spec.harness, spec.machine, spec.dir, spec.side ? 'New side chat' : 'New thread', 0, { parent: spec.parent, side: spec.side, model: spec.model, effort: spec.effort, perm: spec.perm });
+      threads.unshift(t); chat.fork(spec, t); return t;
+    },
     update: async (id, patch) => { const t = threads.find(x => x.id === id)!; Object.assign(t, patch); emit({ type: 'thread', thread: t }); return t; },
-    history: async () => [],
+    history: async id => chat.history(id),
   },
-  chat: { send: async () => {}, interrupt: async () => {}, answer: async () => {}, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); } },
+  chat: { send: chat.send, interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); } },
   pty: {
     spawn: async spec => {
       const id = 'fake' + ++ptyN; lines.set(id, '');

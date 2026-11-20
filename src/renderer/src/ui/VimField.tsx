@@ -9,7 +9,7 @@ import { init, setText, step, typed, vrange, type Effect, type TextState } from 
 import { S, update } from '../state/store';
 import { cx } from './primitives';
 
-export interface VimFieldHandle { focus(insert?: boolean): void; set(text: string): void; state(): TextState; el(): HTMLTextAreaElement | null }
+export interface VimFieldHandle { focus(insert?: boolean): void; set(text: string, pos?: number): void; state(): TextState; el(): HTMLTextAreaElement | null }
 
 export interface VimFieldProps {
   /** Register as the keyboard owner of this tab while focused. */
@@ -108,7 +108,7 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
     }
     el.focus({ preventScroll: true }); own(); paint();
   };
-  useImperativeHandle(handle, () => ({ focus, set: t => { st.current = setText(st.current, t); paint(); grow(); }, state: () => st.current, el: () => ta.current }));
+  useImperativeHandle(handle, () => ({ focus, set: (t, pos) => { st.current = setText(st.current, t, pos); paint(); grow(); }, state: () => st.current, el: () => ta.current }));
   useEffect(() => { if (p.autoFocus) focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
