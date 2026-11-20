@@ -63,17 +63,19 @@ export interface ThreadMeta {
   side?: boolean;
   /** true when found in the harness's history rather than started from Skein. */
   discovered?: boolean;
+  /** Context window used, 0-100, when the harness reports it. */
+  ctx?: number;
 }
 
 // ---- normalized conversation events, rendered by the chat view and derived from either harness ----
 export type ThreadEvent =
-  | { t: 'user'; id: string; text: string; images?: string[] }
+  | { t: 'user'; id: string; text: string; images?: string[]; at?: number }
   | { t: 'text'; id: string; text: string; streaming?: boolean }
   | { t: 'thinking'; id: string; text: string }
   | { t: 'tool'; id: string; name: string; arg: string; out?: string; status: 'running' | 'done' | 'failed'; meta?: string }
   | { t: 'edit'; id: string; path: string; add: number; del: number; diff?: string; status: 'running' | 'done' | 'failed' }
   | { t: 'todo'; id: string; items: { text: string; done: boolean }[] }
-  | { t: 'sub'; id: string; name: string; task: string; status: 'running' | 'done' | 'failed'; dur?: string }
+  | { t: 'sub'; id: string; name: string; task: string; status: 'running' | 'done' | 'failed'; dur?: string; events?: ThreadEvent[] }
   | { t: 'image'; id: string; src: string; cap?: string }
   | { t: 'approval'; id: string; request: ApprovalRequest }
   | { t: 'error'; id: string; kind: 'crash' | 'rate' | 'auth' | 'missing' | 'other'; text: string }
@@ -88,6 +90,8 @@ export interface ApprovalRequest {
   body: string;             // the command, the plan, the file
   detail?: string;
   options: { id: string; label: string; primary?: boolean }[];
+  /** The subagent that asked, when it was not the thread itself. */
+  from?: string;
 }
 
 // ---- persisted UI state (layout, settings) ----
