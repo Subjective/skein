@@ -15,7 +15,7 @@ The app is in `src/`; the interactive HTML mockup it follows is in `mockups/`. H
 | `src/core/` | Node-only, no Electron: `store` (node:sqlite metadata), `machines` (local + SSH probe), `exec` (local spawn / system ssh with ControlMaster), `pty` (node-pty), `discover` (sessions in ~/.claude and ~/.codex), `threads`, `files`, `git`, `images` (inbox), `forward` (ssh port forwards for Browser tabs), `chat` (the seam for the chat drivers) |
 | `src/renderer/src/input/` | The input layer: `keys` (one key name form), `platform` (per-OS keys, `kb()`), `keymap` (commands, default bindings, vimrc), `dispatcher` (the single keydown handler), `vimtext` (the Vim engine for fields), `surfaces` (who owns the keyboard), `readerkeys` (counts and search matching every reader shares, pure), `register` (the one unnamed register, clipboard fallback) |
 | `src/renderer/src/state/` | `store` (one mutable state + version), `layout` (pane tree, pure), `actions` (what commands do) |
-| `src/renderer/src/ui/` | The component library: `primitives` (Icon, IconButton, Button, Chip, Seg, Dot, Spinner, Kbd, Switch), `Menu` (every list; its search field runs `vimtext` in NORMAL), `Dialog`, `VimField` (every editable text), `search` (the `/` `?` prompt and `n` / `N` for every reader), `motion` (animation tokens), `icons` |
+| `src/renderer/src/ui/` | The component library: `primitives` (Icon, IconButton, Button, Chip, Seg, Dot, Spinner, Kbd, Switch), `Menu` (every list; its search field runs `vimtext` in NORMAL), `Dialog`, `VimField` (every editable text but code), `editor/` (the code editor: `CodeEditor` is CodeMirror 6 + `@replit/codemirror-vim` + Lezer grammars from `@codemirror/language-data`, styled only from tokens in `theme`; `vim` ties CodeMirror's Vim to the app's register, clipboard and status-bar mode; `route` decides Skein's NORMAL keys vs Vim's, see VIM-MODEL rule 23), `search` (the `/` `?` prompt and `n` / `N` for every reader), `motion` (animation tokens), `icons` |
 | `src/renderer/src/shell/` | App frame: Sidebar, Workspace (panes, tabs, popups), StatusBar, Launcher (new tab), overlays (palette, : line, settings, keyboard sheet), commands |
 | `src/renderer/src/views/` | `terminal/` (xterm.js with WebGL and image addons, scrollback reader, image paste, Claude handoff), `chat/`, `tools/` |
 | `src/renderer/src/styles/` | `skein.css` is the mockup's stylesheet, the source of the look. `app.css` adds only what the real app needs. |
@@ -33,6 +33,10 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
 - Claude Code threads get their session id up front (`--session-id`), and the terminal resumes it if the
   transcript exists, so a thread knows its session before the first turn.
 - A new thread's first prompt is passed on the TUI's command line.
+- Code is edited in CodeMirror 6 with `@replit/codemirror-vim` (experimental branch, phase 1: the open file). The
+  dispatcher keeps priority; the editor reads every other key from the DOM event (a surface may answer `'native'`),
+  so IME, keyboard layouts and Vim's own insert-mode keys work as CodeMirror intends. Phase 2 moves the composer and
+  the edit box onto it, after which `vimtext` / `VimField` remain only for one-line fields.
 - Existing sessions are discovered from `~/.claude/projects` and `~/.codex/sessions` (local only for now).
 - Terminal copy and paste on Windows follow Windows Terminal: `ctrl-c` copies when text is selected (otherwise
   it goes to the program), `ctrl-v` and `ctrl-shift-v` paste. Every paste checks the clipboard for an image first,

@@ -265,7 +265,7 @@ async function openReadme(p) {
   await p.locator('.pane.focus .file-v .doc, .pane.focus .file-v .src').first().waitFor();
   if (await p.locator('.pane.focus .file-v .doc').count()) { await keys(p, 'g p'); await p.locator('.pane.focus .file-v .src').waitFor(); }
 }
-const curLine = async p => Number(await p.locator('.pane.focus .file-v .curl .n').innerText());
+const curLine = async p => (await p.evaluate(() => window.__skein.cm('.pane.focus .file-v .src'))).line;
 
 test('file: counts (3j, 5G, 2gg) and ? searches backwards with a wrap notice', async p => {
   await openReadme(p);
@@ -282,7 +282,7 @@ test('file: counts (3j, 5G, 2gg) and ? searches backwards with a wrap notice', a
   assert.match(await toastText(p), /continuing at BOTTOM/);
   const last = await curLine(p);
   assert.ok(last > 1);
-  assert.match(await p.locator('.pane.focus .file-v .curl').innerText(), /pnpm/);
+  assert.match(await p.locator('.pane.focus .file-v .cm-activeLine').innerText(), /pnpm/);
   await keys(p, 'n');
   assert.ok((await curLine(p)) <= last, 'n keeps going backwards after ?');
   await keys(p, 'N');
