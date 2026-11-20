@@ -1,7 +1,7 @@
 // Chat drivers: one per thread while its chat view drives it.
 //   Claude Code: the Agent SDK (spawnClaudeCodeProcess runs the CLI over ssh for remote machines).
 //   Codex: `codex app-server` over JSON-RPC (stdio, or over ssh), shared with the TUI through `codex --remote`.
-// This file is the seam; the adapters live in ./harness/. See HANDOFF "Workstreams".
+// This file is the seam; the adapters live in ./harness/ (createHarnesses in ./harness/index.ts).
 import type { ChatSend } from '../shared/api';
 import type { Machine, ThreadEvent, ThreadMeta, ViewKind } from '../shared/types';
 
@@ -23,6 +23,13 @@ export interface ChatHost {
 export interface Harnesses {
   history(t: ThreadMeta, m: Machine): Promise<ThreadEvent[]>;
   driver(t: ThreadMeta, host: ChatHost): ChatDriver;
+  /** Call right after creating a thread, whichever view opens it. Codex: creates (or forks) the Codex thread
+   *  so ThreadMeta.sessionId is known before the terminal or chat uses it. Returns the updated meta. */
+  start?(t: ThreadMeta, host: ChatHost): Promise<ThreadMeta>;
+  /** How the terminal view joins the session the chat view drives: Codex TUI args (`codex ...args`) and env
+   *  for a local thread, attached to the same app-server. null: run the TUI on its own (`codex resume <id>`). */
+  attach?(t: ThreadMeta): Promise<{ args: string[]; env: Record<string, string> } | null>;
+  dispose?(): void;
 }
 
 /** Placeholder until the chat workstream lands: history is empty and sending explains why. */
