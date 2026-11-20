@@ -307,10 +307,21 @@ export class Reader {
     if (s.isCollapsed && (actionable || !root.contains(e.target as Node))) return;
     const c = caretAt(e.clientX, e.clientY);
     const at = c && c.startContainer.nodeType === 3 && this.inside(c.startContainer) && (c.startContainer as Text).data.trim() ? this.textAt(c.startContainer, c.startOffset) : null;
-    if (e.detail >= 3 && at) return this.begin(root, 'V', at);
+    // a triple click: the paragraph (or list item, heading, code block) under the pointer, as the browser shows it,
+    // in VISUAL; V would keep only the one wrapped line clicked, and the browser's own end runs into the next block
+    if (e.detail >= 3 && at) {
+      const para = at.n.parentElement?.closest('p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th, .mt, summary');
+      const ns = para ? this.texts(para).filter(n => n.data.trim()) : [];
+      if (ns.length) {
+        const last = ns[ns.length - 1];
+        return this.begin(root, 'v', { n: last, o: Math.max(0, last.data.trimEnd().length - 1) }, { n: ns[0], o: ns[0].data.length - ns[0].data.trimStart().length });
+      }
+      return this.begin(root, 'V', at);
+    }
     if (!s.isCollapsed && s.anchorNode && root.contains(s.anchorNode)) {
       const fwd = !!(s.anchorNode.compareDocumentPosition(s.focusNode!) & Node.DOCUMENT_POSITION_FOLLOWING) || (s.anchorNode === s.focusNode && s.focusOffset >= s.anchorOffset);
-      const a = this.textAt(s.anchorNode, fwd ? s.anchorOffset : s.anchorOffset - 1), f = this.textAt(s.focusNode!, fwd ? s.focusOffset - 1 : s.focusOffset);
+      const a = this.textAt(s.anchorNode, fwd ? s.anchorOffset : s.anchorOffset - 1);
+      const f = this.textAt(s.focusNode!, fwd ? s.focusOffset - 1 : s.focusOffset);
       if (a && f && e.detail === 2 && fwd) while (f.o > 0 && f.n.data[f.o].trim() === '' && (f.n !== a.n || f.o > a.o)) f.o--;
       if (a && f) return this.begin(root, 'v', f, a);
     }

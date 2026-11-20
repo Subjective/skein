@@ -16,10 +16,10 @@
 .diff.flat .dl.add.curl { background: color-mix(in srgb, var(--add-bg) 100%, var(--fg) 6%); }
 .diff.flat .dl.del.curl { background: color-mix(in srgb, var(--del-bg) 100%, var(--fg) 6%); }
 .diff.flat .dl.curl .n { color: var(--fg-2); }
-.dl.vsel, .cfile > summary.vsel { background: rgba(74, 163, 255, .16) !important; }
+.dl.vsel, .cfile > summary.vsel { background: var(--sel) !important; }
 /* a file's V-LINE shades the text area only, never the gutter, and only paints: no padding, border or size changes */
-.src .dl.vsel { background: linear-gradient(to right, transparent 48px, rgba(74, 163, 255, .16) 48px) !important; }
-.src .dl.vsel.curl { background: linear-gradient(to right, var(--hover) 48px, rgba(74, 163, 255, .16) 48px) !important; }
+.src .dl.vsel { background: linear-gradient(to right, transparent 48px, var(--sel) 48px) !important; }
+
 .dl.note .c { font-family: var(--sans); font-size: 12px; }
 .cfile > summary { padding: 0 2px; border-radius: 6px; transition: background var(--ease); }
 .cfile > summary .f { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -46,7 +46,7 @@
 .igi, .igc { font-style: normal; }
 .igi { box-shadow: inset 1px 0 0 var(--line); }
 .vc { background: var(--fg); color: var(--bg) !important; border-radius: 1px; }
-.vs { background: rgba(74, 163, 255, .32); }
+.vs { background: var(--sel); }
 .hit { background: rgba(226, 165, 60, .28); border-radius: 2px; }
 .hit.now { background: rgba(226, 165, 60, .6); }
 
@@ -135,3 +135,7 @@
 .file-v .src .dl .n, .diff.flat .dl .n { user-select: none; }
 /* a mouse selection turned VISUAL is drawn by the painted selection, not twice */
 .file-v .src.msel ::selection { background: transparent; }
+/* a keyboard selection (v, V) is painted once, in the selection colour: the browser's own selection that rides along
+   (for copy and Add to Chat) is not drawn over it, and the cursor line's shade waits until the selection ends */
+.file-v .src.vis ::selection { background: transparent; }
+.file-v .src.vis .dl.curl:not(.vsel) { background: none; }

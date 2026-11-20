@@ -15,6 +15,7 @@
   --mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono", Consolas, monospace;
   --mono-w: 350;
   --ease: 120ms ease;
+  --sel: rgba(74, 163, 255, .3);   /* every selection: text, VISUAL, V-LINE rows */
   color-scheme: dark;
 }
 [data-theme="light"] {
@@ -36,7 +37,7 @@ body { background: var(--bg); color: var(--fg); font: 13px/1.45 var(--sans); -we
 button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--line-2); outline-offset: 1px; }
 input:focus-visible, textarea:focus-visible { outline: 0; }
-::selection { background: rgba(74, 163, 255, .3); }
+::selection { background: var(--sel); }
 * { scrollbar-width: thin; scrollbar-color: var(--active) transparent; }
 
 svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.600; stroke-linecap: round; stroke-linejoin: round; }
@@ -88,6 +89,10 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 #side { position: relative; background: var(--side); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
 .side-resize { position: absolute; inset: 0 -4px 0 auto; width: 8px; z-index: 3; cursor: col-resize; touch-action: none; }
 .side-resize:hover::after, .side-resize:active::after { content: ""; position: absolute; inset: 0 3px; background: var(--fg-3); }
+/* the file tree's left edge, the same handle as the sidebar's (ui/resize.ts) */
+.tree-resize { position: relative; flex: none; width: 0; z-index: 3; }
+.tree-resize::before { content: ""; position: absolute; inset: 0 -4px; cursor: col-resize; touch-action: none; }
+.tree-resize:hover::after, .tree-resize:active::after { content: ""; position: absolute; inset: 0 -1px; background: var(--fg-3); }
 .s-top { height: 40px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; }
 .s-nav { padding: 6px 8px 2px; }
 .nav { width: 100%; height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; font-size: 13.500px; transition: background var(--ease); }
@@ -265,6 +270,10 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 /* ---------- chat view ---------- */
 .chat { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .thread { flex: 1; min-height: 0; overflow: auto; padding: 20px 0 12px; }
+/* text running under the composer fades out over the last 36px instead of stopping at a hard edge (the padding keeps
+   the last line clear of it when scrolled to the end); a mask, so it
+   works on any theme's background (the scrollbar fades with it, only there) */
+.chat > .thread { padding-bottom: 36px; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent); }
 .col { width: min(740px, calc(100% - 48px)); margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
 .m-user { align-self: flex-end; max-width: 84%; overflow-wrap: anywhere; margin-top: 12px; padding: 9px 15px; border-radius: 18px; background: var(--bubble); font-size: 14px; line-height: 1.550; }
 .m-user:first-child { margin-top: 0; }
@@ -340,7 +349,7 @@ textarea.vn::selection { background: var(--fg); color: var(--bg); }
 /* nothing to select (empty composer, empty line): the caret itself is the block */
 textarea.vn.hollow { caret-color: var(--fg); caret-shape: block; }
 /* VISUAL in a composer */
-textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit; }
+textarea.vn.vv::selection { background: var(--sel); color: inherit; }
 
 /* side chats: fork a thread at a message; opens as a popup, docks as a tab */
 .m-asst { position: relative; }
@@ -453,7 +462,7 @@ textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit;
 /* reader mode: Vim keys over read-only text; the block cursor is one selected character */
 .vim.vis { background: var(--blue); color: #fff; }
 .rd ::selection { background: var(--fg); color: var(--bg); }
-.rd.rv ::selection { background: rgba(74, 163, 255, .38); color: inherit; }
+.rd.rv ::selection { background: var(--sel); color: inherit; }
 /* the cursor inside a visual selection: the end that moves */
 ::highlight(vcur) { background-color: #ececec; color: #212121; }
 [data-theme="light"] ::highlight(vcur) { background-color: #1a1a1a; color: #ffffff; }
@@ -611,6 +620,7 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .mh { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: 12.500px; }
 .mr { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 7px; color: var(--fg-3); }
 .mr svg.i { width: 14px; height: 14px; }
+.mr .src { font-size: 11px; color: var(--fg-4); }   /* where a / row comes from, while typing (Skein, Skill) */
 /* Composer pickers inherit the same corner sizes as other menus. */
 .menu.composer-menu { border-color: var(--line); box-shadow: 0 3px 14px rgb(0 0 0 / 8%); }
 .composer-menu .mi:not(.head) { min-height: 32px; padding-inline: 10px; }
@@ -730,7 +740,7 @@ body.alt .tx .i-popout { width: 12px; height: 12px; }
 .term input.vn { caret-color: transparent; }
 .term input.vn::selection { background: var(--fg); color: var(--bg); }
 .term input.vn.hollow { caret-color: var(--fg); caret-shape: block; }
-.term input.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit; }
+.term input.vn.vv::selection { background: var(--sel); color: inherit; }
 
 /* subagents: a row per subagent in the thread; each opens its transcript in a popup */
 .ag-list { display: flex; flex-direction: column; margin: 2px 0 6px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
@@ -1026,7 +1036,7 @@ button.cb { padding: 0; border: 0; background: none; color: inherit; cursor: poi
 button.cb.on { background: var(--fg); color: var(--bg); }
 .cbody { flex: 1; min-height: 0; display: flex; }
 .cbody > .tool-b { flex: 1; min-width: 0; }
-.ctree { width: 236px; flex: none; overflow: auto; padding: 4px 8px 12px; border-left: 1px solid var(--line); font-size: 12.500px; }
+.ctree { position: relative; width: var(--tree-width, 236px); flex: none; overflow: auto; padding: 4px 8px 12px; border-left: 1px solid var(--line); font-size: 12.500px; }
 @container (max-width: 620px) { .ctree { display: none; } }
 .tq { height: 28px; display: flex; align-items: center; gap: 6px; margin: 2px 0 6px; padding: 0 8px; border-radius: 7px; background: var(--hover); color: var(--fg-3); }
 .tq input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: inherit; }

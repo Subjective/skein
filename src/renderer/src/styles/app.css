@@ -46,9 +46,9 @@
 /* Vim cursor in a text field: NORMAL draws the one-character selection as a block */
 textarea.vn { caret-color: transparent; }
 textarea.vn::selection { background: var(--fg); color: var(--bg); }
-textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit; }
+textarea.vn.vv::selection { background: var(--sel); color: inherit; }
 /* a menu's search field in VISUAL (NORMAL draws .m-q with .ncur, skein.css) */
-.m-q .mqv { background: rgba(74, 163, 255, .38); }
+.m-q .mqv { background: var(--sel); }
 
 /* Toasts stack under each other */
 .toasts { position: fixed; left: 50%; top: 52px; z-index: 70; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }

@@ -1,5 +1,5 @@
-// A small Markdown renderer for replies: paragraphs, headings, lists, quotes, fenced code, inline code,
-// bold, italics and links. Enough for what agents write; no HTML passes through.
+// A small Markdown renderer for replies: paragraphs, headings, lists, quotes, fenced code, GFM pipe tables, inline
+// code, bold, italics and links. Enough for what agents write; no HTML passes through.
 import { Fragment, type ReactNode } from 'react';
 import { api } from '../../api';
 
@@ -52,6 +52,14 @@ export const Inline = ({ text }: { text: string }) => <>{inline(text)}</>;
 
 /** Each block carries the source lines it came from (`data-ml="first-last"`, 0-based, inclusive; a list item its
  *  own line, a fenced block its fences too) so a linewise yank can copy the Markdown, not the rendering. */
+/** GFM pipe tables: a header row, a separator row (---, :--, --:, :-:), then rows while lines hold a pipe. */
+const SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
+const cells = (l: string) => {
+  const t = l.trim().replace(/^\|/, '').replace(/(?<!\\)\|$/, '');
+  return t.split(/(?<!\\)\|/).map(c => c.trim().replace(/\\\|/g, '|'));
+};
+const isTable = (lines: string[], i: number) => i + 1 < lines.length && lines[i].includes('|') && SEP.test(lines[i + 1]) && lines[i + 1].includes('-');
+
 export function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   const ml = (a: number, b: number) => `${a}-${b}`;
@@ -77,6 +85,22 @@ export function Markdown({ text }: { text: string }) {
       blocks.push(<L key={k++}>{items.map((x, j) => <li key={j} data-ml={ml(a + j, a + j)}>{inline(x)}</li>)}</L>);
       continue;
     }
+    if (isTable(lines, i)) {   // while a reply streams, the header stays a paragraph until its separator row arrives
+      const a = i, head = cells(lines[i]), align = cells(lines[i + 1]).map(c => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : undefined));
+      i += 2;
+      const rows: { cs: string[]; at: number }[] = [];
+      while (i < lines.length && lines[i].trim() && lines[i].includes('|')) { rows.push({ cs: cells(lines[i]), at: i }); i++; }
+      const td = (c: string | undefined, j: number, H: 'th' | 'td') => <H key={j} style={align[j] ? { textAlign: align[j] } : undefined}>{inline(c ?? '')}</H>;
+      blocks.push(
+        <div key={k++} className="tbl" data-ml={ml(a, i - 1)}>
+          <table>
+            <thead><tr data-ml={ml(a, a + 1)}>{head.map((c, j) => td(c, j, 'th'))}</tr></thead>
+            {rows.length > 0 && <tbody>{rows.map(r => <tr key={r.at} data-ml={ml(r.at, r.at)}>{head.map((_, j) => td(r.cs[j], j, 'td'))}</tr>)}</tbody>}
+          </table>
+        </div>,
+      );
+      continue;
+    }
     if (l.startsWith('>')) {
       const q: string[] = [], a = i;
       while (i < lines.length && lines[i].startsWith('>')) q.push(lines[i++].replace(/^>\s?/, ''));
@@ -84,7 +108,7 @@ export function Markdown({ text }: { text: string }) {
       continue;
     }
     const p: string[] = [], a = i;
-    while (i < lines.length && lines[i].trim() && !/^(```|#{1,3}\s|>|\s*([-*]|\d+\.)\s)/.test(lines[i])) p.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() && !/^(```|#{1,3}\s|>|\s*([-*]|\d+\.)\s)/.test(lines[i]) && !(p.length && isTable(lines, i))) p.push(lines[i++]);
     blocks.push(<p key={k++} data-ml={ml(a, i - 1)}>{p.map((x, j) => <Fragment key={j}>{j > 0 && <br />}{inline(x)}</Fragment>)}</p>);
   }
   return <>{blocks}</>;

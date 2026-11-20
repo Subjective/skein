@@ -927,3 +927,28 @@ await test('file: V shades the text, not the gutter, and moves nothing (read and
   assert.ok((await numsShot()).equals(nums), 'the line numbers\' column is not shaded');
   await keys(p, 'Escape');
 });
+
+await test('file: the project tree resizes by dragging its left edge, and keeps the width', async p => {
+  await openReadme(p);
+  if (!(await F(p).locator('.ctree').count())) await F(p).getByRole('button', { name: 'Project files' }).click();
+  const tree = F(p).locator('.ctree'), w0 = (await tree.boundingBox()).width;
+  const h = await F(p).locator('.tree-resize').evaluate(e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; });
+  await p.mouse.move(h.x + h.width / 2, h.y + 40); await p.mouse.down();
+  await p.mouse.move(h.x - 80, h.y + 40, { steps: 4 }); await p.mouse.up();
+  const w1 = (await tree.boundingBox()).width;
+  assert.ok(Math.abs(w1 - (w0 + 80)) <= 2, `wider by the drag (${w0} -> ${w1})`);
+  assert.equal(await p.evaluate(() => localStorage.getItem('skein.treeWidth')), String(Math.round(w1)));
+  await p.mouse.move(h.x - 80, h.y + 40); await p.mouse.down(); await p.mouse.move(h.x + 2000, h.y + 40, { steps: 3 }); await p.mouse.up();
+  assert.ok((await tree.boundingBox()).width >= 160, 'not below the minimum');
+});
+
+await test('file: v and V paint one selection colour; the cursor line is not shaded under a selection', async p => {
+  await openFile(p, 'package.json');
+  await keys(p, 'j Shift+V j');
+  assert.equal(await F(p).locator('.src .vs').count(), 0, 'V shades rows only, not the characters again');
+  assert.ok(await F(p).locator('.src.vis').count(), 'the browser selection is not drawn over it');
+  assert.equal(await F(p).locator('.src .dl.curl').evaluate(r => getComputedStyle(r).backgroundImage.includes('gradient') || getComputedStyle(r).backgroundColor === 'rgba(0, 0, 0, 0)'), true);
+  await keys(p, 'Escape v l');
+  assert.ok(await F(p).locator('.src .vs').count(), 'v paints the characters');
+  assert.equal(await F(p).locator('.src .dl.vsel').count(), 0);
+});

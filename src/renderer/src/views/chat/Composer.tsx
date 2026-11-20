@@ -120,11 +120,14 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const items = useMemo((): MenuItem<string>[] => {
     if (!pop) return [];
     if (pop.kind === 'slash') {
-      // the harness's commands, then the thread's own (side chats, subagents), then its skills under a heading
+      // nothing typed: three sections, the harness's commands, Skein's own (side chats, subagents) and the skills.
+      // Typing: one list of what matches, each row tagged with where it comes from (Josh, 2026-11-20)
       const hit = (c: Slash) => slashHit(c, pop.q) && !(p.bare && c.cmd === '/model');
-      const row = (c: Slash): MenuItem<string> => ({ label: c.cmd, display: c.display, hint: c.hint, icon: <Icon name={c.icon} />, data: c.cmd });
-      const cmds = [...slashes.commands, ...(!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : [])].filter(hit), skills = slashes.skills.filter(hit);
-      return [...cmds.map(row), ...(skills.length ? [{ head: true, label: 'Skills' }, ...skills.map(row)] : [])];
+      const typed = pop.q.replace(/^[/$]/, '') !== '';
+      const row = (tag?: string) => (c: Slash): MenuItem<string> => ({ label: c.cmd, display: c.display, hint: c.hint, icon: <Icon name={c.icon} />, data: c.cmd, ...(typed && tag ? { right: <span className="src">{tag}</span> } : {}) });
+      const cmds = slashes.commands.filter(hit), ours = (!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : []).filter(hit), skills = slashes.skills.filter(hit);
+      const part = (label: string, xs: Slash[], tag?: string): MenuItem<string>[] => (xs.length ? [...(typed ? [] : [{ head: true, label }]), ...xs.map(row(tag))] : []);
+      return [...part(harnessName(h), cmds), ...part('Skein', ours, 'Skein'), ...part('Skills', skills, 'Skill')];
     }
     const base = pop.q.slice(atDir.length).toLowerCase();
     if (files.dir !== atDir) return [];
