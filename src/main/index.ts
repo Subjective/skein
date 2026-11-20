@@ -1,6 +1,7 @@
 // Electron shell: one window, our own menu (so no default accelerator swallows a Vim key, G3), IPC wiring.
 // Everything else lives in src/core and is reached through services.ts.
 import { app, BrowserWindow, ipcMain, Menu, nativeTheme, Notification, shell } from 'electron';
+import { appendFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { API_SHAPE, FIRE_AND_FORGET, type SkeinEvent } from '../shared/api';
@@ -54,10 +55,12 @@ function createWindow() {
   win.once('ready-to-show', () => win?.show());
   // launch check (CI): report when the renderer has drawn, or any error it hits
   if (process.env.SKEIN_LAUNCH_CHECK) {
-    win.webContents.on('console-message', (e) => { const m = (e as unknown as { message: string; level: string }); if (m.level === 'error') console.log('skein: renderer error', m.message); });
+    // stdout from a GUI app is unreliable on Windows, so the result also goes to a file when one is named
+    const say = (s: string) => { console.log(s); const f = process.env.SKEIN_LAUNCH_CHECK_FILE; if (f) appendFileSync(f, s + '\n'); };
+    win.webContents.on('console-message', (e) => { const m = (e as unknown as { message: string; level: string }); if (m.level === 'error') say('skein: renderer error ' + m.message); });
     win.webContents.on('did-finish-load', () => setTimeout(async () => {
       const n = await win?.webContents.executeJavaScript('document.querySelectorAll("#side .s-top").length');
-      console.log(n ? 'skein: ready' : 'skein: renderer error (no sidebar)');
+      say(n ? 'skein: ready' : 'skein: renderer error (no sidebar)');
     }, 1500));
   }
   win.webContents.setWindowOpenHandler(({ url }) => { void shell.openExternal(url); return { action: 'deny' }; });
