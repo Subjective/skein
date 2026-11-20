@@ -35,6 +35,9 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
    current thing: close the menu, cancel the edit, close the popup, leave the field. One press never does
    two of these. In a popup that is `esc` `esc` from typing: NORMAL, then closed, and focus returns to the
    pane the popup was opened from.
+   While a turn runs, `esc` in the composer's NORMAL arms stop first: the send button shows "Esc" for 1.5 s and
+   a second `esc` stops the turn (as the stop button does). When the time runs out nothing stops, and the next
+   `esc` leaves the field as usual. With no turn running, and in INSERT, `esc` is unchanged.
 3. **`j` / `k` move between lines or items. `h` / `l` move within a line.** Where there is nothing to
    move along (a row, a slider, a list item), `h` / `l` fold and unfold it or lower and raise its value.
 4. **`enter` does the main thing to what is under the cursor.** Send, open, pick, toggle.
@@ -46,8 +49,12 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 7. **Edges lead somewhere.** `k` on a field's first line moves into the reader above it, and so do `[[` and `{`
    from a composer (`{` only once there is no blank line above the cursor in the composer itself); `j` past a
    reader's last line returns to the field. Lists stop at their ends; they do not wrap.
-8. **A visual selection stays inside the block it started in** (one message, one tool call's output, one
-   file). Back in NORMAL, `j` / `k` cross blocks again.
+8. **A visual selection stays inside the message it started in.** In a thread that is one whole reply (everything
+   between two of your messages: prose, code blocks, tool rows and their output together) or one of your bubbles;
+   paragraphs, list items and code blocks are not bounds of their own, so text and code select together. In a
+   file it is the file. Inside VISUAL / V-LINE `gg` and `G` go to the start and end of that message and `j` / `k`
+   stop at its edges; a mouse drag is held to the same bound. Back in NORMAL, `j` / `k`, `gg` and `G` cross
+   messages again and span the whole conversation.
 9. **Some things are one unit.** A row in a thread (tool call, subagent, side-chat chip) and a quoted
    selection in a composer take the cursor as a whole: no sideways movement inside, deleted whole.
 10. **The mouse does what the keys do.** Click a field: INSERT at that spot. Click read-only text: the
@@ -88,14 +95,16 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 18. **One register, with the clipboard behind it.** Every field shares one unnamed register, as Vim has one per
     instance, not per buffer: `y`, `d`, `c`, `x` fill it, `p` / `P` (with a count, `3p`) put it, in any field.
     A yank in a reader (the thread, a file, a diff, the scrollback) fills it too, and every yank also goes to the
-    system clipboard. While the register is empty, `p` / `P` put the system clipboard instead, so text copied in
+    system clipboard. In a chat reply `V` then `y` copies the Markdown behind the selected lines (bullets, numbers,
+    emphasis, links and code fences as written; a code block partly covered keeps its fences), while `v` then `y`
+    copies the text as shown. While the register is empty, `p` / `P` put the system clipboard instead, so text copied in
     another app pastes with `p`; clipboard text that ends in a newline goes in as whole lines. There are no named
     registers and no `"+`: the clipboard is only the fallback. Lines put into a one-line field (a menu's search)
     go in as text.
 19. **Every reader takes counts and searches the same way.** A count repeats a motion (`5j`, `3w`, `2}`) and
     `NG` / `Ngg` go to line N (in a diff, the Nth row; in the chat transcript, which has no line numbers, `G`
-    goes to the start of the conversation's last line, just above the composer; `i`, `a`, `esc` or `j` from there
-    go into the composer). Fields take the same counts, before or after an operator (`2d3w`).
+    goes to the conversation's true last line, just above the composer: the last reply's action row when it has
+    one, otherwise the start of the last line; `i`, `a`, `esc` or `j` from there go into the composer). Fields take the same counts, before or after an operator (`2d3w`).
     `/` searches forwards and `?` backwards: a prompt opens (the shared menu, prefix `/` or `?`), typing
     highlights every match in the reader and lists them nearest first, `enter` jumps to the one picked. After
     that `n` repeats the search in its direction and `N` the other way, each with a count; going past an end
@@ -137,12 +146,13 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 | SSH sign-in (passphrase, code) | Field | INSERT | `enter` connects; `esc` NORMAL on the buttons, `esc` again cancels |
 | Composer controls (attach, permissions, model, send; machine, directory) | List | NORMAL | `j` from the text's last line; `h` `l` along, `enter` presses, `k` back to the text |
 | Menu search field | Field | INSERT (NORMAL in menus that open on a pick, like a folder's crumbs) | Typing filters the list. In composer menus, moving the pointer over a result selects it (other menus keep the keyboard's selection under the pointer). Arrow keys continue from that result and Enter or Tab opens it; in NORMAL `space` picks and leaves the menu open; `ctrl-h` / `ctrl-l` are left / right. With nothing to pick, a menu without a search field closes and lets the key through. In NORMAL the field keeps its cursor and is a Field wherever that does not clash with the list: `j` `k` `gg` `G` (with counts) move the list, `enter` picks, `q` / `esc` close; `h` `l` `w` `b` `e` `0` `$` move the field's cursor, `x` `dw` `D` `C` `~` `p` `u` edit it, `i` `a` `I` `A` (and `/`) type again. A menu's own keys come first: a folder field's `h` / `l` go up and into folders, the workspace list's `d` closes a workspace. A menu without a search field keeps `h` / `l` for its items' values (the model picker's effort, rule 3) and `l` picks. |
+| Model picker | Field + list | INSERT | A menu search field over the models. The effort track is a row of its own: `j` past the last model and `k` from the top (wrapping) land on it, and it shows the hovered-row highlight; there `h` / `l` change the effort and `j` / `k` move off it. `h` / `l` (and left / right while typing) change the effort from any row too. `enter` on any row, the effort row included, picks the highlighted model (on the effort row, the current one) with the current effort and closes. The pointer works the track as before (click or drag a stop). |
 | Side chat or subagent popup | Field | INSERT | opens ready to type into its composer |
 | Thread, side chat, subagent, file, diff, scrollback | Reader | NORMAL | entered from the field below, by click, or leader `[`; counts, `/` `?` `n` `N` (rule 19) |
 | Changes (diff + file tree) | Reader + Field | NORMAL | `/` `?` search the diff like any reader; `f` searches the tree, `enter` there goes to the first match; on a file's header `s` stages, `x` reverts (Undo in the toast), `enter` on "N unmodified lines" shows them |
 | Browser tab | Terminal (the page) + Field (address) | NORMAL (a new tab: INSERT in the address) | `i` / `gi` or a click give the page the keys (TERMINAL), `esc` takes them back; while the page has them Skein keeps only rule 11's keys and mod-l. In NORMAL: `r` reload, `[` `]` and `ctrl-o` / `ctrl-i` back and forward, `o` / `ctrl-l` / mod-l the address (`enter` goes, `esc` `esc` puts it back), `j` `k` `ctrl-d` `ctrl-u` `gg` `G` scroll the page, `enter` on an error presses Retry, `H` / `L` tabs |
-| Open file | Reader | NORMAL | `ctrl-o` / `ctrl-i` back and forward through files opened in that tab; the path's folders and the tree switch file in place |
-| Rows inside a thread | List | NORMAL | `l` / `h` unfold / fold; `enter` opens |
+| Open file | Reader | NORMAL | `ctrl-o` / `ctrl-i` back and forward through files opened in that tab; the path's folders and the tree switch file in place. `V` shades the text area of its lines only, never the gutter or line numbers, and only paints: nothing moves or reflows |
+| Rows inside a thread | List | NORMAL | `l` / `h` unfold / fold; `enter` opens. A row of buttons (a request's answers, a reply's copy / fork / side chat row) is one line for `j` / `k` (rule 9); on it `h` / `l` (and `w` / `b`, `0` / `$`) move a ring between its buttons and `enter` or `space` presses the ringed one (rule 16). A reply's action row shows while the cursor is on it, though it otherwise shows on hover; `v` there starts at the reply's last character |
 | Menus, keyboard popup | List | NORMAL | `esc` closes |
 | Settings | List (two: sections, then the section's rows) | NORMAL | The section list has the keys first: `j` / `k` move over sections (the page follows), `l`, `enter` or `tab` go into its rows. In the rows `j` / `k` move, `h` / `l` lower and raise a row's value (a choice, a switch), `enter` presses; `esc`, `shift-tab`, or `h` on a row with no value go back to the sections; `esc` there closes, `q` closes from either. `H` / `L` mean tabs everywhere and do nothing in this dialog. |
 | Folder fields (workspace menu, a machine's +, a new thread's directory) | List + Field | INSERT | known folders and the machines to browse; type a path (`~/...`, `/...`, or in the workspace menu `machine:~/...`) to list that folder; `tab` (or `l` / right in NORMAL) goes into the folder under the cursor (on a row with nothing to go into, `tab` moves on), `h` back up, `enter` chooses it |
