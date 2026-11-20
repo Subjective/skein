@@ -13,7 +13,7 @@ import { openMenu } from '../../shell/overlays';
 import { Menu, type MenuItem } from '../../ui/Menu';
 import { Chip, cx, Icon, IconButton, SendButton } from '../../ui/primitives';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
-import { EFFORTS, effortLabel, HARNESS_SLASH, modelLabel, models, OURS, permLabel, PERMS } from './options';
+import { effortId, effortLabel, efforts, HARNESS_SLASH, modelLabel, models, OURS, permLabel, PERMS } from './options';
 import { saveDraft, syncQuotes, TOK, type Draft } from './state';
 
 export interface ComposerHandle { focus(insert?: boolean): void; caret(): number; field(): VimFieldHandle | null }
@@ -125,8 +125,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // ---- pickers ----
   const choose = (patch: Partial<ThreadMeta>) => { void api.threads.update(props.current.thread.id, patch); };
   const pickModel = (anchor: DOMRect) => {
-    const th = props.current.thread, es = EFFORTS[h];
-    let effort = es.find(e => e.label === effortLabel(h, th.effort))?.id ?? 'medium';
+    const th = props.current.thread, es = efforts(h, th.model);
+    let effort = effortId(th.effort) ?? 'medium';
     const close = openMenu<{ model?: string; effort?: string }>({
       anchor, place: 'top-end', width: 260, className: 'composer-menu', normal: true,
       items: [
@@ -144,7 +144,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   };
   const pickPerm = (anchor: DOMRect) => openMenu<string>({
     anchor, place: 'top-start', width: 220, className: 'composer-menu', normal: true,
-    items: PERMS[h].map(o => ({ label: o.label, icon: <Icon name="shield" />, on: permLabel(h, p.thread.perm) === o.label, data: o.id })),
+    items: PERMS[h].map(o => ({ label: o.label, hint: o.hint, icon: <Icon name="shield" />, on: permLabel(h, p.thread.perm) === o.label, data: o.id })),
     onPick: it => choose({ perm: it.data }),
   });
 
@@ -223,7 +223,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <IconButton icon="plus" label="Attach image" onClick={() => file.current?.click()} />
         {!p.bare && <Chip icon="shield" label={<span className="lbl">{permLabel(h, th.perm)}</span>} title="Permissions" onClick={e => pickPerm(e.currentTarget.getBoundingClientRect())} />}
         <span className="sp" />
-        {!p.bare && <Chip icon={h} caret title="Model and effort" label={<>{modelLabel(h, th.model)} <span className="lbl dim">{effortLabel(h, th.effort)}</span></>} onClick={e => pickModel(e.currentTarget.getBoundingClientRect())} />}
+        {!p.bare && <Chip icon={h} caret title="Model and effort" label={<>{modelLabel(h, th.model)} <span className="lbl dim">{effortLabel(th.effort)}</span></>} onClick={e => pickModel(e.currentTarget.getBoundingClientRect())} />}
         {p.showContext && ctx != null && <span className="ib ctx" role="img" aria-label={`Context: ${ctx}% used`} title={`Context: ${ctx}% used, ${100 - ctx}% left`}><span className="ring" style={{ ['--p' as string]: ctx }} /></span>}
         <SendButton stop={p.running && !hasText} disabled={!p.running && !hasText} onClick={() => (p.running && !hasText ? p.onStop?.() : p.onSend())} />
       </div>
