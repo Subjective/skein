@@ -96,7 +96,7 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
   const surfaceRef = useRef(surface); surfaceRef.current = surface;
   const proxy: Surface = { kind: 'field', mode: () => surfaceRef.current.mode(), key: (k, e) => surfaceRef.current.key(k, e), imap: f => surfaceRef.current.imap!(f) };
 
-  const own = () => { const un = registerTab(props.current.tabId, proxy); unreg.current?.(); unreg.current = un; update(x => { x.tick++; }); };
+  const own = () => { unreg.current?.(); unreg.current = registerTab(props.current.tabId, proxy); update(x => { x.tick++; }); };
   const unreg = useRef<(() => void) | null>(null);
   useEffect(() => () => unreg.current?.(), []);
 
