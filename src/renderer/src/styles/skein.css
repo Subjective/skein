@@ -635,6 +635,9 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .menu.cmd .ml, .menu.cmd .m-s input { font: 12.500px var(--mono); }
 .menu.cmd .ml { min-width: 64px; }
 .menu.cmd .m-s { order: 2; margin: 5px 0 0; padding: 9px 9px 5px; border-bottom: 0; border-top: 1px solid var(--line); }
+.mach .ml { display: inline-flex; align-items: center; gap: 7px; }
+.mach .mn { overflow: hidden; text-overflow: ellipsis; }
+.mach .ml .dot { flex: none; }
 .mach .has { display: grid; }
 .mach .has svg.i { width: 13px; height: 13px; color: var(--fg-2); }
 .mach .has svg.i-claude { color: var(--claude); }
