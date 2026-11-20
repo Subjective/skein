@@ -28,7 +28,8 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
 
 - Metadata store is `node:sqlite` (built into Electron's Node), so there is no native database module to compile.
 - node-pty 1.1 ships prebuilt binaries for Windows and macOS, so Windows needs no Visual Studio Build Tools.
-- Threads open in the terminal view by default (Settings > General) until the chat view is complete.
+- Threads open in the chat view by default (Settings > General switches to the terminal). Claude Code: chat drives
+  through the Agent SDK; showing the terminal hands the session over. Codex: both views attach to one app-server.
 - Claude Code threads get their session id up front (`--session-id`), and the terminal resumes it if the
   transcript exists, so a thread knows its session before the first turn.
 - A new thread's first prompt is passed on the TUI's command line.

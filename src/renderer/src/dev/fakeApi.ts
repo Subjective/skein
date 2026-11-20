@@ -28,7 +28,7 @@ threads.push(...extraThreads(T));
 Object.assign(threads[0], { model: 'opus', effort: 'medium', perm: 'acceptEdits', ctx: 38, branch: 'fix/restore-race' });
 Object.assign(threads[6], { drive: 'term' });
 const chat = fakeChat(emit, threads);
-let settings: Settings = { theme: 'dark', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'term', notify: 'waiting', vimrc: '" Skein vimrc\n\ninoremap jk <Esc>\n' };
+let settings: Settings = { theme: 'dark', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'chat', notify: 'waiting', vimrc: '" Skein vimrc\n\ninoremap jk <Esc>\n' };
 const kv = new Map<string, unknown>();
 let ptyN = 0;
 const lines = new Map<string, string>();

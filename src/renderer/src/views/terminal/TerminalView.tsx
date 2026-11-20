@@ -15,7 +15,8 @@ import type { Surface } from '../../input/dispatcher';
 import { keyOf } from '../../input/keys';
 import { registerTab } from '../../input/surfaces';
 import type { Tab } from '../../state/layout';
-import { S, update } from '../../state/store';
+import { machine, S, update } from '../../state/store';
+import { LinkNote } from '../../ui/LinkNote';
 import { discardUpload, pasteClipboard, pasteImage, uploads } from './paste';
 import { OS } from '../../input/platform';
 import { Button, Icon } from '../../ui/primitives';
@@ -155,6 +156,7 @@ export function TerminalView({ t, focused, spec }: { t: Tab; focused: boolean; s
   return (
     <div className="term-wrap">
       <div className="term-host" ref={host} onMouseDown={() => setTimeout(() => cache.get(t.id)?.term.focus(), 0)} />
+      <LinkNote machine={machine(t.machine || 'local')} variant="term" />
       <UploadCard tabId={t.id} />
       {e && e.exited !== undefined && e.exited !== -1 && (
         <div className="t-exit kbrow"><span>Process exited{e.exited ? ` with code ${e.exited}` : ''}</span><span className="sp" /><Button small variant="primary" onClick={() => { e.term.reset(); void startPty(e); }}>Restart</Button></div>

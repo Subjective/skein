@@ -21,7 +21,7 @@ inoremap jk <Esc>
 `;
 
 export const DEFAULT_SETTINGS: Settings = {
-  theme: 'system', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'term', notify: 'waiting', vimrc: DEFAULT_VIMRC,
+  theme: 'system', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'chat', notify: 'waiting', vimrc: DEFAULT_VIMRC,
 };
 
 export interface ShellHooks {
@@ -79,7 +79,13 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
     threads: {
       list: async () => threads.list(),
       discover: async m => threads.discover(m, m === 'local' ? undefined : machines.get(m)),
-      create: async spec => threads.create(spec),
+      create: async spec => {
+        const t = threads.create(spec);
+        if (!harnesses.start) return t;
+        // Codex: the thread exists on the app-server before either view opens, so both views share one session id
+        try { const s = await harnesses.start(t, host); return s.sessionId && s.sessionId !== t.sessionId ? threads.update(t.id, { sessionId: s.sessionId }) : t; }
+        catch (e) { log('chat', 'start failed', (e as Error).message); return t; }
+      },
       update: async (id, patch) => threads.update(id, patch),
       history: async id => { const t = threads.get(id); return harnesses.history(t, M(t.machine)); },
     },
@@ -93,7 +99,15 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       },
     },
     pty: {
-      spawn: async spec => ptys.spawn(spec),
+      spawn: async spec => {
+        // a Codex thread's terminal attaches to the app-server the chat view drives (one live session, G4)
+        const t = spec.thread ? threads.list().find(x => x.id === spec.thread) : undefined;
+        if (t && spec.run.kind === 'codex' && harnesses.attach) {
+          const a = await harnesses.attach(t).catch(() => null);
+          if (a) return ptys.spawn({ ...spec, run: { kind: 'codex', args: [...a.args, ...(spec.run.args || [])] } }, a.env);
+        }
+        return ptys.spawn(spec);
+      },
       write: (id, data) => ptys.write(id, data),
       resize: (id, c, r) => ptys.resize(id, c, r),
       kill: id => ptys.kill(id),

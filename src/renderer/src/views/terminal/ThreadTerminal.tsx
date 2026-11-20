@@ -6,7 +6,8 @@ import { useEffect } from 'react';
 import type { PtySpec } from '@shared/api';
 import { api } from '../../api';
 import type { Tab } from '../../state/layout';
-import { thread, update } from '../../state/store';
+import { machine, thread, update } from '../../state/store';
+import { LinkNote } from '../../ui/LinkNote';
 import * as A from '../../state/actions';
 import { Button, Icon, Spinner } from '../../ui/primitives';
 import { harnessName } from '../../shell/meta';
@@ -78,6 +79,7 @@ export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
   return (
     <div className="term-wrap">
       <div className="term-host" ref={host} />
+      <LinkNote machine={machine(th.machine)} variant="term" />
       <UploadCard tabId={t.id} />
       {exited && (
         <div className="t-exit kbrow">

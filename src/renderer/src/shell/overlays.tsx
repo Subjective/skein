@@ -141,7 +141,7 @@ function Settings({ close }: { close: () => void }) {
   const sections: [string, string, Row[]][] = [
     ['General', 'sliders', [
       { label: 'Theme', seg: [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], get: () => s.settings.theme, set: v => setSetting({ theme: v as never }) },
-      { label: 'Threads open as', desc: 'You can switch any tab between the two', seg: [['term', 'Terminal'], ['chat', 'Chat']], get: () => s.settings.defaultView, set: v => setSetting({ defaultView: v as never }) },
+      { label: 'Threads open as', desc: 'You can switch any tab between the two', seg: [['chat', 'Chat'], ['term', 'Terminal']], get: () => s.settings.defaultView, set: v => setSetting({ defaultView: v as never }) },
       { label: 'Sidebar', seg: [['grouped', 'By machine'], ['recent', 'Most recent']], get: () => s.settings.sideView, set: v => setSetting({ sideView: v as never }) },
     ]],
     ['Vim', 'keyboard', [

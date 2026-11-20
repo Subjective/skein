@@ -86,17 +86,17 @@ const expand = (p?: string) => {
 /** How the terminal manager follows an SSH link: report a drop, wait for the link to come back. */
 export interface PtyLink { whenUp(machine: string): Promise<unknown> }
 
-interface Live { spec: PtySpec; term?: IPty; kept: boolean; closed: boolean }
+interface Live { spec: PtySpec; env: Record<string, string>; term?: IPty; kept: boolean; closed: boolean }
 
 export class Ptys {
   private ptys = new Map<string, Live>();
   private n = 0;
   constructor(private machine: (id: string) => Machine, private link?: PtyLink) {}
 
-  spawn(spec: PtySpec): string {
+  spawn(spec: PtySpec, env: Record<string, string> = {}): string {
     if (!ptyMod) throw new Error(`Terminals are unavailable: node-pty did not load (${ptyError}). Run pnpm doctor.`);
     const id = 'pty' + ++this.n;
-    const live: Live = { spec: { ...spec }, kept: false, closed: false };
+    const live: Live = { spec: { ...spec }, env, kept: false, closed: false };
     this.start(id, live);
     this.ptys.set(id, live);
     return id;
@@ -108,7 +108,7 @@ export class Ptys {
     live.kept = !!p.kept;
     const term = ptyMod!.spawn(p.file, p.args, {
       name: 'xterm-256color', cols: live.spec.cols || 80, rows: live.spec.rows || 24, cwd: p.cwd || homedir(),
-      env: { ...process.env, ...TERM_ENV, ...(p.env || {}) } as Record<string, string>,
+      env: { ...process.env, ...TERM_ENV, ...(p.env || {}), ...live.env } as Record<string, string>,
       useConpty: true,
     });
     live.term = term;
