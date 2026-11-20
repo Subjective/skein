@@ -162,6 +162,33 @@ await test('edit from the reader: x on your message edits it in NORMAL', async p
   assert.equal(await mode(p), 'NORMAL');
 });
 
+await test('edit from the reader and a double-click: the cursor lands on the same character in the Markdown source', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).fill('Intro line\n- **bold** item');
+  await composer(p).press('Enter');
+  const mine = p.locator('.pane.focus .m-user', { hasText: 'Intro line' });
+  await mine.waitFor();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .live'));
+  await composer(p).press('Escape');
+  await p.keyboard.press('['); await p.keyboard.press('['); await settle(p);
+  await p.keyboard.press('j'); await p.keyboard.press('0'); await settle(p);
+  await p.keyboard.press('x');
+  const box = p.locator('.pane.focus .m-edit textarea');
+  await box.waitFor();
+  await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'NORMAL' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
+  assert.equal(await box.inputValue(), 'Intro line\n- **old** item', 'x took the b, past the bullet and the stars');
+  await p.keyboard.press('Escape');
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
+  // a double-click on "item" selects that word in the edit box
+  const li = mine.locator('li');
+  const at = await li.evaluate(el => { const t = el.lastChild; const r = document.createRange(); const i = t.textContent.indexOf('item'); r.setStart(t, i + 1); r.setEnd(t, i + 2); const b = r.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+  await p.mouse.dblclick(at.x, at.y);
+  await box.waitFor();
+  await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'VISUAL', null, { timeout: 2000 }).catch(() => {});
+  const [a, z] = await box.evaluate(el => [el.selectionStart, el.selectionEnd]);
+  assert.equal('Intro line\n- **bold** item'.slice(a, z), 'item');
+});
+
 await test('error row: Retry now retries the turn', async p => {
   await openChat(p, 'Bump lockfile to fix CI');
   const err = p.locator('.pane.focus .err-row', { hasText: 'Rate limit reached' });

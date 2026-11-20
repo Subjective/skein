@@ -20,7 +20,7 @@ import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, sav
 import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, quoteToTab, registerChatTab, subList } from './threads';
 import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
-import { shownToRaw } from './markdown';
+import { rawAt } from './markdown';
 import { recentMouse } from '../../ui/VimField';
 import './chat.css';
 
@@ -213,8 +213,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     requestAnimationFrame(() => {
       const f = editor.current?.field(); if (!f) return;
       if (offset === undefined) { f.focus(true); return; }
-      // the reader counted rendered characters: map past the Markdown marks (` ** * [label](url)) to the raw text
-      const raw = f.state().text, map = shownToRaw(raw), at = map[Math.min(offset, map.length - 1)] ?? raw.length;
+      const raw = f.state().text, at = offset;   // an offset in the raw text (rawAt)
       // NORMAL never rests past the end of a line (the mockup's Vim.block)
       let pos = Math.min(at, raw.length);
       if (pos > 0 && (pos === raw.length || raw[pos] === '\n') && raw[pos - 1] !== '\n') pos--;
@@ -231,7 +230,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
       const own = e.detail === 1 && (e.target as Element | null)?.closest?.('.m-user.can-edit .mt');
       if (own) {   // note where a click on your own message was: it opens the edit box under the pointer
         const c = document.caretRangeFromPoint?.(e.clientX, e.clientY); let off = 0;
-        if (c && own.contains(c.startContainer)) { const r = document.createRange(); r.setStart(own, 0); r.setEnd(c.startContainer, c.startOffset); off = r.toString().length; }
+        if (c && own.contains(c.startContainer)) off = rawAt(own, (own as HTMLElement).dataset.md ?? '', c.startContainer, c.startOffset);
         bubble.current = { x: e.clientX, y: e.clientY, off, t: Date.now() }; return;
       }
       const b = bubble.current;
@@ -245,7 +244,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     };
     const pick = (b: { off: number }, detail: number) => {
       const f = editor.current?.field(); if (!f) return;
-      const raw = f.state().text, map = shownToRaw(raw), at = Math.min(map[Math.min(b.off, map.length - 1)] ?? raw.length, Math.max(0, raw.length - 1));
+      const raw = f.state().text, at = Math.min(b.off, Math.max(0, raw.length - 1));
       let a = at, z = at;
       if (detail >= 3) { a = raw.lastIndexOf('\n', at - 1) + 1; z = raw.indexOf('\n', at); if (z < 0) z = raw.length; z = Math.max(a, z - 1); }
       else { const w = /[\p{L}\p{N}_]/u; if (w.test(raw[at] || '')) { while (a > 0 && w.test(raw[a - 1])) a--; while (z < raw.length - 1 && w.test(raw[z + 1])) z++; } }

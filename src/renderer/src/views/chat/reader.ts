@@ -16,7 +16,7 @@ import { yank } from '../../input/register';
 import { registerTab } from '../../input/surfaces';
 import { update } from '../../state/store';
 import { ReaderSearch } from '../../ui/search';
-import { rawLines } from './markdown';
+import { rawAt, rawLines } from './markdown';
 
 /** Keys a count repeats. */
 const COUNTED = new Set(['h', 'l', 'w', 'b', 'e', 'j', 'k', '{', '}', 'left', 'right', 'up', 'down']);
@@ -400,9 +400,8 @@ export class Reader {
     // on one of your messages, an editing key edits it (edit and resend)
     const mine = this.mode === 'n' && !this.row ? f.n.parentElement?.closest<HTMLElement>('.m-user.can-edit[data-ev]') : null;
     if (mine && ['i', 'a', 'I', 'A', 'c', 'C', 'd', 'D', 'x'].includes(k)) {
-      const box = mine.querySelector(':scope > .mt') || mine, pre = document.createRange(); pre.selectNodeContents(box);
-      if (box.contains(f.n)) pre.setEnd(f.n, f.o);
-      const offset = pre.toString().length;
+      const box = mine.querySelector<HTMLElement>(':scope > .mt') || mine;
+      const offset = box.contains(f.n) ? rawAt(box, box.dataset.md ?? box.textContent ?? '', f.n, f.o) : 0;
       this.clear(); getSelection()?.removeAllRanges();
       this.host.edit(mine.dataset.ev!, offset, k);
       return true;

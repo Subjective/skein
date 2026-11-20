@@ -26,32 +26,6 @@ function inline(s: string, key = 0): ReactNode[] {
   return out;
 }
 
-/** For each character `inline` shows, its index in the Markdown it came from (plus one past the end), so a
- *  cursor in a rendered message lands on the same character in the raw text (editing from the reader). */
-export function shownToRaw(s: string, base = 0): number[] {
-  const out: number[] = [];
-  const re = /(`[^`]+`)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(\[[^\]]+\]\([^)\s]+\))|(⁣[^⁣]*⁣)/g;
-  let last = 0, m: RegExpExecArray | null;
-  while ((m = re.exec(s))) {
-    for (let i = last; i < m.index; i++) out.push(base + i);
-    const t = m[0], at = base + m.index;
-    if (m[1]) for (let i = 1; i < t.length - 1; i++) out.push(at + i);
-    else if (m[2]) out.push(...shownToRaw(t.slice(2, -2), at + 2).slice(0, -1));
-    else if (m[3]) out.push(...shownToRaw(t.slice(1, -1), at + 1).slice(0, -1));
-    else if (m[4]) { const label = /^\[([^\]]+)\]/.exec(t)![1]; out.push(...shownToRaw(label, at + 1).slice(0, -1)); }
-    else for (let i = 0; i < t.length; i++) out.push(at + i);
-    last = m.index + t.length;
-  }
-  for (let i = last; i < s.length; i++) out.push(base + i);
-  out.push(base + s.length);
-  return out;
-}
-
-/** Inline Markdown only (your own messages). */
-export const Inline = ({ text }: { text: string }) => <>{inline(text)}</>;
-
-/** Each block carries the source lines it came from (`data-ml="first-last"`, 0-based, inclusive; a list item its
- *  own line, a fenced block its fences too) so a linewise yank can copy the Markdown, not the rendering. */
 /** GFM pipe tables: a header row, a separator row (---, :--, --:, :-:), then rows while lines hold a pipe. */
 const SEP = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/;
 const cells = (l: string) => {
@@ -60,6 +34,8 @@ const cells = (l: string) => {
 };
 const isTable = (lines: string[], i: number) => i + 1 < lines.length && lines[i].includes('|') && SEP.test(lines[i + 1]) && lines[i + 1].includes('-');
 
+/** Each block carries the source lines it came from (`data-ml="first-last"`, 0-based, inclusive; a list item its
+ *  own line, a fenced block its fences too) so a linewise yank can copy the Markdown, not the rendering. */
 export function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   const ml = (a: number, b: number) => `${a}-${b}`;
@@ -135,4 +111,31 @@ export function rawLines(el: Element, md: string, range: Range): string | null {
   const lo = Math.min(...keep), hi = Math.max(...keep), out: string[] = [];
   for (let j = lo; j <= hi; j++) if (keep.has(j) || !raw[j]?.trim()) out.push(raw[j] ?? '');
   return out.join('\n');
+}
+
+/** The offset in `md` (the source of `el`, rendered by Markdown) of the rendered point (`node`, `off`): the block
+ *  the point is in gives its first source line, and the rendered text before the point is matched char by char
+ *  against the source from there, passing over what the source has and the page doesn't (marks, bullets, pipes,
+ *  line breaks). */
+export function rawAt(el: Element, md: string, node: Node, off: number): number {
+  const src = md.replace(/\r\n/g, '\n');
+  const blk = (node.nodeType === 1 ? node as Element : node.parentElement)?.closest<HTMLElement>('[data-ml]');
+  const host = blk && el.contains(blk) ? blk : el;
+  const [a, z] = (host as HTMLElement).dataset?.ml ? (host as HTMLElement).dataset.ml!.split('-').map(Number) : [0, Infinity];
+  const starts = [0]; for (let i = 0; i < src.length; i++) if (src[i] === '\n') starts.push(i + 1);
+  let j = starts[Math.min(a, starts.length - 1)];
+  const end = z + 1 < starts.length ? starts[z + 1] - 1 : src.length;
+  const r = document.createRange(); r.selectNodeContents(host);
+  if (host.contains(node)) r.setEnd(node, off);
+  if (host.hasAttribute('data-fence')) j = Math.min(end, src.indexOf('\n', j) + 1 || end);   // past the opening fence
+  for (const ch of r.toString()) {
+    let k = j; while (k < end && src[k] !== ch) k++;
+    if (k < end) j = k + 1;
+  }
+  // rest on the character the page shows at the point, past marks just before it
+  const rest = document.createRange(); rest.selectNodeContents(host);
+  if (host.contains(node)) rest.setStart(node, off);
+  const next = rest.toString()[0];
+  if (next) { let k = j; while (k < end && src[k] !== next) k++; if (k < end) j = k; }
+  return Math.min(j, src.length);
 }
