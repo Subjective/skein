@@ -140,14 +140,17 @@ export class Ptys {
     l.spec.cols = Math.max(2, cols); l.spec.rows = Math.max(1, rows);
     try { l.term?.resize(l.spec.cols, l.spec.rows); } catch { /* exited */ }
   }
-  /** Close on purpose: the program ends, including a persistent remote session. */
-  kill(id: string) {
-    const l = this.ptys.get(id); if (!l) return;
+  /** Close on purpose: the program ends, including a persistent remote session. Resolves once that is gone. */
+  kill(id: string): Promise<void> {
+    const l = this.ptys.get(id); if (!l) return Promise.resolve();
     l.closed = true; this.ptys.delete(id);
     try { l.term?.kill(); } catch { /* gone */ }
     const m = this.machine(l.spec.machine);
-    if (l.kept && m.persist && l.spec.thread) void run(m, killLine(l.spec.thread, m.persist)).catch(() => undefined);
+    if (l.kept && m.persist && l.spec.thread) return run(m, killLine(l.spec.thread, m.persist)).then(() => undefined, () => undefined);
+    return Promise.resolve();
   }
+  /** Close every terminal tied to a thread (it is moving). */
+  async killThread(thread: string) { await Promise.all([...this.ptys].filter(([, l]) => l.spec.thread === thread).map(([id]) => this.kill(id))); }
   /** App quit: let persistent remote sessions keep running, so a turn survives restarting Skein. */
   killAll() { for (const [id, l] of [...this.ptys]) { l.closed = true; this.ptys.delete(id); try { l.term?.kill(); } catch { /* gone */ } } }
 }

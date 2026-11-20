@@ -29,6 +29,8 @@ export interface Harnesses {
   /** How the terminal view joins the session the chat view drives: Codex TUI args (`codex ...args`) and env
    *  for a local thread, attached to the same app-server. null: run the TUI on its own (`codex resume <id>`). */
   attach?(t: ThreadMeta): Promise<{ args: string[]; env: Record<string, string> } | null>;
+  /** Drop whatever is kept for this thread (it moved): the next driver or attach starts from its record. */
+  forget?(threadId: string): void;
   dispose?(): void;
 }
 

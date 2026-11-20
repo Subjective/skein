@@ -87,7 +87,7 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 |---|---|---|---|
 | Composer, edit box | Field | INSERT | `enter` sends from INSERT or NORMAL |
 | Terminal (TUI or shell) | Terminal | TERMINAL | rule 11; leader `[` for its scrollback |
-| Mirror bar, handoff card, upload error, SSH dialog buttons | List (one row) | NORMAL | rule 16 |
+| Mirror bar, handoff card, upload error, SSH dialog buttons, move dialog | List (one row) | NORMAL | rule 16 |
 | SSH sign-in (passphrase, code) | Field | INSERT | `enter` connects; `esc` NORMAL on the buttons, `esc` again cancels |
 | Composer controls (attach, permissions, model, send; machine, directory) | List | NORMAL | `j` from the text's last line; `h` `l` along, `enter` presses, `k` back to the text |
 | Menu search field | Field | INSERT for model, subagent, and side chat searches | Typing filters the list. In composer menus, moving the pointer over a result selects it. Arrow keys continue from that result and Enter opens it. |
@@ -98,7 +98,7 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 | Rows inside a thread | List | NORMAL | `l` / `h` unfold / fold; `enter` opens |
 | Menus, settings, keyboard popup | List | NORMAL | `esc` closes |
 | Folder fields (workspace menu, a new thread's directory) | List + Field | INSERT | type a path to list that folder; `tab` (or `l` in NORMAL) goes into the folder under the cursor, `h` back up, `enter` chooses it |
-| Sidebar | List (a pane) | NORMAL | leader `h` / `alt-h` from the leftmost pane focuses it (opening it if hidden); `j` `k` move over sections, projects and threads; `h` / `l` fold and unfold (`h` on a thread goes to its project); `enter` / `o` opens in the last pane, `shift-enter` / `O` in a split; `c` new thread in the project, `p` pin, `x` archive, `m` move to another project or machine; `l`, leader `l` or `esc` back to the panes |
+| Sidebar | List (a pane) | NORMAL | leader `h` / `alt-h` from the leftmost pane focuses it (opening it if hidden); `j` `k` move over sections, projects and threads; `h` / `l` fold and unfold (`h` on a thread goes to its project); `enter` / `o` opens in the last pane, `shift-enter` / `O` in a split; `c` new thread in the project, `p` pin, `x` archive, `m` move to another project or machine (a menu of projects on every machine plus Other folder…, then a confirm dialog whose buttons are a row, rule 16; the mouse drags the row onto a project or a machine heading); `l`, leader `l` or `esc` back to the panes |
 | Workspaces (a whole layout per project) | Layout | any | `ctrl-tab` most recent first, release to switch; leader `w` or `:workspace` to search, create, rename (`r`), close (`d`) |
 | Panes, tabs, popups | Layout | any | `\|` `\` split, `H` `L` tabs, leader for the rest. `ctrl-o` from a popup goes back to the pane it came from, leaving it open; `ctrl-i` goes forward to it again |
 

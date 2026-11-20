@@ -41,6 +41,15 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   The bell, OSC 9 and OSC 777 mark the thread as waiting and post a desktop notification when it isn't on screen.
 - File search (`mod-p`) searches the focused tab's folder with `git ls-files` (a capped walk outside a repo).
 - Dragging a tab: onto a tab bar moves it, onto a pane's edge splits, outside every pane pops it out.
+- Moving a thread (`m` in the sidebar, or drag its row onto a project or a machine heading) is built in
+  `src/core/move.ts` and `shell/move.tsx`. Idle threads only: a running one, or one waiting on you, is refused with
+  the reason (it does not wait for the turn), and so are an offline machine and one without the harness CLI. The
+  chat driver lets go and the thread's terminals close first, then reopen at the new place. Claude Code: the
+  transcript (and its `<id>/` folder) is copied into `~/.claude/projects/<slug of the new folder>/`, on the same
+  machine too, because the CLI only resumes transcripts of its cwd's project. Codex: nothing is copied on the same
+  machine (each turn sends the thread's cwd); another machine gets the rollout at the same `sessions/YYYY/MM/DD/`
+  path. Across machines, files go over SSH (text through `core/files`, folders as a tar stream). Originals are
+  never deleted or archived, and code does not move (conversation only). The toast's Undo moves it back.
 
 ## Read first
 
@@ -124,8 +133,9 @@ URL parameters: `scene`, `theme=dark|light`, `side=grouped|recent`, `vim=on|off`
 - **Timeline preview**: a tick shows the message and the reply's first prose (or its first step, or Working…).
 - **The sidebar is a pane** (owner, 2026-11-20): leader h / alt-h from the leftmost pane focuses it; keys in
   VIM-MODEL section 4. A subagent popup opens in INSERT, like a side chat.
-- **Moving a thread** (proposed 2026-11-20, mocked; feasibility in the tech spike doc): drag a thread onto a project or
-  machine heading, or `m` in the sidebar. Idle only (a running one waits for its turn to end). Same machine: resume
+- **Moving a thread** (proposed 2026-11-20, mocked; feasibility in the tech spike doc; built without the code choice,
+  see "Decisions made during the build"): drag a thread onto a project or
+  machine heading, or `m` in the sidebar. Idle only (a running one is refused with the reason). Same machine: resume
   from the new folder, nothing copied. Other machine: check the CLI there, copy the session (Claude: `<id>.jsonl` and
   its `<id>/` folder; Codex: the rollout file, resumed with path and cwd), first turn carries a "moved from" note.
   Code choice: conversation only, bring changes (same repo and commit; commits as a bundle, the rest as a patch), or

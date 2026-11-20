@@ -66,7 +66,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
       if (nm && nm.has.length && !nm.has.includes(harnessOf(t))) { const other = nm.has[0]; update(() => { t.model = `${other}:`; }); toast(`${nm.name} has ${harnessName(other)} only, so the thread will use it`); }
     },
   });
-  const pickDir = (el: HTMLElement) => dirMenu(t, el);
+  const pickDir = (el: HTMLElement) => dirMenu(t, el, d => { update(() => { t.dir = d; }); A.save(); });
   const open = (kind: 'shell' | 'changes' | 'files') => update(x => { Object.assign(t, mkTab(kind, { machine: t.machine, dir: t.dir }), { id: t.id }); x.tick++; });
 
   return (
@@ -95,8 +95,10 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
 /** Extra command-line arguments for a thread's first launch (model, first prompt). Read once. */
 export const pendingArgs = new Map<string, string[]>();
 
-/** Folder picker: type a path to list it; tab (or l) goes in, h goes up, enter picks. */
-export function dirMenu(t: Tab, el: HTMLElement) {
+/** Folder picker on a machine, starting at `at.dir`: type a path to list it; tab (or l) goes in, h goes up,
+ *  enter picks. A new thread's folder and moving a thread both use it. */
+export function dirMenu(at: { machine?: string; dir?: string }, el: HTMLElement, pick: (dir: string) => void, o: { placeholder?: string } = {}) {
+  const t = at;
   let cwd = t.dir || '~';
   let entries: { name: string; dir: boolean }[] = [];
   const close = { fn: () => {} };
@@ -105,10 +107,10 @@ export function dirMenu(t: Tab, el: HTMLElement) {
     await load(cwd);
     close.fn();
     close.fn = openMenu<string>({
-      anchor: el.getBoundingClientRect(), place: 'bottom-start', width: 380, search: { placeholder: 'Folder', value: '' }, keep: false,
+      anchor: el.getBoundingClientRect(), place: 'bottom-start', width: 380, search: { placeholder: o.placeholder || 'Folder', value: '' }, keep: false,
       items: [{ label: cwd, icon: <Icon name="check" />, hint: 'Use this folder', data: '.' }, { label: '..', icon: <Icon name="folder" />, data: '..' }, ...entries.map(e => ({ label: e.name, icon: <Icon name="folder" />, data: e.name }))],
       onPick: it => {
-        if (it.data === '.') { update(() => { t.dir = cwd; }); A.save(); return; }
+        if (it.data === '.') { pick(cwd); return; }
         cwd = it.data === '..' ? (cwd.replace(/[\\/][^\\/]+[\\/]?$/, '') || '/') : `${cwd.replace(/[\\/]$/, '')}/${it.data}`;
         void show();
       },

@@ -147,6 +147,10 @@ export interface SkeinApi {
     update(id: string, patch: Partial<ThreadMeta>): Promise<ThreadMeta>;
     /** Full history, normalized. */
     history(id: string): Promise<ThreadEvent[]>;
+    /** Move an idle thread to another folder, on this machine or another (HANDOFF "Moving a thread"). Its
+     *  terminals close and its chat driver lets go first; the session file is copied where the harness will
+     *  look for it (the original stays). Rejects with the reason when it can't move. */
+    move(id: string, machine: string, dir: string): Promise<ThreadMeta>;
   };
   chat: {
     send(thread: string, msg: ChatSend): Promise<void>;
@@ -214,7 +218,7 @@ export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
   app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'notify'],
   machines: ['list', 'add', 'remove', 'connect', 'answer', 'sshHosts'],
   fs: ['list', 'read', 'write', 'resolve', 'find'],
-  threads: ['list', 'discover', 'create', 'update', 'history'],
+  threads: ['list', 'discover', 'create', 'update', 'history', 'move'],
   chat: ['send', 'interrupt', 'answer', 'drive'],
   pty: ['spawn', 'write', 'resize', 'kill'],
   images: ['toInbox'],
