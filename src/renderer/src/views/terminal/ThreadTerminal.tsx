@@ -13,16 +13,14 @@ import { Button, Icon, Spinner } from '../../ui/primitives';
 import { harnessName } from '../../shell/meta';
 import { startPty, termOf, UploadCard, useTerminal } from './TerminalView';
 import { pendingArgs } from '../../shell/Launcher';
+import { SPIN, titleRunning } from './title';
 
 
 const takeArgs = (id: string) => { const a = pendingArgs.get(id); return a?.length ? a : undefined; };
 
-// A TUI's terminal title tells us two things: what the thread is about (Claude Code titles the terminal
-// with a summary) and whether it is working (a spinner glyph in front). Codex prints its own title too.
-const SPIN = /^[\u2800-\u28ff\u2730-\u273f\u00b7*✳✻✽✶✢·◐◓◑◒⠁-⣿]\s*/;
 function onTitle(id: string, raw: string) {
   const th = thread(id); if (!th) return;
-  const running = SPIN.test(raw);
+  const running = titleRunning(raw);
   const title = raw.replace(SPIN, '').replace(/^(Claude Code|Codex)\s*[-–—:]?\s*/i, '').trim();
   const patch: Partial<typeof th> = {};
   if (title && title.length > 2 && !/^(claude|codex|bash|zsh|pwsh|powershell)$/i.test(title) && th.title !== title) patch.title = title.slice(0, 80);
