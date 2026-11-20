@@ -71,6 +71,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       read: (m, p) => files.read(M(m), p),
       write: (m, p, text) => files.write(M(m), p, text),
       resolve: (m, p) => files.resolve(M(m), p),
+      find: (m, d) => files.find(M(m), d),
     },
     threads: {
       list: async () => threads.list(),

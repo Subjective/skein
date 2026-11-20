@@ -13,6 +13,7 @@ import { tabMeta } from './meta';
 import { ThreadStatus } from './Sidebar';
 import { run } from './commands';
 import { VimrcView } from './VimrcView';
+import { startTabDrag } from './tabdrag';
 
 export function TabBody({ t, focused }: { t: Tab; focused: boolean }) {
   switch (t.kind) {
@@ -36,7 +37,7 @@ function TabEl({ t, on, pane }: { t: Tab; on: boolean; pane: Pane }) {
   const m = tabMeta(t), th = thread(t.thread);
   return (
     <div className={cx('tab', on && 'on')} title={m.title} role="tab" aria-selected={on}
-      onMouseDown={e => { if (e.button === 1) { e.preventDefault(); A.closeTab(t.id); } }}
+      onMouseDown={e => { if (e.button === 1) { e.preventDefault(); A.closeTab(t.id); } else if (!(e.target as HTMLElement).closest('.tx')) startTabDrag(e, t, pane.id); }}
       onClick={() => A.activate(pane.id, t.id)}>
       <Icon name={m.icon} />{m.ssh && <Icon name="host" />}
       <span className="t">{m.title}</span>

@@ -25,6 +25,8 @@ export interface MenuProps<D = unknown> {
   onPick: (it: MenuItem<D>, q: string) => void;
   onClose: () => void;
   search?: { placeholder?: string; prefix?: string; value?: string };
+  /** items(q) already filtered and ranked for q: skip the default substring filter. */
+  ranked?: boolean;
   /** Start in NORMAL even though there is a search field. */
   normal?: boolean;
   /** Where to draw: next to an anchor rect, or centred over a scrim (modal). */
@@ -49,9 +51,9 @@ export function Menu<D>(p: MenuProps<D>) {
   const [ins, setIns] = useState(!!p.search && !(S.settings.vim && p.normal));
   const all = useMemo(() => (typeof p.items === 'function' ? p.items(q) : p.items), [p.items, q]);
   const items = useMemo(() => {
-    const f = all.filter(it => it.head || defaultMatch(it, q));
+    const f = p.ranked ? all : all.filter(it => it.head || defaultMatch(it, q));
     return f.filter((it, i) => !it.head || (f[i + 1] && !f[i + 1].head));
-  }, [all, q]);
+  }, [all, q, p.ranked]);
   const first = () => { const on = items.findIndex(it => !it.head && !it.dis && it.on); return on >= 0 ? on : items.findIndex(it => !it.head && !it.dis); };
   const [i, setI] = useState(first);
   useEffect(() => { setI(first()); }, [items.length, q]); // eslint-disable-line react-hooks/exhaustive-deps

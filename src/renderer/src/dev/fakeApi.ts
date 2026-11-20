@@ -44,6 +44,7 @@ export const fakeApi: SkeinBridge = {
   fs: {
     list: async (_m, dir) => (dir.split(/[\\/]/).length > 4 ? [] : ['projects', 'repo', 'scratch', '.config', 'notes.md'].map(n => ({ name: n, dir: !n.includes('.') || n === '.config', hidden: n.startsWith('.') }))),
     read: async () => '', write: async () => {}, resolve: async (_m, p) => p,
+    find: async () => ['README.md', 'package.json', 'src/main/index.ts', 'src/core/pty.ts', 'src/core/files.ts', 'src/renderer/src/shell/App.tsx', 'src/renderer/src/shell/overlays.tsx', 'docs/VIM-MODEL.md'],
   },
   threads: {
     list: async () => threads, discover: async () => [],

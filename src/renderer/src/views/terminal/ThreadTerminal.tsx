@@ -2,15 +2,17 @@
 // Claude Code (G4): one view drives at a time. If chat drives, showing the terminal waits for the turn to end
 // (the handoff card), then runs `claude --resume <id>`. Quitting the TUI gives the thread back to chat.
 // Codex: the TUI resumes the session; with the chat workstream it attaches to the shared app-server instead.
+import { useEffect } from 'react';
 import type { PtySpec } from '@shared/api';
 import { api } from '../../api';
 import type { Tab } from '../../state/layout';
-import { S, thread, update } from '../../state/store';
+import { thread, update } from '../../state/store';
 import * as A from '../../state/actions';
 import { Button, Icon, Spinner } from '../../ui/primitives';
 import { harnessName } from '../../shell/meta';
-import { startPty, termOf, useTerminal } from './TerminalView';
+import { startPty, termOf, UploadCard, useTerminal } from './TerminalView';
 import { pendingArgs } from '../../shell/Launcher';
+
 
 const takeArgs = (id: string) => { const a = pendingArgs.get(id); return a?.length ? a : undefined; };
 
@@ -32,9 +34,9 @@ function attention(id: string, text: string) {
   const th = thread(id); if (!th) return;
   const seen = document.hasFocus() && A.currentTab().thread === id;
   if (seen) return;
-  update(() => { th.status = 'wait'; });
+  // the status change comes back as a 'thread' event, and App posts the OS notification (G13)
+  void text;
   void api.threads.update(id, { status: 'wait' });
-  if (S.settings.notify !== 'off' && !document.hasFocus()) void api.app.notify(th.title, text || 'Waiting on you', id);
 }
 
 export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
@@ -55,6 +57,8 @@ export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
     e0.onTitle = title => onTitle(th.id, title);
     e0.onAttention = text => attention(th.id, text);
   }
+  // a thread is read once its tab is on screen and focused (G13); a bell's "waiting" clears the same way
+  useEffect(() => { if (focused && th && (th.status === 'unread' || (th.status === 'wait' && th.drive === 'term'))) void api.threads.update(th.id, { status: 'idle' }); }, [focused, th?.status]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!th) return <div className="empty">This thread is gone.</div>;
   if (waiting) {
     return (
@@ -74,6 +78,7 @@ export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
   return (
     <div className="term-wrap">
       <div className="term-host" ref={host} />
+      <UploadCard tabId={t.id} />
       {exited && (
         <div className="t-exit kbrow">
           <Icon name={th.harness} />
@@ -89,3 +94,4 @@ export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
     </div>
   );
 }
+

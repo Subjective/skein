@@ -1,6 +1,8 @@
 // The window: sidebar, workspace, status bar, overlays. Loads state from the main process and keeps it fresh.
 import { useEffect } from 'react';
 import { api } from '../api';
+import type { ThreadMeta } from '@shared/types';
+import { currentTab } from '../state/actions';
 import { leaves, type Workspace as Ws } from '../state/layout';
 import { S, update, useApp } from '../state/store';
 import { cx } from '../ui/primitives';
@@ -20,6 +22,16 @@ function applyTheme() {
   }
 }
 
+/** G13: tell the OS when a thread waits on you (or replies, if asked), only while it is out of sight. */
+function notifyStatus(t: ThreadMeta) {
+  const pref = S.settings.notify;
+  if (pref === 'off') return;
+  const want = t.status === 'wait' || (pref === 'replies' && t.status === 'unread');
+  if (!want) return;
+  const visible = document.hasFocus() && currentTab().thread === t.id;
+  if (!visible) void api.app.notify(t.title, t.status === 'wait' ? 'Waiting on you' : 'Replied', t.id);
+}
+
 export async function boot() {
   const [info, settings, machines, threads, ui] = await Promise.all([api.app.info(), api.app.settings(), api.machines.list(), api.threads.list(), api.app.load('ui')]);
   update(s => {
@@ -37,8 +49,12 @@ export async function boot() {
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', applyTheme);
   api.on(e => {
     if (e.type === 'machine') update(s => { const i = s.machines.findIndex(m => m.id === e.machine.id); if (i >= 0) s.machines[i] = e.machine; else s.machines = [...s.machines, e.machine]; });
-    if (e.type === 'thread') update(s => { const i = s.threads.findIndex(t => t.id === e.thread.id); if (i >= 0) s.threads[i] = e.thread; else s.threads = [e.thread, ...s.threads]; });
-    if (e.type === 'thread.status') update(s => { const t = s.threads.find(x => x.id === e.id); if (t) t.status = e.status; });
+    if (e.type === 'thread') {
+      const before = S.threads.find(t => t.id === e.thread.id);
+      update(s => { const i = s.threads.findIndex(t => t.id === e.thread.id); if (i >= 0) s.threads[i] = e.thread; else s.threads = [e.thread, ...s.threads]; });
+      if (before && before.status !== e.thread.status) notifyStatus(e.thread);
+    }
+    if (e.type === 'thread.status') { const t = S.threads.find(x => x.id === e.id); if (t && t.status !== e.status) { update(() => { t.status = e.status; }); notifyStatus(t); } }
     if (e.type === 'menu') { if (e.command.startsWith('open:')) import('../state/actions').then(A => A.openThread(e.command.slice(5))); else run(e.command); }
   });
   // existing sessions on this computer, then remote machines in the background

@@ -85,6 +85,8 @@ export interface SkeinApi {
     write(machine: string, path: string, text: string): Promise<void>;
     /** Expand ~ and return an absolute path on that machine. */
     resolve(machine: string, path: string): Promise<string>;
+    /** Every file under dir, relative to it (git's list when it is a repo; capped). For file search. */
+    find(machine: string, dir: string): Promise<string[]>;
   };
   threads: {
     list(): Promise<ThreadMeta[]>;
@@ -142,7 +144,7 @@ export const FIRE_AND_FORGET = new Set(['pty.write', 'pty.resize', 'pty.kill']);
 export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
   app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'notify'],
   machines: ['list', 'add', 'remove', 'connect', 'answer', 'sshHosts'],
-  fs: ['list', 'read', 'write', 'resolve'],
+  fs: ['list', 'read', 'write', 'resolve', 'find'],
   threads: ['list', 'discover', 'create', 'update', 'history'],
   chat: ['send', 'interrupt', 'answer', 'drive'],
   pty: ['spawn', 'write', 'resize', 'kill'],

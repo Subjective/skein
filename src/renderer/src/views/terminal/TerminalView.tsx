@@ -16,7 +16,9 @@ import { keyOf } from '../../input/keys';
 import { registerTab } from '../../input/surfaces';
 import type { Tab } from '../../state/layout';
 import { S, update } from '../../state/store';
-import { pasteImage } from './paste';
+import { discardUpload, pasteClipboard, pasteImage, uploads } from './paste';
+import { OS } from '../../input/platform';
+import { Button, Icon } from '../../ui/primitives';
 import { isReading, readerKey } from './scrollback';
 
 export interface TermEntry {
@@ -76,9 +78,10 @@ export function ensureTerm(tabId: string, spec: PtySpec, onExit?: (code: number 
   term.attachCustomKeyEventHandler(e => {
     if (e.type !== 'keydown') return true;
     const k = keyOf(e);
-    // ctrl-shift-c / ctrl-shift-v on Windows and Linux, as in Windows Terminal
-    if (k === 'ctrl-shift-c' && term.hasSelection()) { void navigator.clipboard.writeText(term.getSelection()); return false; }
-    if (k === 'ctrl-shift-v') { void navigator.clipboard.readText().then(x => term.paste(x)); return false; }
+    // Windows and Linux copy and paste as Windows Terminal does: ctrl-shift-c / ctrl-shift-v, and on Windows
+    // ctrl-c copies when there is a selection and ctrl-v pastes. A Mac's cmd-v arrives as a paste event instead.
+    if ((k === 'ctrl-shift-c' || (OS === 'win' && k === 'ctrl-c')) && term.hasSelection()) { void navigator.clipboard.writeText(term.getSelection()); term.clearSelection(); return false; }
+    if (k === 'ctrl-shift-v' || (OS === 'win' && k === 'ctrl-v')) { e.preventDefault(); void pasteClipboard(tabId, entry); return false; }
     return true;
   });
   term.onData(d => { if (entry.ptyId) api.pty.write(entry.ptyId, d); });
@@ -152,10 +155,26 @@ export function TerminalView({ t, focused, spec }: { t: Tab; focused: boolean; s
   return (
     <div className="term-wrap">
       <div className="term-host" ref={host} onMouseDown={() => setTimeout(() => cache.get(t.id)?.term.focus(), 0)} />
+      <UploadCard tabId={t.id} />
       {e && e.exited !== undefined && e.exited !== -1 && (
-        <div className="t-exit kbrow"><span>Process exited{e.exited ? ` with code ${e.exited}` : ''}</span><button className="btn sm primary" onClick={() => { e.term.reset(); void startPty(e); }}>Restart</button></div>
+        <div className="t-exit kbrow"><span>Process exited{e.exited ? ` with code ${e.exited}` : ''}</span><span className="sp" /><Button small variant="primary" onClick={() => { e.term.reset(); void startPty(e); }}>Restart</Button></div>
       )}
     </div>
   );
 }
 export function retheme() { for (const t of cache.values()) t.term.options.theme = theme(); }
+
+/** An image on its way to the remote before its path is pasted (G14); a failed one offers Retry or Discard. */
+export function UploadCard({ tabId }: { tabId: string }) {
+  const u = uploads.get(tabId); if (!u) return null;
+  if (u.state === 'up') return (
+    <div className="t-over" role="status"><Icon name="upload" /><span>Uploading <b>{u.name}</b> to {u.host}</span><span className="bar ind"><i /></span></div>
+  );
+  return (
+    <div className="t-over bad kbrow" role="alert">
+      <Icon name="alert" /><span title={u.error}>Couldn't upload <b>{u.name}</b> to {u.host}</span><span className="sp" />
+      <Button small onClick={() => { discardUpload(tabId); cache.get(tabId)?.term.focus(); }}>Discard</Button>
+      <Button small variant="primary" onClick={u.retry}>Retry</Button>
+    </div>
+  );
+}

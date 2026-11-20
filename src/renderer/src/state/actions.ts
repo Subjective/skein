@@ -130,6 +130,19 @@ export function openThread(id: string, o: { split?: boolean; view?: ViewKind } =
   save();
 }
 
+/** Open a file (path relative to dir, forward slashes) in the focused pane, or switch to its tab there.
+ * The files view (views/tools) may take this over with its own opener, which keeps back/forward history. */
+export function openFile(machine: string, dir: string, path: string) {
+  update(s => {
+    const w = ws(), g = focusedPane(w);
+    const hit = g.tabs.find(t => t.kind === 'file' && t.path === path && t.machine === machine);
+    if (hit) g.active = hit.id;
+    else { const a = activeTab(g), t = mkTab('file', { machine, dir, path }); if (a.kind === 'new') { g.tabs[g.tabs.indexOf(a)] = t; g.active = t.id; } else addTab(g, t); }
+    w.pf = null; s.sideFocus = false; s.tick++;
+  });
+  save();
+}
+
 /** Start a thread from a launcher tab: the tab becomes the thread. */
 export async function startThread(t: Tab, harness: 'claude' | 'codex', view: ViewKind): Promise<ThreadMeta> {
   const th = await api.threads.create({ harness, machine: t.machine || 'local', dir: t.dir || '~', model: t.model, effort: t.effort, perm: t.perm, worktree: t.worktree, view });
