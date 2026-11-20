@@ -35,9 +35,13 @@ const layoutOf = (s: Surface): Surface => {
   return m;
 };
 
+/** A rename in place (double-click a sidebar row): an INSERT field that keeps its keys; enter and esc reach its input. */
+const renameField: Surface = { kind: 'field', mode: () => 'INSERT', key: () => false, local: () => true };
+
 export function owner() {
   const top = topLayer();
   if (top) return top.surface ? modal(top.surface) : popupLayout;
+  if (S.sideEdit) return renameField;
   if (S.sideFocus) return sidebarSurface;
   const w = ws();
   const ts = tabSurface(A.currentTab(w).id);

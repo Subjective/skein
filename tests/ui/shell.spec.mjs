@@ -500,3 +500,20 @@ test('workspaces: switching clears the sidebar cursor', async p => {
   await keys(p, 'Control+Tab');
   assert.equal(await p.evaluate(() => window.__skein.S.sideCursor), null);
 });
+
+test('sidebar: double-click renames a project and a thread in place; typed keys reach the field', async p => {
+  await p.locator('#side').getByText('dotfiles', { exact: true }).dblclick();
+  const inp = p.locator('#side .sidebar-name-input');
+  await inp.waitFor();
+  await p.keyboard.type('Xy');
+  assert.equal(await inp.inputValue(), 'Xy', 'typing replaces the selected name');
+  await p.keyboard.press('Enter');
+  await p.locator('#side').getByText('Xy', { exact: true }).waitFor();
+  assert.equal(await inp.count(), 0, 'enter closes the field');
+  await p.locator('#side').getByText('Tidy PowerShell profile', { exact: true }).dblclick();
+  await inp.waitFor();
+  await p.keyboard.type('Nope');
+  await p.keyboard.press('Escape');
+  await settle(p);
+  assert.equal(await p.locator('#side').getByText('Tidy PowerShell profile', { exact: true }).count(), 1, 'esc keeps the old name');
+});
