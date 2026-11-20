@@ -2,7 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import type { NewThread } from '../shared/api';
 import type { ThreadMeta } from '../shared/types';
-import { discoverLocal } from './discover';
+import { discoverLocal, discoverRemote, type Found } from './discover';
 import { emit } from './events';
 import type { Store } from './store';
 
@@ -35,15 +35,17 @@ export class Threads {
     return t;
   }
 
-  /** Merge sessions found on this computer. Returns the threads that were new. */
-  discover(machine: string): ThreadMeta[] {
-    if (machine !== 'local') return []; // remote discovery: see HANDOFF "Workstreams"
+  /** Merge sessions found on a machine (this computer, or an SSH machine given as a Machine). Returns the
+   *  threads that were new. Remote finds are pushed as 'thread' events too, since they arrive in the background. */
+  async discover(machine: string, remote?: import('../shared/types').Machine): Promise<ThreadMeta[]> {
+    const found: Found[] = remote?.ssh ? await discoverRemote(remote) : machine === 'local' ? discoverLocal() : [];
     const added: ThreadMeta[] = [];
-    for (const f of discoverLocal()) {
+    for (const f of found) {
       const known = this.bySession(f.sessionId);
       if (known) { if (f.updatedAt > known.updatedAt) this.update(known.id, { updatedAt: f.updatedAt, ...(known.title === 'New thread' ? { title: f.title } : {}) }); continue; }
       const t: ThreadMeta = { id: 't-' + f.sessionId.slice(0, 8), harness: f.harness, sessionId: f.sessionId, machine, dir: f.dir, title: f.title, branch: f.branch, createdAt: f.createdAt, updatedAt: f.updatedAt, status: 'idle', discovered: true, drive: f.harness === 'claude' ? 'chat' : undefined };
       this.map.set(t.id, t); this.store.put('threads', t.id, t); added.push(t);
+      if (remote) emit({ type: 'thread', thread: t });
     }
     return added;
   }

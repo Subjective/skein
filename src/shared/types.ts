@@ -25,6 +25,8 @@ export interface Machine {
   has: Harness[];
   /** Why the link is down or waiting, in plain words. */
   note?: string;
+  /** What keeps harness processes alive on the remote across a dropped link (G5). Absent: nothing found. */
+  persist?: 'tmux' | 'screen';
 }
 
 /** A pending SSH prompt (passphrase, password, verification code, new host key). One small dialog. */
@@ -34,6 +36,9 @@ export interface AuthPrompt {
   kind: 'passphrase' | 'password' | 'code' | 'hostkey' | 'other';
   text: string;          // the prompt as ssh printed it
   secret: boolean;
+  /** hostkey only: the host as ssh named it, and the key's fingerprint ("ED25519 SHA256:...") */
+  host?: string;
+  fingerprint?: string;
 }
 
 export type ThreadStatus = 'idle' | 'running' | 'wait' | 'unread' | 'error';
