@@ -197,7 +197,7 @@ export class CodexDriver implements ChatDriver {
     const rpc = this.rpc!, threadId = this.t.sessionId!;
 
     if (msg.retry) {
-      const last = this.lastUser ?? (await codexHistory(this.m, threadId)).events.filter((e): e is Extract<ThreadEvent, { t: 'user' }> => e.t === 'user').pop();
+      const last = this.lastUser ?? (await codexHistory(rpc, threadId)).events.filter((e): e is Extract<ThreadEvent, { t: 'user' }> => e.t === 'user').pop();
       if (!last) return;
       text = last.text; images = last.images;
       if (!(await this.revert(last.id))) return;
@@ -313,7 +313,7 @@ export class CodexDriver implements ChatDriver {
         r = await rpc.request<Opened>('thread/resume', { threadId, ...common, excludeTurns: true });
       } else if (t.parent && this.host.thread(t.parent.id).sessionId) {
         const parent = this.host.thread(t.parent.id).sessionId!;
-        const lastTurnId = t.parent.at ? (await codexHistory(m, parent)).turnOf.get(t.parent.at) : undefined;
+        const lastTurnId = t.parent.at ? (await codexHistory(rpc, parent)).turnOf.get(t.parent.at) : undefined;
         r = await rpc.request<Opened>('thread/fork', { threadId: parent, ...(lastTurnId ? { lastTurnId } : {}), ...common, excludeTurns: true });
         threadId = r.thread.id;
         this.listenTo(threadId);
@@ -351,7 +351,7 @@ export class CodexDriver implements ChatDriver {
   private async revert(userEventId: string): Promise<boolean> {
     const threadId = this.t.sessionId!;
     if (this.turn) { await this.interrupt(); await new Promise(r => setTimeout(r, 300)); }
-    const turnId = (await codexHistory(this.m, threadId)).turnOf.get(userEventId) ?? this.turnOfLive.get(userEventId);
+    const turnId = (await codexHistory(this.rpc!, threadId)).turnOf.get(userEventId) ?? this.turnOfLive.get(userEventId);
     if (!turnId) return true; // never reached the rollout: nothing to undo
     try { await this.rpc!.request('thread/revert', { threadId, beforeTurnId: turnId }); return true; }
     catch (e) { this.error(`Could not rewind: ${(e as Error).message}`, 'other'); return false; }

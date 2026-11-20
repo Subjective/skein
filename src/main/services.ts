@@ -82,6 +82,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       if (Object.keys(patch).length) threads.update(id, patch);
       if (patch.external) watchOwner();
     },
+    read: t => harnesses.history(t, M(t.machine)),
     unknown: () => { void threads.discover('local').then(added => { for (const t of added) emit({ type: 'thread', thread: t }); }, () => {}); },
   });
   // The outside writer is gone: its process exited (this computer), or it has been quiet for half an hour (an SSH

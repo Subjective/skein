@@ -2,87 +2,57 @@ import { describe, expect, it } from 'vitest';
 import { which } from '../../shell';
 import { fakeHost, until } from '../test/fakes';
 import { CodexDriver, CodexServers, launchAppServer, type Launch } from './driver';
-import { parseCodexRollout, patchFiles } from './history';
-import { camelItem, itemEvents } from './items';
+import { codexHistory, turnEvents } from './history';
+import { itemEvents } from './items';
 import { Rpc } from './rpc';
 
 const J = (o: object) => JSON.stringify(o);
 
-describe('Codex rollouts', () => {
-  it('reads modern rollouts through the same item mapping as the live driver', () => {
-    const text = [
-      J({ type: 'session_meta', payload: { id: 'th1', cwd: '/p' } }),
-      J({ type: 'event_msg', payload: { type: 'task_started', turn_id: 'turn1' } }),
-      J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: 'turn1', item: { type: 'UserMessage', id: 'i1', client_id: 'c1', content: [{ type: 'text', text: 'list files', text_elements: [] }] } } }),
-      J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: 'turn1', item: { type: 'CommandExecution', id: 'i2', command: 'ls', cwd: '/p', status: 'Completed', aggregated_output: 'a\nb', exit_code: 0, duration_ms: 40, command_actions: [], source: 'agent' } } }),
-      J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: 'turn1', item: { type: 'FileChange', id: 'i3', status: 'completed', changes: [{ path: 'a.ts', kind: { type: 'update', move_path: null }, diff: '@@ -1 +1 @@\n-x\n+y' }] } } }),
-      J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: 'turn1', item: { type: 'AgentMessage', id: 'i4', text: 'Two files.' } } }),
-      J({ type: 'event_msg', payload: { type: 'task_complete', turn_id: 'turn1', duration_ms: 4200 } }),
-      J({ type: 'event_msg', payload: { type: 'turn_aborted', turn_id: 'turn2' } }),
-    ].join('\n');
-    const { events, turnOf } = parseCodexRollout(text);
-    expect(events.map(e => e.t)).toEqual(['user', 'tool', 'edit', 'text', 'worked', 'interrupted']);
-    expect(events[0]).toMatchObject({ id: 'i1', text: 'list files' });
-    expect(events[1]).toMatchObject({ t: 'tool', name: 'Shell', arg: 'ls', out: 'a\nb', status: 'done' });
-    expect(events[2]).toMatchObject({ t: 'edit', path: 'a.ts', add: 1, del: 1 });
-    expect(turnOf.get('i1')).toBe('turn1');
+// Turns as thread/turns/list returns them (shapes copied from codex 0.171): history uses the live item mapping.
+const turnsFixture = [
+  { id: 'turn1', status: 'completed', error: null, durationMs: 4200, items: [
+    { type: 'userMessage', id: 'u1', clientId: 'c1', content: [{ type: 'text', text: 'list files', text_elements: [] }] },
+    { type: 'reasoning', id: 'rs_1', summary: ['Thinking about it.'], content: [] },
+    { type: 'commandExecution', id: 'x1', command: "/bin/bash -lc 'ls'", cwd: '/p', status: 'completed', aggregatedOutput: 'a\nb', exitCode: 0, durationMs: 40, commandActions: [], source: 'agent' },
+    { type: 'fileChange', id: 'f1', status: 'completed', changes: [{ path: '/p/hello.txt', kind: { type: 'add' }, diff: 'hello from codex\n' }] },
+    { type: 'agentMessage', id: 'msg_1', text: 'Two files.', phase: null },
+  ] },
+  { id: 'turn2', status: 'interrupted', error: null, durationMs: 2600, items: [{ type: 'userMessage', id: 'u2', clientId: null, content: [{ type: 'text', text: 'slow', text_elements: [] }] }] },
+  { id: 'turn3', status: 'failed', durationMs: 10, error: { message: 'You have hit your usage limit.', codexErrorInfo: 'usageLimitExceeded', additionalDetails: null }, items: [] },
+];
+
+describe('Codex history', () => {
+  it('maps the app-server turns through the same items as the live driver, with the live ids', () => {
+    const { events, turnOf } = turnEvents(turnsFixture as never);
+    expect(events.map(e => e.t)).toEqual(['user', 'thinking', 'tool', 'edit', 'text', 'worked', 'user', 'interrupted', 'worked', 'error']);
+    // a message Skein sent keeps the id it was shown under (its client id); one typed elsewhere has the item id
+    expect(events[0]).toMatchObject({ id: 'c1', text: 'list files' });
+    expect(events[6]).toMatchObject({ id: 'u2' });
+    expect(events[2]).toMatchObject({ t: 'tool', name: 'Shell', out: 'a\nb', status: 'done' });
+    expect(events[3]).toMatchObject({ t: 'edit', path: '/p/hello.txt', add: 1, del: 0, diff: '+hello from codex' });
+    expect(events[9]).toMatchObject({ t: 'error', kind: 'rate' });
+    expect(turnOf.get('c1')).toBe('turn1');
   });
 
-  // The shapes codex 0.171 writes (the core's items, not the app-server's): a message's text in content, reasoning
-  // as summary_text, a command as argv with a secs / nanos duration, file changes keyed by path.
-  it('reads the core item shapes current rollouts store', () => {
-    const item = (turn: string, it: object) => J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: turn, item: it } });
-    const text = [
-      item('t1', { type: 'UserMessage', id: 'u1', client_id: 'c1', content: [{ type: 'text', text: 'hello codex', text_elements: [] }] }),
-      item('t1', { type: 'Reasoning', id: 'rs_1', summary_text: ['Thinking about it.'], raw_content: [] }),
-      item('t1', { type: 'AgentMessage', id: 'msg_1', content: [{ type: 'Text', text: 'Hello ' }, { type: 'Text', text: 'there.' }] }),
-      item('t1', { type: 'CommandExecution', id: 'x1', command: ['/bin/bash', '-lc', 'touch a && echo made'], cwd: 'file:///p', status: 'completed', aggregated_output: 'made\n', exit_code: 0, duration: { secs: 1, nanos: 500_000_000 } }),
-      item('t1', { type: 'FileChange', id: 'f1', changes: { '/p/my_file.txt': { type: 'add', content: 'one\ntwo\n' }, '/p/old_name.ts': { type: 'update', unified_diff: '@@ -1 +1 @@\n-x\n+y', move_path: null } }, status: 'completed' }),
-      item('t1', { type: 'Plan', id: 'p1', text: '1. do it' }),
-      item('t1', { type: 'SomethingNew', id: 'n1', weird: { nested: 1 } }),
-      item('t1', { type: 'AgentMessage', id: 'msg_2' }),
-    ].join('\n');
-    const { events } = parseCodexRollout(text);
-    expect(events.map(e => e.t)).toEqual(['user', 'thinking', 'text', 'tool', 'edit', 'edit', 'text']);
-    expect(events[1]).toMatchObject({ text: 'Thinking about it.' });
-    expect(events[2]).toMatchObject({ id: 'msg_1', text: 'Hello there.' });
-    expect(events[3]).toMatchObject({ arg: 'touch a && echo made', out: 'made\n', status: 'done', meta: '1.5s' });
-    expect(events[4]).toMatchObject({ id: 'f1:0', path: '/p/my_file.txt', add: 2, del: 0, diff: '+one\n+two' });
-    expect(events[5]).toMatchObject({ id: 'f1:1', path: '/p/old_name.ts', add: 1, del: 1 });
-  });
-
-  it('skips an item it cannot read instead of throwing', () => {
-    const text = [
-      J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: 't', item: { type: 'FileChange', id: 'f', changes: 'garbage' } } }),
-      J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: 't', item: { type: 'AgentMessage', id: 'm', content: [{ type: 'Text', text: 'still here' }] } } }),
-    ].join('\n');
-    expect(() => parseCodexRollout(text)).not.toThrow();
-    expect(parseCodexRollout(text).events).toMatchObject([{ t: 'text', text: 'still here' }]);
-  });
-
-  it('reads older rollouts from messages and tool calls', () => {
-    const text = [
-      J({ type: 'session_meta', payload: { id: 'th1', cwd: '/p' } }),
-      J({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context>x</environment_context>' }] } }),
-      J({ type: 'event_msg', payload: { type: 'user_message', message: 'fix it' } }),
-      J({ type: 'event_msg', payload: { type: 'agent_reasoning', text: 'thinking' } }),
-      J({ type: 'response_item', payload: { type: 'function_call', name: 'shell', call_id: 'c1', arguments: J({ command: ['bash', '-lc', 'npm test'] }) } }),
-      J({ type: 'response_item', payload: { type: 'function_call_output', call_id: 'c1', output: J({ output: 'ok', metadata: {} }) } }),
-      J({ type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', call_id: 'c2', input: '*** Begin Patch\n*** Update File: a.ts\n@@\n-x\n+y\n+z\n*** End Patch' } }),
-      J({ type: 'event_msg', payload: { type: 'agent_message', message: 'Done.' } }),
-    ].join('\n');
-    const { events } = parseCodexRollout(text);
-    expect(events.map(e => e.t)).toEqual(['user', 'thinking', 'tool', 'edit', 'text']);
-    expect(events[2]).toMatchObject({ arg: 'npm test', out: 'ok', status: 'done' });
-    expect(events[3]).toMatchObject({ path: 'a.ts', add: 2, del: 1 });
-  });
-
-  it('splits apply_patch bodies per file', () => {
-    expect(patchFiles('*** Begin Patch\n*** Add File: n.ts\n+a\n*** Delete File: o.ts\n*** End Patch').map(f => f.path)).toEqual(['n.ts', 'o.ts']);
+  it('reads a whole thread, pages one thread/read cannot hydrate, and treats an unreadable thread as empty', async () => {
+    const calls: Record<string, unknown>[] = [];
+    const whole = { request: async (m: string, p: Record<string, unknown>) => (m === 'thread/read' && p.includeTurns ? { thread: { id: 'th1', turns: turnsFixture } } : {}) } as unknown as Rpc;
+    expect((await codexHistory(whole, 'th1')).events).toHaveLength(10);
+    // a paginated thread: thread/read refuses to hydrate it, so its turns are paged
+    const rpc = { request: async (m: string, p: Record<string, unknown>) => {
+      if (m === 'thread/read') throw new Error('paginated thread');
+      calls.push(p); return p.cursor ? { data: turnsFixture.slice(1), nextCursor: null } : { data: turnsFixture.slice(0, 1), nextCursor: 'next' };
+    } } as unknown as Rpc;
+    const h = await codexHistory(rpc, 'th1');
+    expect(calls.map(c => c.cursor)).toEqual([null, 'next']);
+    expect(calls[0]).toMatchObject({ threadId: 'th1', sortDirection: 'asc', itemsView: 'full' });
+    expect(h.events.map(e => e.id)).toContain('i-turn2');
+    const broken = { request: async () => { throw new Error('thread not found'); } } as unknown as Rpc;
+    expect((await codexHistory(broken, 'th1')).events).toEqual([]);
   });
 
   it('maps live items, skipping injected context', () => {
-    expect(itemEvents(camelItem({ type: 'UserMessage', id: 'x', content: [{ type: 'text', text: '<environment_context>…' }] }))).toEqual([]);
+    expect(itemEvents({ type: 'userMessage', id: 'x', clientId: null, content: [{ type: 'text', text: '<environment_context>…', text_elements: [] }] } as never)).toEqual([]);
     expect(itemEvents({ type: 'commandExecution', id: 'c', command: 'false', status: 'completed', exitCode: 1, durationMs: 20 } as never)[0]).toMatchObject({ status: 'failed', meta: 'exit 1 · 20ms' });
   });
 });
@@ -172,11 +142,12 @@ describe('Codex driver', () => {
   });
 
   it('forks a side chat through the parent turn and reports failures by kind', async () => {
-    const srv = fakeServer(method => (method === 'thread/fork' ? { thread: { id: 'cx-fork' } } : method === 'turn/start' ? { turn: { id: 'turn-9' } } : {}));
-    const h = fakeHost([{ id: 'p', harness: 'codex', sessionId: 'cx-parent' }, { id: 's', harness: 'codex', parent: { id: 'p' }, side: true }]);
+    const srv = fakeServer(method => (method === 'thread/fork' ? { thread: { id: 'cx-fork' } } : method === 'turn/start' ? { turn: { id: 'turn-9' } } : method === 'thread/read' ? { thread: { id: 'cx-parent', turns: turnsFixture } } : {}));
+    const h = fakeHost([{ id: 'p', harness: 'codex', sessionId: 'cx-parent' }, { id: 's', harness: 'codex', parent: { id: 'p', at: 'msg_1' }, side: true }]);
     const d = new CodexDriver('s', h.host, new CodexServers(srv.launch));
     await d.send({ text: 'side' });
-    expect(srv.got.find(g => g.method === 'thread/fork')?.params).toMatchObject({ threadId: 'cx-parent' });
+    // forked through the turn that holds the message it branched from, found in the parent's history
+    expect(srv.got.find(g => g.method === 'thread/fork')?.params).toMatchObject({ threadId: 'cx-parent', lastTurnId: 'turn1' });
     expect(h.thread('s').sessionId).toBe('cx-fork');
     srv.notify('turn/completed', { threadId: 'cx-fork', turn: { id: 'turn-9', status: 'failed', durationMs: 10, error: { message: 'You have hit your usage limit.', codexErrorInfo: 'usageLimitExceeded', additionalDetails: null } } });
     await until(() => h.view().some(e => e.t === 'error'));

@@ -27,7 +27,11 @@ export function createHarnesses(deps: HarnessDeps = {}): Harnesses {
   };
   return {
     async history(t: ThreadMeta, m: Machine): Promise<ThreadEvent[]> {
-      return t.harness === 'claude' ? claudeHistory(m, t.sessionId) : (await codexHistory(m, t.sessionId)).events;
+      if (t.harness === 'claude') return claudeHistory(m, t.sessionId);
+      if (!t.sessionId) return [];
+      // through the machine's app-server, which reads its own records (see codex/history.ts)
+      const rpc = await servers.get(m).catch(() => null);
+      return rpc ? (await codexHistory(rpc, t.sessionId)).events : [];
     },
     driver(t: ThreadMeta, host: ChatHost): ChatDriver {
       lastHost = host;
