@@ -45,6 +45,16 @@ export interface VimFieldProps {
 
 const history = new Map<string, { text: string; undo: TextState['undo']; redo: TextState['redo'] }>();
 
+// The last mousedown anywhere (capture), so a field focused because of a click elsewhere (a sidebar row opening a
+// thread) can tell it was the mouse, not the keys.
+let down = { at: 0, on: null as Element | null };
+if (typeof document !== 'undefined') document.addEventListener('mousedown', e => { down = { at: Date.now(), on: e.target as Element | null }; }, true);
+/** What the mouse went down on in the last `ms` milliseconds (null when it was the keyboard). */
+export const recentMouse = (ms = 500): Element | null => (Date.now() - down.at < ms ? down.on : null);
+/** A mousedown on any of these keeps a typing field in INSERT (the mockup's app.js 2038: fields, menus, dialogs, the
+ *  composer and its controls, the edit box, the quote bar); terminals and pages keep their own keys (rule 11). */
+const KEEPS = '[data-input], input, textarea, select, [contenteditable], .menu, .scrim, .comp, .newp, .m-edit, .seltb, .xterm, webview, iframe';
+
 export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimField(p, handle) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const st = useRef<TextState>(null as unknown as TextState);
@@ -144,6 +154,17 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
   const own = () => { unreg.current?.(); unreg.current = registerTab(props.current.tabId, proxy); update(x => { x.tick++; }); };
   const unreg = useRef<(() => void) | null>(null);
   useEffect(() => () => unreg.current?.(), []);
+  // a click anywhere else while typing drops to NORMAL, so the pill and the field agree (VIM-MODEL rule 10)
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const el = ta.current, t = e.target as Element | null;
+      if (!el || !S.settings.vim || st.current.mode !== 'INSERT' || document.activeElement !== el || !t?.closest) return;
+      if (el.contains(t) || t.closest(KEEPS)) return;
+      const r = step(st.current, 'esc'); apply(r.s, r.fx);
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const focus = (insert?: boolean) => {
     const el = ta.current; if (!el) return;
