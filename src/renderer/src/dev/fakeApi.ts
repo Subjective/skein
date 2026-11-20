@@ -104,6 +104,8 @@ export const fakeApi: SkeinBridge = {
     },
     update: async (id, patch) => { const t = threads.find(x => x.id === id)!; Object.assign(t, patch); emit({ type: 'thread', thread: t }); return t; },
     history: async id => chat.history(id),
+    // a subagent's turns are all in its event here
+    sub: async () => [],
     // moving copies nothing here: the record follows after a short wait, or the reason it can't comes back
     move: async (id, machine, dir) => {
       const t = threads.find(x => x.id === id)!, m = machines.find(x => x.id === machine)!;

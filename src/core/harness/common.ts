@@ -80,13 +80,25 @@ export async function readHarnessFile(m: Machine, parts: string[]): Promise<stri
   return found ? readFile(found, 'utf8') : null;
 }
 
-async function findLocal(dir: string, parts: string[]): Promise<string | null> {
-  if (!parts.length) return (await stat(dir).then(s => s.isFile(), () => false)) ? dir : null;
+/** The name of the first file under the home folder matching `parts` (as readHarnessFile) that contains `text`. */
+export async function harnessFileWith(m: Machine, parts: string[], text: string): Promise<string | null> {
+  if (m.ssh) {
+    const glob = parts.map(p => p.split('*').map(x => (x ? sq(x) : '')).join('*')).join('/');
+    const r = await run(m, `grep -l -F -- ${sq(text)} "$HOME"/${glob} 2>/dev/null | head -n 1`, { timeout: 60_000 });
+    const f = r.stdout.trim();
+    return f ? f.replace(/^.*\//, '') : null;
+  }
+  const hit = await findLocal(homedir(), parts, f => readFile(f, 'utf8').then(s => s.includes(text), () => false));
+  return hit ? hit.replace(/^.*[\\/]/, '') : null;
+}
+
+async function findLocal(dir: string, parts: string[], ok?: (file: string) => Promise<boolean>): Promise<string | null> {
+  if (!parts.length) return (await stat(dir).then(s => s.isFile(), () => false)) && (!ok || await ok(dir)) ? dir : null;
   const [p, ...rest] = parts;
-  if (!p.includes('*')) return findLocal(join(dir, p), rest);
+  if (!p.includes('*')) return findLocal(join(dir, p), rest, ok);
   const re = new RegExp('^' + p.split('*').map(x => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$');
   const names = (await readdir(dir).catch(() => [] as string[])).filter(n => re.test(n));
-  for (const n of names.sort().reverse()) { const f = await findLocal(join(dir, n), rest); if (f) return f; }
+  for (const n of names.sort().reverse()) { const f = await findLocal(join(dir, n), rest, ok); if (f) return f; }
   return null;
 }
 

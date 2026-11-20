@@ -83,7 +83,9 @@ export type ThreadEvent =
   | { t: 'tool'; id: string; name: string; arg: string; out?: string; status: 'running' | 'done' | 'failed'; meta?: string }
   | { t: 'edit'; id: string; path: string; add: number; del: number; diff?: string; status: 'running' | 'done' | 'failed' }
   | { t: 'todo'; id: string; items: { text: string; done: boolean }[] }
-  | { t: 'sub'; id: string; name: string; task: string; status: 'running' | 'done' | 'failed'; dur?: string; events?: ThreadEvent[] }
+  /** A subagent. `events`: its turns as they stream in (the full record comes from api.threads.sub). `agent`: the
+   *  harness's own id for it (Claude Code's agentId, Codex's thread id). `followUps`: the harness takes messages to it. */
+  | { t: 'sub'; id: string; name: string; task: string; status: 'running' | 'done' | 'failed'; dur?: string; events?: ThreadEvent[]; agent?: string; followUps?: boolean }
   | { t: 'image'; id: string; src: string; cap?: string }
   | { t: 'approval'; id: string; request: ApprovalRequest }
   | { t: 'error'; id: string; kind: 'crash' | 'rate' | 'auth' | 'missing' | 'other'; text: string }

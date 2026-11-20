@@ -17,7 +17,7 @@ import { log } from '../../log';
 import { which } from '../../shell';
 import { errorKind, throttle, tidy } from '../common';
 import { codexHistory } from './history';
-import { itemEvents, turnError } from './items';
+import { agentStates, itemEvents, turnError } from './items';
 import type { ThreadItem } from './protocol/v2/ThreadItem';
 import type { UserInput } from './protocol/v2/UserInput';
 import { Rpc } from './rpc';
@@ -173,6 +173,7 @@ const expand = (m: Machine, dir: string) => (m.ssh ? (dir.startsWith('~') ? (m.h
 interface Opened { thread: { id: string }; model?: string; reasoningEffort?: string | null }
 
 interface Pending { req: ApprovalRequest; method: string; params: Params; resolve: (v: unknown) => void; arg: string; rpcId: string }
+type SubEv = Extract<ThreadEvent, { t: 'sub' }>;
 
 export class CodexDriver implements ChatDriver {
   private rpc: Rpc | null = null;
@@ -186,16 +187,32 @@ export class CodexDriver implements ChatDriver {
   private unlisten: (() => void) | null = null;
   private flush = throttle<() => void>(60, f => f());
   private lastUser: { id: string; text: string; images?: string[] } | null = null;
+  /** The sub-agents this thread spawned, by sub event id. Each is a Codex thread of its own (its `agent`), listened
+   *  to so its turns stream into its popup and its approvals reach this thread's chat. */
+  private subs = new Map<string, SubEv>();
+  private children = new Map<string, () => void>();
+  private resumed = new Set<string>();
+  /** A sub-agent thread's running turn, which a follow-up steers. */
+  private childTurn = new Map<string, string>();
 
   constructor(private id: string, private host: ChatHost, private servers: CodexServers) {}
 
   private get t(): ThreadMeta { return this.host.thread(this.id); }
   private get m(): Machine { return this.host.machine(this.t.machine); }
-  private ev = (e: ThreadEvent, replace = false) => this.host.event(this.id, e, replace);
+  private ev = (e: ThreadEvent, replace = false) => {
+    if (e.t === 'sub') {
+      // the spawn item knows nothing of the turns streamed in since: keep them
+      e = { ...this.subs.get(e.id), ...e, events: e.events ?? this.subs.get(e.id)?.events };
+      this.subs.set(e.id, e);
+      if (e.agent) this.listenChild(e);
+    }
+    this.host.event(this.id, e, replace);
+  };
   private status(s: ThreadMeta['status']) { if (this.t.status !== s) this.host.update(this.id, { status: s }); }
   private error(text: string, kind = errorKind(text)) { this.ev({ t: 'error', id: 'e-' + randomUUID(), kind, text: tidy(text, 600) }); this.status('error'); }
 
   async send(msg: ChatSend): Promise<void> {
+    if (msg.sub) return this.sendToSub(msg);
     let text = msg.text, images = msg.images;
     const t0 = this.t;
     const patch: Partial<ThreadMeta> = {};
@@ -218,11 +235,7 @@ export class CodexDriver implements ChatDriver {
     }
 
     const clientId = randomUUID();
-    const input: UserInput[] = [
-      ...(images ?? []).map((src): UserInput => (/^(data:|https?:)/.test(src) || this.m.ssh ? { type: 'image', url: src.startsWith('data:') || /^https?:/.test(src) ? src : toDataUrl(src) } : { type: 'localImage', path: src })),
-      ...(text ? [{ type: 'text' as const, text, text_elements: [] }] : []),
-    ];
-    input.push(...(await skillInputs(rpc, text, expand(this.m, this.t.dir))));
+    const input = await this.inputOf(text, images);
     this.sent.add(clientId);
     this.lastUser = { id: clientId, text, images };
     this.ev({ t: 'user', id: clientId, text, ...(images?.length ? { images } : {}), at: Date.now() });
@@ -247,6 +260,60 @@ export class CodexDriver implements ChatDriver {
     } catch (e) {
       this.error((e as Error).message);
     }
+  }
+
+  private async inputOf(text: string, images?: string[]): Promise<UserInput[]> {
+    return [
+      ...(images ?? []).map((src): UserInput => (/^(data:|https?:)/.test(src) || this.m.ssh ? { type: 'image', url: src.startsWith('data:') || /^https?:/.test(src) ? src : toDataUrl(src) } : { type: 'localImage', path: src })),
+      ...(text ? [{ type: 'text' as const, text, text_elements: [] }] : []),
+      ...(await skillInputs(this.rpc!, text, expand(this.m, this.t.dir))),
+    ];
+  }
+
+  /** A follow-up to a sub-agent: a turn on its own thread, which the app-server takes like any other. */
+  private async sendToSub(msg: ChatSend): Promise<void> {
+    if (!(await this.ensure())) return;
+    const rpc = this.rpc!;
+    let sub = this.subs.get(msg.sub!);
+    if (!sub) {
+      const e = (await codexHistory(rpc, this.t.sessionId)).events.find((x): x is SubEv => x.t === 'sub' && x.id === msg.sub);
+      if (e) { sub = { ...e, events: [] }; this.subs.set(e.id, sub); }
+    }
+    if (!sub?.agent) throw new Error("Follow-ups aren't available for this subagent");
+    this.listenChild(sub);
+    if (!this.resumed.has(sub.agent)) { await rpc.request('thread/resume', { threadId: sub.agent, excludeTurns: true }); this.resumed.add(sub.agent); }
+    const clientId = randomUUID();
+    const input = await this.inputOf(msg.text, msg.images);
+    this.ev({ ...sub, status: 'running', events: [...(sub.events ?? []), { t: 'user', id: clientId, text: msg.text, ...(msg.images?.length ? { images: msg.images } : {}), at: Date.now() }] }, true);
+    const turn = this.childTurn.get(sub.agent);
+    if (turn) await rpc.request('turn/steer', { threadId: sub.agent, clientUserMessageId: clientId, input, expectedTurnId: turn });
+    else await rpc.request('turn/start', { threadId: sub.agent, clientUserMessageId: clientId, input });
+  }
+
+  private listenChild(sub: SubEv) {
+    const child = sub.agent;
+    if (!child || this.children.has(child)) return;
+    this.children.set(child, this.servers.listen(child, {
+      notify: (method, p) => {
+        if (method === 'turn/started') this.childTurn.set(child, String((p.turn as { id?: string } | undefined)?.id));
+        else if (method === 'turn/completed') this.childTurn.delete(child);
+        this.onChildNotify(sub.id, method, p);
+      },
+      request: (method, p, rpcId) => this.onRequest(method, p, rpcId, this.subs.get(sub.id)?.name),
+      exited: () => { this.resumed.delete(child); },
+    }));
+  }
+
+  /** A sub-agent's own thread: its items become its popup's events, its turns its running state. */
+  private onChildNotify(subId: string, method: string, p: Params) {
+    const s = this.subs.get(subId);
+    if (!s) return;
+    if (method === 'turn/started') { if (s.status !== 'running') this.ev({ ...s, status: 'running' }, true); return; }
+    if (method === 'turn/completed') { this.ev({ ...s, status: (p.turn as { status?: string }).status === 'failed' ? 'failed' : 'done' }, true); return; }
+    if (method !== 'item/started' && method !== 'item/completed') return;
+    const list = [...(s.events ?? [])];
+    for (const e of itemEvents(p.item as ThreadItem)) { const i = list.findIndex(x => x.id === e.id); if (i >= 0) list[i] = e; else list.push(e); }
+    this.ev({ ...s, events: list }, true);
   }
 
   async interrupt(): Promise<void> {
@@ -292,6 +359,8 @@ export class CodexDriver implements ChatDriver {
   /** Stop listening and let the app-server unload the thread, so the next resume reads its record again. */
   dispose() {
     this.unlisten?.(); this.unlisten = null;
+    for (const off of this.children.values()) off();
+    this.children.clear(); this.resumed.clear(); this.childTurn.clear();
     const id = this.t.sessionId;
     if (this.rpc?.alive && id && this.loaded) void this.rpc.request('thread/unsubscribe', { threadId: id }).catch(() => undefined);
     this.loaded = false;
@@ -410,6 +479,8 @@ export class CodexDriver implements ChatDriver {
         if (item.type === 'userMessage' && item.clientId && this.sent.has(item.clientId)) return; // shown when sent
         if (method === 'item/completed') { this.items.delete(item.id); this.text.delete(item.id); this.flush.flush(); } else this.items.set(item.id, item);
         for (const e of itemEvents(item)) this.ev(e, true);
+        // a wait or a close says how a sub-agent ended
+        for (const [agent, status] of agentStates(item)) for (const sub of this.subs.values()) if (sub.agent === agent && sub.status !== status) this.ev({ ...sub, status }, true);
         return;
       }
       case 'item/agentMessage/delta': return this.delta(String(p.itemId), 'text', String(p.delta ?? ''));
@@ -456,9 +527,11 @@ export class CodexDriver implements ChatDriver {
 
   // ---- approvals and questions ----
 
-  private onRequest(method: string, p: Params, rpcId: string | number): Promise<unknown> {
-    const req = this.approvalFor(method, p);
-    if (!req) return Promise.reject({ code: -32601, message: `Skein does not support ${method}` });
+  /** `from`: the sub-agent that asks, when it is not this thread. */
+  private onRequest(method: string, p: Params, rpcId: string | number, from?: string): Promise<unknown> {
+    const asked = this.approvalFor(method, p);
+    if (!asked) return Promise.reject({ code: -32601, message: `Skein does not support ${method}` });
+    const req = from ? { ...asked, from } : asked;
     return new Promise(resolve => {
       const arg = req.kind === 'command' ? tidy(req.body, 80) : req.detail ?? req.title;
       this.approvals.set(req.requestId, { req, method, params: p, resolve, arg, rpcId: String(rpcId) });

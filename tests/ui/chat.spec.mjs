@@ -196,6 +196,20 @@ await test('subagent: a row opens its popup in INSERT, ready to message it', asy
   await pop.locator('.m-asst', { hasText: 'Nothing else failed' }).waitFor();
 });
 
+await test('subagent without follow-ups: its turns show, the composer is grayed out and says why', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await p.locator('.pane.focus .ag', { hasText: 'Explore' }).click();
+  const pop = p.locator('.peek.focus');
+  await pop.locator('.m-asst', { hasText: 'Three callers' }).waitFor();
+  const box = pop.locator('.comp.locked');
+  await box.waitFor();
+  assert.equal(await box.locator('textarea').getAttribute('placeholder'), "Follow-ups aren't available for this subagent");
+  assert.ok(await box.locator('textarea').isDisabled(), 'nothing to type into');
+  assert.ok(await box.locator('.send').isDisabled(), 'nothing to send');
+  await settle(p);
+  assert.equal(await mode(p), 'NORMAL', 'the popup reads instead of typing');
+});
+
 await test('/subagents lists them; picking opens the popup', async p => {
   await openChat(p, 'Fix session-restore race');
   await composer(p).pressSequentially('/subagents');

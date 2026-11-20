@@ -24,6 +24,8 @@ export interface ChatHost {
 
 export interface Harnesses {
   history(t: ThreadMeta, m: Machine): Promise<ThreadEvent[]>;
+  /** A subagent's turns: the `sub` event's id and, when known, the harness's id for it (ThreadEvent 'sub'.agent). */
+  subHistory?(t: ThreadMeta, m: Machine, sub: { id: string; agent?: string }): Promise<ThreadEvent[]>;
   driver(t: ThreadMeta, host: ChatHost): ChatDriver;
   /** Call right after creating a thread, whichever view opens it. Codex: creates (or forks) the Codex thread
    *  so ThreadMeta.sessionId is known before the terminal or chat uses it. Returns the updated meta. */

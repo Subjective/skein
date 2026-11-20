@@ -2,6 +2,7 @@
 // through itemEvents, so an event's id is the item's id from either source.
 import type { ThreadEvent } from '../../../shared/types';
 import { clip, countDiff, errorKind, textOf, tidy } from '../common';
+import type { CollabAgentStatus } from './protocol/v2/CollabAgentStatus';
 import type { ThreadItem } from './protocol/v2/ThreadItem';
 import type { TurnError } from './protocol/v2/TurnError';
 
@@ -56,8 +57,11 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
     }
     case 'collabAgentToolCall': {
       if (item.tool !== 'spawnAgent') return [];
-      const status: Status = item.status === 'inProgress' ? 'running' : item.status === 'completed' ? 'done' : 'failed';
-      return [{ t: 'sub', id: item.id, name: item.model ? `Agent (${item.model})` : 'Agent', task: tidy(item.prompt ?? '', 160), status }];
+      // a sub-agent is a Codex thread of its own: its turns are read, and follow-ups sent, through that thread's id
+      const agent = item.receiverThreadIds[0];
+      const state = agent ? item.agentsStates[agent] : undefined;
+      const status: Status = state ? agentStatus(state.status) : item.status === 'failed' ? 'failed' : 'running';
+      return [{ t: 'sub', id: item.id, name: item.model ? `Agent (${item.model})` : 'Agent', task: tidy(item.prompt ?? '', 160), status, ...(agent ? { agent, followUps: true } : {}) }];
     }
     case 'imageView': return [{ t: 'tool', id: item.id, name: 'View image', arg: item.path, status: 'done' }];
     case 'contextCompaction': return [{ t: 'notice', id: item.id, text: 'Context compacted' }];
@@ -65,6 +69,17 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
     case 'exitedReviewMode': return item.review.trim() ? [{ t: 'text', id: item.id, text: item.review }] : [];
     default: return [];
   }
+}
+
+const agentStatus = (s: CollabAgentStatus): Status => (s === 'pendingInit' || s === 'running' ? 'running' : s === 'completed' ? 'done' : 'failed');
+
+/** The sub-agent states a collab call reports (a wait, a close), by the sub-agent's thread id: what the
+ *  sub events that spawned them should now say. */
+export function agentStates(item: ThreadItem): Map<string, Status> {
+  const out = new Map<string, Status>();
+  if (item.type !== 'collabAgentToolCall') return out;
+  for (const [id, st] of Object.entries(item.agentsStates)) if (st) out.set(id, agentStatus(st.status));
+  return out;
 }
 
 const argText = (v: unknown) => {
