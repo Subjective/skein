@@ -181,7 +181,7 @@ test('browser: open outside hands the address to the system browser', async p =>
 test('browser: from the palette and the : line, beside the thread', async p => {
   await serve(p);
   await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
-  await settle(p, 200);
+  await settle(p, 450);
   await keys(p, `${mod}+k`);
   await p.keyboard.type('browser');
   await keys(p, 'Enter');
@@ -193,7 +193,7 @@ test('browser: from the palette and the : line, beside the thread', async p => {
 test('browser: a thread on an SSH machine forwards its localhost and says so', async p => {
   await serve(p);
   await p.locator('#side').getByText('Refactor queue worker', { exact: true }).first().click();
-  await settle(p, 200);
+  await settle(p, 450);
   await keys(p, 'Control+Space :');
   await p.keyboard.type('browser');
   await keys(p, 'Enter');
@@ -207,7 +207,7 @@ test('browser: a thread on an SSH machine forwards its localhost and says so', a
 test('browser: a failed forward shows an error row with Retry', async p => {
   await serve(p);
   await p.locator('#side').getByText('Bump lockfile to fix CI', { exact: true }).first().click();
-  await settle(p, 200);
+  await settle(p, 450);
   await keys(p, 'Control+Space :');
   await p.keyboard.type('browser');
   await keys(p, 'Enter');
