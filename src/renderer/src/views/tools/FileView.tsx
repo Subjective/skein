@@ -21,7 +21,7 @@ import { S, toast, update, useApp } from '../../state/store';
 import { openCmdline, openMenu } from '../../shell/overlays';
 import { Button, cx, Icon, IconButton, Seg, Spinner } from '../../ui/primitives';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
-import { CodeLine, LangBadge, type Paint } from './code';
+import { CodeLine, LangBadge, selectPainted, type Paint } from './code';
 import { baseName, indentUnit, langOf, tokenizeAll, type Tok } from './highlight';
 import { registerHooks } from './hooks';
 import { diffLines, toHunks } from './linediff';
@@ -35,6 +35,11 @@ interface Doc { disk?: string; err?: string; binary?: boolean; gen: number; base
 /** Loaded files and unsaved text, by machine + folder + path. Unsaved text outlives the tab, for this session. */
 const docs = new Map<string, Doc>();
 const bufs = new Map<string, string>();
+/** An open file with edits not saved yet: its tab shows a dot after the name. */
+export function fileDirty(t: Tab): boolean {
+  const c = ctxOf(t), key = `${c.machine}\u0000${c.dir}\u0000${t.path || ''}`;
+  return bufs.has(key) && bufs.get(key) !== docs.get(key)?.disk;
+}
 const EDIT_N = new Set(['i', 'a', 'I', 'A', 'o', 'O', 's', 'S', 'c', 'C', 'd', 'D', 'x', 'X', 'r', 'p', 'P', 'J', '~', 'u', 'ctrl-r', 'delete']);
 const EDIT_V = new Set(['d', 'x', 'c', 's', 'J', '~', 'r', 'delete']);
 const HL_MAX = 8000;   // lines highlighted; the rest of a huge file is plain
@@ -151,7 +156,9 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     update(() => { t.path = nav.hist[i].path; });
     return true;
   };
-  useEffect(() => registerHooks(t.id, { back: () => histStep(-1), forward: () => histStep(1), save: () => { void save(); return true; } }));
+  // mod-l in VISUAL: the painted selection becomes a page selection, and the quote command takes it from there
+  const addr = () => { if (v.rs.mode === 'VISUAL') selectPainted(body.current, '.src .vs'); else if (v.rs.mode === 'V-LINE') selectPainted(body.current, '.src .dl.vsel .c'); return false; };
+  useEffect(() => registerHooks(t.id, { back: () => histStep(-1), forward: () => histStep(1), save: () => { void save(); return true; }, addr }));
 
   const edBox = useRef<HTMLDivElement>(null);
   const startEdit = (k?: string) => {
@@ -194,7 +201,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     const a = anchor ?? body.current?.closest('.file-v')?.querySelector(`.crumb[data-d="${CSS.escape(dir)}"]`)?.getBoundingClientRect() ?? null;
     const kids = lister.kids(dir);
     const show = (es: { name: string; rel: string; dir: boolean; ign?: boolean }[]) => openMenu<{ rel: string; dir: boolean }>({
-      anchor: a, place: 'bottom-start', width: 280, search: { placeholder: `Go to a file in ${dir || baseName(ctx.dir)}` }, normal: true, empty: 'Empty folder',
+      anchor: a, place: 'bottom-start', width: 280, search: { placeholder: `Go to a file in ${dir || baseName(ctx.dir)}` }, empty: 'Empty folder',
       items: [...(dir ? [{ label: '..', icon: <Icon name="folder" />, hint: 'Up', data: { rel: dir.includes('/') ? dir.replace(/\/[^/]*$/, '') : '', dir: true } }] : []),
         ...es.map(e => ({ label: e.dir ? e.name + '/' : e.name, icon: e.dir ? <Icon name="folder" /> : <LangBadge path={e.rel} />, on: e.rel === path, dis: e.ign && e.name === '.git', data: { rel: e.rel, dir: e.dir } }))],
       onPick: it => { if (!it.data) return; if (it.data.dir) crumbMenu(it.data.rel, a); else openFile(ctx, it.data.rel, { from: t }); },
@@ -236,7 +243,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
       if (preview && v.rs.pending === 'g' && k === 'g') { v.rs = { ...v.rs, pending: '' }; body.current?.scrollTo({ top: 0 }); update(); return true; }
       if (/^[dcr]/.test(v.rs.pending.replace(/^\d+/, ''))) { startEdit(k); return true; }   // an operator typed while reading
       const r = step(v.rs, k);
-      if (!r.handled) return k.length === 1;
+      if (!r.handled) return false;   // the NORMAL layer (: H L ...) gets it; nothing types
       if (r.fx.includes('yank')) { yank(r.s.reg.text, r.s.reg.line); toast(`Copied ${r.s.reg.text.split('\n').length > 1 ? r.s.reg.text.split('\n').length + ' lines' : 'selection'}`); }
       if (r.fx.includes('leave')) { v.rs = { ...r.s, mode: 'NORMAL' }; update(); return false; }
       if (r.s.text !== v.rs.text) { startEdit(k); return true; }   // anything that would change the text edits instead
@@ -327,7 +334,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
               </div>
             )}
           {showLines && (
-            <div className="src" role="textbox" aria-readonly="true" aria-label={path} aria-multiline="true"
+            <div className="src" data-src={`file:${path}`} role="textbox" aria-readonly="true" aria-label={path} aria-multiline="true"
               onMouseDown={e => { if (e.detail > 1) return; const p = posFromPoint(e); if (p != null) { v.rs = { ...v.rs, pos: p, mode: 'NORMAL' }; update(); } }}
               onDoubleClick={e => { const p = posFromPoint(e); if (p != null) { v.rs = { ...v.rs, pos: p, mode: 'NORMAL' }; startEdit('i'); } }}>
               {lines.map((_, i) => (
@@ -337,7 +344,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
               ))}
             </div>
           )}
-          {v.mode === 'read' && preview && doc.disk != null && <article className="doc prose" onDoubleClick={() => startEdit('i')}><Markdown text={text} /></article>}
+          {v.mode === 'read' && preview && doc.disk != null && <article className="doc prose" data-src={`file:${path}`} onDoubleClick={() => startEdit('i')}><Markdown text={text} /></article>}
         </div>
         {side.show && (
           <aside className="ctree" aria-label="Project files">

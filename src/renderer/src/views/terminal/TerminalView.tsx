@@ -2,7 +2,8 @@
 // Instances are cached by tab id, so a tab keeps its terminal while it moves between panes or pops out.
 // VIM-MODEL rule 11: in TERMINAL every key goes to the program except the leader, alt-hjkl and Skein's
 // modifier shortcuts; the dispatcher enforces that before a key reaches xterm.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { useKbRow, type KbRowOptions } from '../../ui/kbrow';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
@@ -15,11 +16,14 @@ import type { Surface } from '../../input/dispatcher';
 import { keyOf } from '../../input/keys';
 import { registerTab } from '../../input/surfaces';
 import type { Tab } from '../../state/layout';
-import { machine, S, update } from '../../state/store';
+import type { Harness } from '@shared/types';
+import * as A from '../../state/actions';
+import { harnessName } from '../../shell/meta';
+import { machine, S, toast, update } from '../../state/store';
 import { LinkNote } from '../../ui/LinkNote';
-import { discardUpload, pasteClipboard, pasteImage, uploads } from './paste';
+import { discardUpload, pasteClipboard, pasteImage, uploadCause, uploads } from './paste';
 import { OS } from '../../input/platform';
-import { Button, Icon } from '../../ui/primitives';
+import { Button, cx, Icon } from '../../ui/primitives';
 import { isReading, readerKey } from './scrollback';
 
 export interface TermEntry {
@@ -33,6 +37,8 @@ export interface TermEntry {
   /** The program set the terminal title (OSC 0/2) or asked for attention (bell, OSC 9 / 777). */
   onTitle?: (title: string) => void;
   onAttention?: (text: string) => void;
+  /** A line was sent to the program (enter). */
+  onEnter?: () => void;
 }
 const cache = new Map<string, TermEntry>();
 export const termOf = (tabId: string) => cache.get(tabId);
@@ -85,7 +91,7 @@ export function ensureTerm(tabId: string, spec: PtySpec, onExit?: (code: number 
     if (k === 'ctrl-shift-v' || (OS === 'win' && k === 'ctrl-v')) { e.preventDefault(); void pasteClipboard(tabId, entry); return false; }
     return true;
   });
-  term.onData(d => { if (entry.ptyId) api.pty.write(entry.ptyId, d); });
+  term.onData(d => { if (entry.ptyId) api.pty.write(entry.ptyId, d); if (d.includes('\r')) entry.onEnter?.(); });
   term.onTitleChange(title => entry.onTitle?.(title));
   term.onBell(() => entry.onAttention?.(''));
   // OSC 9 (iTerm2 / Windows Terminal) and OSC 777;notify (rxvt): desktop notifications from the TUI
@@ -165,33 +171,70 @@ export function useTerminal(tab: Tab, focused: boolean, spec: PtySpec | null, on
   return host;
 }
 
+// Shell detection (mockup scene "detect"): `claude` or `codex` started by hand in a shell tab turns the tab into
+// that thread's terminal and lists it in the sidebar. Main reads the shell's process tree a moment after each
+// command (twice, as a TUI can take a few seconds to start); an SSH shell's programs run on the other machine,
+// so there Claude Code's terminal title (a ✳ or spinner glyph, or "Claude Code") is what tells.
+const adopting = new Set<string>();
+const CLAUDE_TITLE = /claude code|^[\u2800-\u28ff✳✻✽✶✢◐◓◑◒]\s/i;
+function detect(tab: Tab, e: TermEntry, seen?: Harness) {
+  if (!e.ptyId || tab.kind !== 'shell' || adopting.has(tab.id)) return;
+  adopting.add(tab.id);
+  void api.pty.adopt(e.ptyId, seen).then(th => {
+    if (!th || tab.kind !== 'shell') return;
+    update(s => {
+      if (!s.threads.some(x => x.id === th.id)) s.threads = [th, ...s.threads];
+      Object.assign(tab, { kind: 'thread', thread: th.id, view: 'term' });
+      s.sideCursor = th.id; s.tick++;
+    });
+    e.onEnter = undefined;
+    A.save();
+    toast(<><b>{harnessName(th.harness)}</b> detected in this shell · added to the sidebar</>, { icon: th.harness });
+  }).catch(() => {}).finally(() => adopting.delete(tab.id));
+}
+
 export function TerminalView({ t, focused, spec }: { t: Tab; focused: boolean; spec: PtySpec }) {
   const host = useTerminal(t, focused, spec);
+  useEffect(() => {
+    const e = cache.get(t.id);
+    if (!e || spec.run.kind !== 'shell') return;
+    e.onEnter = () => { for (const ms of [1200, 3500]) setTimeout(() => { if (t.kind === 'shell') detect(t, e); }, ms); };
+    e.onTitle = title => { if (CLAUDE_TITLE.test(title)) detect(t, e, 'claude'); };
+  }, [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const e = cache.get(t.id);
   return (
     <div className="term-wrap">
       <div className="term-host" ref={host} onMouseDown={() => setTimeout(() => cache.get(t.id)?.term.focus(), 0)} />
       <LinkNote machine={machine(t.machine || 'local')} variant="term" />
-      <UploadCard tabId={t.id} />
+      <UploadCard tabId={t.id} focused={focused} />
       {e && e.exited !== undefined && e.exited !== -1 && (
-        <div className="t-exit kbrow"><span>Process exited{e.exited ? ` with code ${e.exited}` : ''}</span><span className="sp" /><Button small variant="primary" onClick={() => { e.term.reset(); void startPty(e); }}>Restart</Button></div>
+        <KbRow tabId={t.id} focused={focused} className="t-exit"><span>Process exited{e.exited ? ` with code ${e.exited}` : ''}</span><span className="sp" /><Button small variant="primary" onClick={() => { e.term.reset(); void startPty(e); update(); }}>Restart</Button></KbRow>
       )}
     </div>
   );
 }
 export function retheme() { for (const t of cache.values()) t.term.options.theme = theme(); }
 
-/** An image on its way to the remote before its path is pasted (G14); a failed one offers Retry or Discard. */
-export function UploadCard({ tabId }: { tabId: string }) {
+/** An image on its way to the remote before its path is pasted (G14), with its progress; a failed one says why
+ *  and offers Retry or Discard (esc). */
+export function UploadCard({ tabId, focused }: { tabId: string; focused: boolean }) {
   const u = uploads.get(tabId); if (!u) return null;
   if (u.state === 'up') return (
-    <div className="t-over" role="status"><Icon name="upload" /><span>Uploading <b>{u.name}</b> to {u.host}</span><span className="bar ind"><i /></span></div>
+    <div className="t-over" role="status"><Icon name="upload" /><span>Uploading <b>{u.name}</b> to {u.host}</span><span className="bar"><i style={{ width: u.pct + '%' }} /></span><span className="dim">{u.pct}%</span></div>
   );
+  const m = S.machines.find(x => x.name === u.host);
   return (
-    <div className="t-over bad kbrow" role="alert">
-      <Icon name="alert" /><span title={u.error}>Couldn't upload <b>{u.name}</b> to {u.host}</span><span className="sp" />
-      <Button small onClick={() => { discardUpload(tabId); cache.get(tabId)?.term.focus(); }}>Discard</Button>
+    <KbRow tabId={tabId} focused={focused} className="t-over bad" role="alert">
+      <Icon name="alert" /><span title={u.error}>Couldn't upload <b>{u.name}</b>: {uploadCause(u.host, !m?.ssh || m.link === 'up', u.error)}</span><span className="sp" />
+      <Button small data-esc onClick={() => { discardUpload(tabId); cache.get(tabId)?.term.focus(); }}>Discard</Button>
       <Button small variant="primary" onClick={u.retry}>Retry</Button>
-    </div>
+    </KbRow>
   );
+}
+
+/** A row of buttons over a terminal that has the tab's keys while it shows (rule 16: h / l, enter, esc). */
+export function KbRow({ tabId, focused, className, role, children, onRead, onInsert }: { tabId: string; focused: boolean; className?: string; role?: string; children: ReactNode } & KbRowOptions) {
+  const ref = useRef<HTMLDivElement>(null);
+  useKbRow(tabId, focused, ref, { onRead, onInsert });
+  return <div ref={ref} className={cx(className, 'kbrow')} role={role}>{children}</div>;
 }

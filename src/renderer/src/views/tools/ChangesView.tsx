@@ -18,7 +18,8 @@ import { ReaderSearch, type Searchable } from '../../ui/search';
 import { animate, MOTION } from '../../ui/motion';
 import { Checkbox, Chip, cx, Icon, IconButton, SplitButton, Spinner } from '../../ui/primitives';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
-import { CodeLine, LangBadge, Nums, type Paint } from './code';
+import { CodeLine, LangBadge, Nums, selectPainted, type Paint } from './code';
+import { registerHooks } from './hooks';
 import { openCommit, type CommitAction } from './CommitDialog';
 import { baseName, langOf, tokenize, type HlState } from './highlight';
 import { openFile } from './open';
@@ -30,6 +31,7 @@ const SCOPES: { k: Exclude<DiffScope, 'commits'>; label: string; icon: string }[
   { k: 'uncommitted', label: 'Uncommitted', icon: 'diff' },
   { k: 'staged', label: 'Staged', icon: 'check' },
   { k: 'unstaged', label: 'Unstaged', icon: 'pencil' },
+  { k: 'all', label: 'All changes', icon: 'layers' },
 ];
 const BIG = 1200;   // a file with a longer diff starts folded
 
@@ -75,7 +77,8 @@ type Row =
   | { k: 'note'; f: FileDiff; text: string };
 
 const scopeIcon = (s: DiffScope) => (s === 'commits' ? 'branch' : SCOPES.find(x => x.k === s)!.icon);
-const working = (s: DiffScope) => s !== 'commits';
+/** Scopes whose files can be staged and reverted: the working tree's own (all changes holds commits too). */
+const working = (s: DiffScope) => s !== 'commits' && s !== 'all';
 const isTrunk = (r?: RepoState | null) => !!r?.branch && (r.branch === r.trunk || (!r.trunk && /^(main|master|trunk|develop)$/.test(r.branch)));
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
@@ -101,6 +104,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
   const spec = (s: DiffScope = v.scope): ScopeSpec | null => {
     if (s === 'turn') return turn ? { scope: 'turn', base: turn.base, head: turn.head } : null;
     if (s === 'commits') { const r = v.range, c = v.commits; return r && c[r[1]] && c[r[0]] ? { scope: 'commits', base: c[r[1]].hash, head: c[r[0]].hash } : null; }
+    if (s === 'all') { const b = repo?.trunk ? `origin/${repo.trunk}` : repo?.upstream; return { scope: 'all', base: b }; }
     return { scope: s };
   };
   const cur = spec();
@@ -178,12 +182,11 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
     const undo = await api.git.revert(ctx.machine, repo.root, [f.path]);
     const name = baseName(f.path);
     v.lastUndo = { undo, name };
-    toast(`Reverted ${name}`, { icon: 'retry', action: { label: 'Undo', run: () => void unrevert(undo) } }, 7000);
+    toast(`Reverted ${name}`, { icon: 'retry', action: { label: 'Undo', run: () => void unrevert(undo) } }, 6000);
   });
   const unrevert = (undo: RevertUndo) => repo && run(async () => {
     await api.git.unrevert(ctx.machine, repo.root, undo);
     if (v.lastUndo?.undo.id === undo.id) v.lastUndo = null;
-    toast(`Restored ${baseName(undo.paths[0])}`, { icon: 'check' });
   });
   const toggle = (f: FileDiff, open?: boolean) => {
     const now = isOpen(f), want = open ?? !now;
@@ -228,10 +231,25 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
       }),
       { label: 'Commits', icon: <Icon name="branch" />, on: v.scope === 'commits', right: <Icon name="chev" />, data: 'commits' as DiffScope, dis: !v.commits.length, hint: v.commits.length ? '' : 'None yet' },
     ];
-    openMenu<DiffScope>({ anchor, place: 'bottom-start', width: 270, items, onPick: it => { if (it.data === 'commits') pickCommits(anchor); else setScope(it.data!); } });
+    // Commits is a flyout beside the scope menu (both stay open while you tick commits): picking or hovering it
+    let fly: (() => void) | null = null, menuEl: HTMLElement | null = null;
+    const openFly = () => {
+      if (fly || !v.commits.length) return;
+      const row = [...(menuEl?.querySelectorAll<HTMLElement>('.mi') || [])].find(x => x.textContent?.trim().startsWith('Commits'));
+      if (!row) return;
+      const r = row.getBoundingClientRect(), w = 340, left = r.right + 8 + w > innerWidth ? r.left - w - 8 : r.right + 8;
+      row.setAttribute('aria-expanded', 'true');
+      fly = openLayer(c => <CommitsMenu v={v} anchor={new DOMRect(left, r.top - 12, 0, 0)} close={c} onBack={c} />, () => { fly = null; row.setAttribute('aria-expanded', 'false'); });
+    };
+    const closeScope = openMenu<DiffScope>({ anchor, place: 'bottom-start', width: 270, items, keep: it => it.data === 'commits',
+      onPick: it => { if (it.data === 'commits') openFly(); else { fly?.(); closeScope(); setScope(it.data!); } },
+      onClose: () => fly?.() });
+    requestAnimationFrame(() => {
+      menuEl = [...document.querySelectorAll<HTMLElement>('.menu')].pop() || null;
+      menuEl?.addEventListener('mouseover', ev => { const m = (ev.target as HTMLElement).closest('.mi'); if (m?.textContent?.trim().startsWith('Commits')) openFly(); });
+    });
   };
   const setScope = (s: DiffScope) => { if (v.scope === s) return; v.scope = s; if (s !== 'commits') v.range = null; v.cur = 0; v.anchor = null; update(); };
-  const pickCommits = (anchor: DOMRect | null) => openLayer(close => <CommitsMenu v={v} anchor={anchor} close={close} onBack={() => { close(); pickScope(anchor); }} />);
   const pickBranch = async (anchor = anchorOf('[data-k=branch]')) => {
     if (!repo) return;
     let list: Awaited<ReturnType<typeof api.git.branches>> = [];
@@ -269,6 +287,8 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
   };
 
   // ---------- keys ----------
+  // mod-l in V-LINE: the picked diff lines become a page selection, which the quote command takes (linked to the file)
+  useEffect(() => registerHooks(t.id, { addr: () => { if (v.vmode === 'V') selectPainted(body.current, '.diff.flat .dl.vsel .c'); return false; } }));
   const searchTree = () => { if (!side.show) side.set(true); requestAnimationFrame(() => tq.current?.focus(true)); };
   const yank = () => {
     const [a, b] = [Math.min(v.anchor ?? v.cur, v.cur), Math.max(v.anchor ?? v.cur, v.cur)];
@@ -338,7 +358,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
         case 'y': if (v.vmode === 'V') yank(); return true;
         case 'esc': if (v.vmode === 'V') { v.vmode = 'n'; v.anchor = null; update(); return true; } return v.search.clear();
       }
-      return k.length === 1;
+      return false;   // the app's NORMAL layer gets the rest (: H L | \ ?); the dispatcher drops what nobody takes
     },
   });
 
@@ -379,7 +399,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
           onClick={e => void pickBranch(e.currentTarget.getBoundingClientRect())} />
         {v.loading && v.files && <Spinner label="Refreshing" />}
         <span className="sp" />
-        <SplitButton label={commitLabel} keys="c" disabled={!total?.files} onClick={() => commit('commit')} onMenu={r => commitMenu(r)} menuLabel="More commit actions" />
+        <SplitButton label={commitLabel} keys="c" disabled={!total?.files} menuDisabled={false} onClick={() => commit('commit')} onMenu={r => commitMenu(r)} menuLabel="More commit actions" />
         <IconButton icon="panelR" small on={side.show} label="Changed files" keys="t" aria-pressed={side.show} onClick={side.toggle} />
       </header>
       <div className={cx('cbody', side.show && 'tree')}>
@@ -404,7 +424,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
                     {working(v.scope) && <IconButton icon="retry" small label="Revert file" keys="x" onMouseDown={e => e.preventDefault()} onClick={e => { e.stopPropagation(); void revert(f); }} />}
                     {working(v.scope) && <Checkbox on={staged(f)} label={`Stage ${f.path}`} onChange={on => void stage([f.path], on)} />}
                   </summary>
-                  {open && <div className="diff flat">
+                  {open && <div className="diff flat" data-src={`diff:${f.path}`}>
                     {rs.map(({ r, i }) => r.k === 'gap'
                       ? <button key={i} type="button" className={cx('dgap', v.cur === i && focused && 'rowcur')} title={`Show ${r.n} unmodified lines`}
                           onMouseDown={e => e.preventDefault()} onClick={() => { v.cur = i; openGap(r); }}>
@@ -471,8 +491,10 @@ function CommitsMenu({ v, anchor, close, onBack }: { v: View; anchor: DOMRect | 
   const box = (st: boolean | 'mix') => <span className={cx('cb', st === 'mix' ? 'mix' : st && 'on')}>{st === true && <Icon name="check" />}</span>;
   // the list only changes with the picked run (a new array each render would re-register the menu's keys forever)
   const items = useMemo((): MenuItem<number>[] => [
-    { label: 'All commits', icon: box(all ? true : r ? 'mix' : false), data: -1, right: r ? <span className="age">{r[1] - r[0] + 1} of {n}</span> : undefined },
+    { label: 'All commits', icon: box(all ? true : r ? 'mix' : false), data: -1 },
     ...v.commits.map((c, j) => ({ label: `${c.short} ${c.subject}`, display: <><span className="hash">{c.short}</span> {c.subject}</>, icon: box(!!r && j >= r[0] && j <= r[1]), right: <span className="age">{c.when.replace(/ ago$/, '')}</span>, data: j })),
+    // the git range the ticks amount to, and how many commits that is
+    ...(r ? [{ label: '', head: true, block: <div className="fly-r">{rangeLabel(v)}<span>{r[1] - r[0] + 1} commit{r[1] === r[0] ? '' : 's'}</span></div> }] : []),
   ], [r?.[0], r?.[1], v.commits]); // eslint-disable-line react-hooks/exhaustive-deps
   const tick = (c: number) => {
     let x = v.range;
@@ -486,8 +508,9 @@ function CommitsMenu({ v, anchor, close, onBack }: { v: View; anchor: DOMRect | 
     v.range = x; v.scope = x ? 'commits' : v.before === 'commits' ? 'uncommitted' : v.before; v.cur = 0;
     update();
   };
-  return <Menu<number> anchor={anchor} place="bottom-start" width={380} keep items={items} search={{ placeholder: 'Filter commits' }} normal className="commits-m"
-    onPick={it => tick(it.data!)} onClose={close} keys={k => { if (k === 'h' || k === 'backspace') { onBack(); return true; } return false; }} empty="No matching commits" />;
+  // a flyout: clicks in it are not clicks outside the scope menu beside it
+  return <div onMouseDown={e => e.stopPropagation()}><Menu<number> anchor={anchor} place="bottom-start" width={340} keep items={items} search={{ placeholder: 'Filter commits' }} className="commits-m fly"
+    onPick={it => tick(it.data!)} onClose={close} keys={k => { if (k === 'h' || k === 'backspace') { onBack(); return true; } return false; }} empty="No matching commits" /></div>;
 }
 
 void animate; void MOTION;
