@@ -429,6 +429,11 @@ await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', 
   await settle(p);
   assert.ok(await F(p).getByRole('button', { name: 'Save' }).isVisible());
   assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 1, 'the tab marks unsaved edits');
+  const dd = p.locator('.pane.focus .tab.on.dirty .tx .dd');
+  assert.ok(await dd.isVisible(), 'a dot where the close button is');
+  assert.equal(await p.locator('.pane.focus .tool-h .mod.dim').count(), 0, 'no Modified label by the breadcrumbs');
+  await p.locator('.pane.focus .tab.on.dirty .tx').hover();
+  assert.ok(!(await dd.isVisible()) && await p.locator('.pane.focus .tab.on.dirty .tx .i-x').isVisible(), 'hover turns the dot into the x');
   assert.match(await F(p).locator('.src .dl').first().innerText(), /Hello \{/);
   // u hands over to the editor and undoes there; ctrl-r redoes
   const ed = F(p).locator('.ed textarea');

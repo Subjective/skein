@@ -104,3 +104,16 @@ body.dragging-thread { user-select: none; cursor: grabbing; }
 .keys .kcols { grid-column: 1 / -1; columns: 3 230px; column-gap: 36px; }
 .keys .kcols section { break-inside: avoid; margin-bottom: 20px; }
 .keys .kcols .kk { flex-wrap: wrap; justify-content: flex-end; }
+
+/* An unsaved file (Josh, 2026-11-20): the tab's close button shows a dot instead of the x, always visible, and turns
+   back into the x on hover, as in VS Code and Cursor. The file view's header no longer says "Modified". */
+.tab .tx .dd { display: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-2); }
+.tab.on .tx .dd { background: var(--fg); }
+.tab.dirty .tx { opacity: 1; }
+.tab.dirty .tx .dd { display: block; }
+.tab.dirty .tx svg.i { display: none; }
+.tab.dirty .tx:hover .dd, body.alt .tab.dirty .tx .dd { display: none; }
+.tab.dirty .tx:hover .i-x { display: block; }
+body.alt .tab.dirty .tx:hover .i-x { display: none; }
+body.alt .tab.dirty .tx .i-popout { display: block; }
+.tab.dirty .t::after { content: none; }
