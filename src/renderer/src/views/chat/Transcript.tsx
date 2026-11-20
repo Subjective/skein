@@ -40,7 +40,7 @@ export const ago = (t: number) => { const m = (Date.now() - t) / 60000; return m
 /** Unified diff text to numbered lines. */
 function Diff({ text }: { text: string }) {
   const rows: { k: string; n: number | ''; c: string }[] = [];
-  let a = 0, b = 0;
+  let a = 1, b = 1;   // a hunk header resets these; a bare body (a new file's lines) counts from 1
   for (const l of text.split('\n')) {
     const h = /^@@ -(\d+)(?:,\d+)? \+(\d+)/.exec(l);
     if (h) { a = +h[1]; b = +h[2]; continue; }

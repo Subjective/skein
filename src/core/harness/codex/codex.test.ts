@@ -28,6 +28,38 @@ describe('Codex rollouts', () => {
     expect(turnOf.get('i1')).toBe('turn1');
   });
 
+  // The shapes codex 0.171 writes (the core's items, not the app-server's): a message's text in content, reasoning
+  // as summary_text, a command as argv with a secs / nanos duration, file changes keyed by path.
+  it('reads the core item shapes current rollouts store', () => {
+    const item = (turn: string, it: object) => J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: turn, item: it } });
+    const text = [
+      item('t1', { type: 'UserMessage', id: 'u1', client_id: 'c1', content: [{ type: 'text', text: 'hello codex', text_elements: [] }] }),
+      item('t1', { type: 'Reasoning', id: 'rs_1', summary_text: ['Thinking about it.'], raw_content: [] }),
+      item('t1', { type: 'AgentMessage', id: 'msg_1', content: [{ type: 'Text', text: 'Hello ' }, { type: 'Text', text: 'there.' }] }),
+      item('t1', { type: 'CommandExecution', id: 'x1', command: ['/bin/bash', '-lc', 'touch a && echo made'], cwd: 'file:///p', status: 'completed', aggregated_output: 'made\n', exit_code: 0, duration: { secs: 1, nanos: 500_000_000 } }),
+      item('t1', { type: 'FileChange', id: 'f1', changes: { '/p/my_file.txt': { type: 'add', content: 'one\ntwo\n' }, '/p/old_name.ts': { type: 'update', unified_diff: '@@ -1 +1 @@\n-x\n+y', move_path: null } }, status: 'completed' }),
+      item('t1', { type: 'Plan', id: 'p1', text: '1. do it' }),
+      item('t1', { type: 'SomethingNew', id: 'n1', weird: { nested: 1 } }),
+      item('t1', { type: 'AgentMessage', id: 'msg_2' }),
+    ].join('\n');
+    const { events } = parseCodexRollout(text);
+    expect(events.map(e => e.t)).toEqual(['user', 'thinking', 'text', 'tool', 'edit', 'edit', 'text']);
+    expect(events[1]).toMatchObject({ text: 'Thinking about it.' });
+    expect(events[2]).toMatchObject({ id: 'msg_1', text: 'Hello there.' });
+    expect(events[3]).toMatchObject({ arg: 'touch a && echo made', out: 'made\n', status: 'done', meta: '1.5s' });
+    expect(events[4]).toMatchObject({ id: 'f1:0', path: '/p/my_file.txt', add: 2, del: 0, diff: '+one\n+two' });
+    expect(events[5]).toMatchObject({ id: 'f1:1', path: '/p/old_name.ts', add: 1, del: 1 });
+  });
+
+  it('skips an item it cannot read instead of throwing', () => {
+    const text = [
+      J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: 't', item: { type: 'FileChange', id: 'f', changes: 'garbage' } } }),
+      J({ type: 'event_msg', payload: { type: 'item_completed', turn_id: 't', item: { type: 'AgentMessage', id: 'm', content: [{ type: 'Text', text: 'still here' }] } } }),
+    ].join('\n');
+    expect(() => parseCodexRollout(text)).not.toThrow();
+    expect(parseCodexRollout(text).events).toMatchObject([{ t: 'text', text: 'still here' }]);
+  });
+
   it('reads older rollouts from messages and tool calls', () => {
     const text = [
       J({ type: 'session_meta', payload: { id: 'th1', cwd: '/p' } }),
@@ -126,6 +158,17 @@ describe('Codex driver', () => {
     expect(h.view().find(e => e.id === 'ap-cmd1')).toMatchObject({ t: 'notice', text: 'Always allowed: npm test' });
     await d.send({ text: 'also lint' });
     expect(srv.got.at(-1)).toMatchObject({ method: 'turn/steer', params: { expectedTurnId: 'turn-1' } });
+  });
+
+  it('records the model and effort Codex resumed a thread with when the thread has none', async () => {
+    const srv = fakeServer(method => (method === 'thread/resume' ? { thread: { id: 'cx-old' }, model: 'gpt-5.2', reasoningEffort: 'low' } : method === 'turn/start' ? { turn: { id: 'turn-1' } } : {}));
+    const h = fakeHost([{ id: 'o', harness: 'codex', sessionId: 'cx-old' }, { id: 'p', harness: 'codex', sessionId: 'cx-pick', model: 'gpt-6.2-sol', effort: 'high' }]);
+    const servers = new CodexServers(srv.launch);
+    await new CodexDriver('o', h.host, servers).send({ text: 'follow up' });
+    expect(h.thread('o')).toMatchObject({ model: 'gpt-5.2', effort: 'low' });
+    // a thread whose model was picked keeps it
+    await new CodexDriver('p', h.host, servers).send({ text: 'go' });
+    expect(h.thread('p')).toMatchObject({ model: 'gpt-6.2-sol', effort: 'high' });
   });
 
   it('forks a side chat through the parent turn and reports failures by kind', async () => {

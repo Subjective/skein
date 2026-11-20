@@ -67,7 +67,11 @@ async function launchLocalWs(): Promise<Launched> {
   const proc = spawnCodex(['app-server', '--listen', `ws://127.0.0.1:${port}`, '--ws-auth', 'capability-token', '--ws-token-file', tokenFile]);
   let exited: string | null = null, stderr = '';
   proc.stderr?.on('data', d => { stderr = (stderr + String(d)).slice(-2000); });
-  proc.on('exit', code => { exited = `exited with code ${code}`; rmSync(dir, { recursive: true, force: true }); });
+  proc.on('exit', code => {
+    exited = `exited with code ${code}`;
+    // in an event handler a throw is an uncaught exception; Windows can refuse the delete for a moment (EBUSY)
+    try { rmSync(dir, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { log('codex', 'token folder', (e as Error).message); }
+  });
   proc.on('error', e => { exited = e.message; });
   const url = `ws://127.0.0.1:${port}`;
   const deadline = Date.now() + 20_000;
@@ -152,6 +156,9 @@ export function codexPerm(id: string | undefined) {
 }
 
 const expand = (m: Machine, dir: string) => (m.ssh ? (dir.startsWith('~') ? (m.home ? m.home + dir.slice(1) : dir) : dir) : dir === '~' ? homedir() : dir.startsWith('~/') || dir.startsWith('~\\') ? join(homedir(), dir.slice(2)) : dir);
+
+/** What thread/start, thread/resume and thread/fork answer with (the parts Skein reads). */
+interface Opened { thread: { id: string }; model?: string; reasoningEffort?: string | null }
 
 interface Pending { req: ApprovalRequest; method: string; params: Params; resolve: (v: unknown) => void; arg: string; rpcId: string }
 
@@ -300,22 +307,29 @@ export class CodexDriver implements ChatDriver {
     if (!m.ssh && !existsSync(common.cwd)) { this.error(`The folder ${t.dir} does not exist on this computer.`, 'other'); return false; }
     try {
       let threadId = t.sessionId;
+      let r: Opened;
       if (threadId) {
         this.listenTo(threadId);
-        await rpc.request('thread/resume', { threadId, ...common, excludeTurns: true });
+        r = await rpc.request<Opened>('thread/resume', { threadId, ...common, excludeTurns: true });
       } else if (t.parent && this.host.thread(t.parent.id).sessionId) {
         const parent = this.host.thread(t.parent.id).sessionId!;
         const lastTurnId = t.parent.at ? (await codexHistory(m, parent)).turnOf.get(t.parent.at) : undefined;
-        const r = await rpc.request<{ thread: { id: string } }>('thread/fork', { threadId: parent, ...(lastTurnId ? { lastTurnId } : {}), ...common, excludeTurns: true });
+        r = await rpc.request<Opened>('thread/fork', { threadId: parent, ...(lastTurnId ? { lastTurnId } : {}), ...common, excludeTurns: true });
         threadId = r.thread.id;
         this.listenTo(threadId);
         this.host.update(this.id, { sessionId: threadId });
       } else {
-        const r = await rpc.request<{ thread: { id: string } }>('thread/start', { ...common, serviceName: 'skein' });
+        r = await rpc.request<Opened>('thread/start', { ...common, serviceName: 'skein' });
         threadId = r.thread.id;
         this.listenTo(threadId);
         this.host.update(this.id, { sessionId: threadId });
       }
+      // A thread with no model of its own (one started outside Skein, or before a pick) runs what Codex chose:
+      // record it, so the composer's picker shows the model and effort the next turn really uses.
+      const cur = this.t, adopt: Partial<ThreadMeta> = {};
+      if (!cur.model && r?.model) adopt.model = r.model;
+      if (!cur.effort && r?.reasoningEffort) adopt.effort = r.reasoningEffort;
+      if (Object.keys(adopt).length) this.host.update(this.id, adopt);
       this.loaded = true;
       return true;
     } catch (e) {

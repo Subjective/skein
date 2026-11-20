@@ -5,6 +5,7 @@
 import type { Machine, ThreadEvent } from '../../../shared/types';
 import { clip, countDiff, jsonLines, readHarnessFile, tidy } from '../common';
 import { collector } from '../claude/fold';
+import { log } from '../../log';
 import { camelItem, itemEvents, turnError } from './items';
 
 export interface CodexHistory {
@@ -31,7 +32,7 @@ export function parseCodexRollout(text: string | Record<string, unknown>[]): Cod
     const pt = String(p.type ?? '');
     if (l.type === 'event_msg') {
       if (pt === 'task_started' || pt === 'turn_started') turn = String(p.turn_id ?? turn);
-      else if (pt === 'item_completed' && p.item) { if (p.turn_id) turn = String(p.turn_id); for (const e of itemEvents(camelItem(p.item as Record<string, unknown>))) put(e); }
+      else if (pt === 'item_completed' && p.item) { if (p.turn_id) turn = String(p.turn_id); for (const e of rolloutItem(p.item)) put(e); }
       else if (pt === 'turn_aborted') put({ t: 'interrupted', id: 'i-' + (p.turn_id ?? nid('t')) });
       else if (pt === 'task_complete' || pt === 'turn_complete') { const ms = Number(p.duration_ms ?? 0); if (ms >= 1000) put({ t: 'worked', id: 'w-' + (p.turn_id ?? nid('t')), ms }); }
       else if (pt === 'error') put(turnError(nid('e'), { message: String(p.message ?? 'The turn failed.'), codexErrorInfo: (p.codex_error_info ?? null) as never, additionalDetails: null, misalignment: null }));
@@ -76,6 +77,13 @@ export function parseCodexRollout(text: string | Record<string, unknown>[]): Cod
   // A tool still running at the end of an old rollout was cut off.
   for (const e of c.list) if ((e.t === 'tool' || e.t === 'edit' || e.t === 'sub') && e.status === 'running' && !modern) c.emit({ ...e, status: 'done' }, true);
   return { events: c.list, turnOf };
+}
+
+/** One stored item's events. An item shape this reader does not know is skipped, never thrown: a newer Codex
+ *  can store fields differently, and history must still open. */
+function rolloutItem(raw: unknown): ThreadEvent[] {
+  try { return itemEvents(camelItem(raw as Record<string, unknown>)); }
+  catch (e) { log('codex', 'skipped a rollout item', (raw as { type?: string })?.type, (e as Error).message); return []; }
 }
 
 /** Files and per-file diffs of an apply_patch body. */

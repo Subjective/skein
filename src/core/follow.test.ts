@@ -193,9 +193,10 @@ describe('Follower', () => {
     expect((await f.load())!.map(e => e.id)).toEqual(['i1']);
     f.start();
     try {
-      appendFileSync(file, [ev({ type: 'item_completed', turn_id: 'turn1', item: { type: 'AgentMessage', id: 'i2', text: 'Two files.' } }), ev({ type: 'task_complete', turn_id: 'turn1', duration_ms: 2500 })].join('\n') + '\n');
+      appendFileSync(file, [ev({ type: 'item_completed', turn_id: 'turn1', item: { type: 'AgentMessage', id: 'i2', content: [{ type: 'Text', text: 'Two files.' }] } }), ev({ type: 'task_complete', turn_id: 'turn1', duration_ms: 2500 })].join('\n') + '\n');
       await until(() => h.acts.some(a => a.state === 'idle'));
       expect(h.pushed.map(p => p.e.id)).toEqual(['i2', 'w-turn1']);
+      expect(h.pushed[0].e).toMatchObject({ t: 'text', text: 'Two files.' });
       expect(h.acts.at(-1)).toEqual({ state: 'idle', ended: true });
     } finally { f.stop(); }
   });
