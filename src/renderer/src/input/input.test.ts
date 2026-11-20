@@ -3,7 +3,7 @@ import { Dispatcher, type Surface } from './dispatcher';
 import { keyOf } from './keys';
 import { bindInVimrc, fromVimKeys, Keymap, parseVimrc, toVimKeys } from './keymap';
 import { kb } from './platform';
-import { init, step, type TextState } from './vimtext';
+import { init, step, tokAt, vrange, type TextState } from './vimtext';
 import { Count, findAll, fromHere, nextHit, repeat, wrapNotice } from './readerkeys';
 import { forPut, fromClipboard, setReg } from './register';
 
@@ -59,16 +59,29 @@ describe('vimrc', () => {
   });
 });
 
-function harness(mode: Surface['mode'] extends () => infer M ? M : never, kind: Surface['kind'] = 'reader', consume: string[] = []) {
+function harness(mode: Surface['mode'] extends () => infer M ? M : never, kind: Surface['kind'] = 'reader', consume: string[] = [], local = false) {
   const ran: string[] = [];
   const seen: string[] = [];
-  const surface: Surface = { kind, mode: () => mode, key: k => { seen.push(k); return consume.includes(k); }, imap: f => ran.push('imap:' + f) };
-  const d = new Dispatcher(Keymap.build('inoremap jk <Esc>', 'win'), { surface: () => surface, run: c => ran.push(c), vim: () => true, leaderKey: () => 'ctrl-space', pending: () => {} });
+  const surface: Surface = { kind, mode: () => mode, key: k => { seen.push(k); return consume.includes(k); }, imap: f => ran.push('imap:' + f), local: () => local };
+  const d = new Dispatcher(Keymap.build('inoremap jk <Esc>', 'win'), { surface: () => surface, run: c => { ran.push(c); }, vim: () => true, leaderKey: () => 'ctrl-space', pending: () => {} });
   const press = (key: string, code: string, m?: Parameters<typeof ev>[2]) => d.handle(ev(key, code, m));
   return { ran, seen, press };
 }
 
 describe('dispatcher', () => {
+  it('a focused popup (local surface) is modal: its keys win and global bindings wait', () => {
+    const h = harness('INSERT', 'field', ['ctrl-p'], true);
+    h.press('p', 'KeyP', { ctrl: true });
+    expect(h.ran).toEqual([]);
+    h.press('k', 'KeyK', { ctrl: true });
+    h.press(' ', 'Space', { ctrl: true }); h.press('v', 'KeyV');
+    expect(h.ran).toEqual([]);                                // modal: no palette, no leader behind it
+    h.press('Tab', 'Tab', { ctrl: true });
+    expect(h.ran).toEqual(['wsnext']);                        // the workspace switcher still cycles
+    const plain = harness('INSERT', 'field', ['ctrl-p']);
+    plain.press('p', 'KeyP', { ctrl: true });
+    expect(plain.ran).toEqual(['find']);
+  });
   it('leader then a key runs the leader command', () => {
     const h = harness('NORMAL');
     expect(h.press(' ', 'Space', { ctrl: true })).toBe(true);
@@ -102,6 +115,23 @@ const run = (s: TextState, keys: string) => { for (const k of keys.split(' ')) s
 
 describe('vim text engine', () => {
   const n = (t: string, pos = 0) => ({ ...init(t, 'NORMAL'), pos });
+  it('treats a quote (U+2063 … U+2063) as one item', () => {
+    const Q = '\u2063“seven days”\u2063', t = `ab ${Q} cd`, q0 = 3, q1 = 3 + Q.length;
+    expect(tokAt(t, q0 + 4)).toEqual([q0, q1]);
+    expect(run(n(t, 1), 'l l').pos).toBe(q0);          // onto the quote: its start
+    expect(run(n(t, q0), 'l').pos).toBe(q1);           // off it in one step
+    expect(run(n(t, q1), 'h').pos).toBe(q0);           // back onto it: its start
+    expect(run(n(t, 0), 'w').pos).toBe(q0);
+    expect(run(n(t, q0), 'w').pos).toBe(q1 + 1);
+    expect(run(n(t, q1 + 1), 'b').pos).toBe(q0);
+    expect(run(n(t, q0), 'x').text).toBe('ab  cd');    // deleted whole
+    expect(run(n(t, 0), 'd w').text).toBe(`${Q} cd`);
+    expect(run(n(t, 1), 'd 2 w').text).toBe('a cd');   // an operator over part of it takes all of it
+    expect(run(n(t, q0), 'a').pos).toBe(q1);           // append after it, not inside
+    expect(run(n(t, q0), 'r z').text).toBe(t);         // r and ~ leave it alone
+    const v = run(n(t, 1), 'v l l');
+    expect(vrange(v)).toEqual([1, q1]);                // VISUAL takes it whole
+  });
   it('moves by words and line ends', () => {
     expect(run(n('foo bar baz'), 'w').pos).toBe(4);
     expect(run(n('foo bar baz'), 'w w b').pos).toBe(4);

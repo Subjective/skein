@@ -19,13 +19,17 @@ export interface Surface {
   mode(): Mode;
   /** Handle a key. true = consumed (the event's default is prevented). */
   key(k: string, e: KeyLike): boolean;
+  /** A temporary popup (a menu, a dialog, the composer's / or @ list) has the keys: it is modal, so the global
+   *  bindings and the leader don't run while it is open (ctrl-p moves up a / list instead of opening file search). */
+  local?(): boolean;
   /** An insert map like `inoremap jk <Esc>` fired: remove the first key's character and leave INSERT. */
   imap?(first: string): void;
 }
 
 export interface DispatchHost {
   surface(): Surface | null;
-  run(command: string): void;
+  /** false: the command had nothing to do, so the key goes on to the surface. */
+  run(command: string): boolean | void;
   vim(): boolean;
   leaderKey(): string;
   /** Leader armed or a sequence pending, for the status bar. */
@@ -47,6 +51,16 @@ export class Dispatcher {
     const mode = s?.mode() ?? 'NORMAL';
     const inTerm = mode === 'TERMINAL';
 
+    // A focused popup is modal (as in the mockup): a menu, dialog or the composer's / and @ lists get every key,
+    // and the global bindings and the leader wait until it closes. Only the workspace switcher's ctrl-tab passes.
+    if (s?.local?.()) {
+      if (this.leader) this.setLeader(false);
+      const g0 = this.keymap.global.get(k);
+      if (g0 && (g0.command === 'wsnext' || g0.command === 'wsprev')) { this.host.run(g0.command); return true; }
+      if (s.key(k, e)) { this.clearSeq(); return true; }
+      return k === canon(this.host.leaderKey()) || !!g0;   // swallow the leader and global chords; plain keys type
+    }
+
     if (this.leader) {
       this.setLeader(false);
       const b = this.keymap.leader.get(k);
@@ -56,7 +70,7 @@ export class Dispatcher {
     if (k === canon(this.host.leaderKey())) { this.setLeader(true); return true; }
 
     const g = this.keymap.global.get(k);
-    if (g && (!inTerm || g.term || g.keys.includes('cmd-'))) { this.host.run(g.command); return true; }
+    if (g && (!inTerm || g.term || g.keys.includes('cmd-')) && this.host.run(g.command) !== false) return true;
 
     // vimrc insert maps (jk -> esc) in fields only; a terminal's line belongs to its program
     if (mode === 'INSERT' && s?.kind === 'field' && this.host.vim() && k.length === 1) {
@@ -82,6 +96,8 @@ export class Dispatcher {
     }
     // NORMAL and VISUAL never type: a plain key nobody wanted is dropped, not inserted into a field
     if (this.host.vim() && (mode === 'NORMAL' || mode.startsWith('V')) && k.length === 1) return true;
+    // a field in NORMAL takes no edits from the browser either: backspace, delete, ctrl-a then backspace
+    if (this.host.vim() && s?.kind === 'field' && (mode === 'NORMAL' || mode.startsWith('V')) && !/^(ctrl|cmd)-[cvx]$/.test(k) && !/^f\d+$/.test(k)) return true;
     return false;
   }
 
