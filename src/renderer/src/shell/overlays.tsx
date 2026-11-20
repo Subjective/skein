@@ -10,6 +10,7 @@ import * as A from '../state/actions';
 import { allTabs, mkTab, type Tab, type Workspace } from '../state/layout';
 import { machine, openLayer, S, thread, topLayer, update, useApp, ws } from '../state/store';
 import { fuzzyTop } from '../ui/fuzzy';
+import { FileIcon } from '../ui/FileIcon';
 import { Menu, type MenuItem, type MenuProps } from '../ui/Menu';
 import { Dialog, useDialogSurface } from '../ui/Dialog';
 import { cx, Dot, Icon, IconButton, Spinner, Switch } from '../ui/primitives';
@@ -82,7 +83,7 @@ function FileSearch({ m, dir, close }: { m: string; dir: string; close: () => vo
     if (!hit || Date.now() - hit.at > STALE) indexFiles(m, dir).then(l => { if (live) setList(l); }, e => { if (live) setErr((e as Error).message); });
     return () => { live = false; };
   }, [key, m, dir]);
-  const items = useCallback((q: string) => fuzzyTop(q, list ?? [], 60).map(p => ({ label: base(p), hint: p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '', icon: <Icon name="file" />, data: p })), [list]);
+  const items = useCallback((q: string) => fuzzyTop(q, list ?? [], 60).map(p => ({ label: base(p), hint: p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '', icon: <FileIcon path={p} />, data: p })), [list]);
   const mc = machine(m);
   return <Menu<string> modal className="pal files" ranked onClose={close}
     empty={list === null ? (err ? `Couldn't list files in ${dir}: ${err}` : 'Listing files…') : list.length ? 'No matching files' : 'No files here'}
@@ -161,7 +162,7 @@ export function openPaneSearch(anchor?: DOMRect | null) {
     ...log(s.id).events.flatMap(e => (e.t === 'sub' ? [{ label: e.name, icon: <Icon name="agent" />, hint: 'subagent', right: e.status === 'running' ? <Spinner /> : undefined, data: () => openSub(s, e.id) }] : []))];
   const tabRows: MenuItem<Run>[] = tabs.map(({ tab, pane }) => {
     const m = tabMeta(tab);
-    return { label: m.title, icon: <Icon name={m.icon} />, right: tab.kind === 'thread' && tab.thread ? threadRight(tab.thread) : undefined, on: tab.id === cur.id,
+    return { label: m.title, icon: tab.kind === 'file' && tab.path ? <FileIcon path={tab.path} /> : <Icon name={m.icon} />, right: tab.kind === 'thread' && tab.thread ? threadRight(tab.thread) : undefined, on: tab.id === cur.id,
       data: () => (pane ? A.activate(pane.id, tab.id) : update(x => { w.pf = tab.id; x.tick++; })) };
   });
   const more: MenuItem<Run>[] = !s ? [] : [

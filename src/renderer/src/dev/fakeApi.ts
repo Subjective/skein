@@ -5,6 +5,9 @@ import type { Machine, Settings, ThreadMeta } from '@shared/types';
 import { moveBlocked } from '@shared/move';
 import { fakeFs, fakeGit } from './fakeRepo';
 import { extraThreads, fakeChat } from './fakeChat';
+import { fakeCommands, fakeOptions } from './fakeOptions';
+import { bundledCommands } from '@shared/commands';
+import { bundledOptions } from '@shared/models';
 
 const listeners = new Set<(e: SkeinEvent) => void>();
 const emit = (e: SkeinEvent) => setTimeout(() => listeners.forEach(f => f(e)), 0);
@@ -140,4 +143,17 @@ export const fakeApi: SkeinBridge = {
   },
   images: { toInbox: async (_m, _png, name) => '~/.skein/inbox/' + (name || 'paste.png') },
   git: fakeGit,
+  // what the harnesses answer (fakeOptions: Claude Code 2.1.329's list, Codex model/list shaped); a machine that is down can't be asked
+  harness: {
+    options: async (m, h) => {
+      await new Promise(r => setTimeout(r, 60));
+      const x = machines.find(y => y.id === m);
+      return x?.ssh && x.link !== 'up' ? bundledOptions(h, x.note || 'Connection timed out') : fakeOptions(h);
+    },
+    commands: async (m, h, dir) => {
+      await new Promise(r => setTimeout(r, 60));
+      const x = machines.find(y => y.id === m);
+      return x?.ssh && x.link !== 'up' ? bundledCommands(h, x.note || 'Connection timed out') : fakeCommands(h, dir);
+    },
+  },
 };

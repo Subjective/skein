@@ -112,7 +112,7 @@ function Event({ e, c, all }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEve
     case 'text': {
       const sides = c.main ? S.threads.filter(t => t.side && t.parent?.id === c.thread.id && t.parent.at === e.id) : [];
       return <>
-        <div className={cx('m-asst prose', e.streaming && 'streaming')} data-src={src}><Markdown text={e.text} /></div>
+        <div className={cx('m-asst prose', e.streaming && 'streaming')} data-src={src} data-md={e.text}><Markdown text={e.text} /></div>
         {sides.length > 0 && <div className="sc-links">{sides.map(x => <button key={x.id} type="button" className="sc-link" onClick={() => c.onOpenSide?.(x.id)}><Icon name="chat" /><span>{x.title}</span></button>)}</div>}
       </>;
     }

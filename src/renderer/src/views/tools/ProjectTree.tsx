@@ -8,6 +8,7 @@ import { api } from '../../api';
 import { update } from '../../state/store';
 import { cx, Icon, Spinner } from '../../ui/primitives';
 import { GitMark, LangBadge } from './code';
+import { FileIcon } from '../../ui/FileIcon';
 import { baseName } from './highlight';
 import { join, type Ctx, type RepoEntry } from './repo';
 
@@ -133,7 +134,7 @@ export function ProjectTree({ l, st, onOpen, active, cursor, className, label }:
             className={cx('pr', n.dir && 'dir', n.ign && 'ign', n.rel === active && 'on', cursor && n.rel === st.cur && 'rowcur')}
             style={{ paddingLeft: 6 + n.depth * 14 }} title={n.rel}
             onMouseDown={e => e.preventDefault()} onClick={() => { st.cur = n.rel; onOpen(n); }}>
-            {n.dir ? <><Icon name="chev" className={cx('tw', open && 'open')} /><Icon name={open ? 'folderOpen' : 'folder'} /></> : <LangBadge path={n.rel} />}
+            {n.dir ? <><Icon name="chev" className={cx('tw', open && 'open')} /><FileIcon path={n.rel} dir open={open} /></> : <LangBadge path={n.rel} />}
             <span className="t">{n.name}</span>
             {st.q && n.rel.includes('/') && <span className="dim">{n.rel.replace(/\/[^/]*$/, '')}</span>}
             {loading && <Spinner label="Listing" />}

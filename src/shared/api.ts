@@ -9,6 +9,8 @@ import type {
   AuthPrompt, DirEntry, Harness, Machine, Platform, Settings, SshTarget, ThreadEvent, ThreadMeta, ThreadStatus, ViewKind,
 } from './types';
 import type { KeyLike } from './keys';
+import type { HarnessCommands } from './commands';
+import type { HarnessOptions } from './models';
 
 export interface AppInfo {
   platform: Platform;
@@ -40,6 +42,9 @@ export interface ChatSend {
   model?: string;
   effort?: string;
   perm?: string;
+  /** Claude Code's Ultracode switch (standing dynamic-workflow orchestration, at any effort). Session-scoped like the
+   *  SDK's setting: absent keeps what the thread's driver has. */
+  ultra?: boolean;
   /** Edit and resend (G8): the id of the user event this message replaces. The thread rewinds to just before it. */
   rewind?: string;
   /** Send to this subagent (the id of its `sub` event) instead of the thread. */
@@ -213,6 +218,15 @@ export interface SkeinApi {
      *  sends them back as `browser.key`. */
     keys(keys: string[]): void;
   };
+  harness: {
+    /** What a harness offers on a machine: its models (with effort levels), effort names and permission modes,
+     *  asked from the harness (Claude: the Agent SDK's initialize; Codex: the app-server's model/list) and cached.
+     *  Never rejects: when the harness can't be asked it is shared/models.ts's lists with source 'bundled'. */
+    options(machine: string, harness: Harness): Promise<HarnessOptions>;
+    /** What the harness offers in the composer's / menu in that folder: its commands, and its skills (user,
+     *  project, plugin), asked from the harness there and cached. Never rejects: the bundled lists, source 'bundled'. */
+    commands(machine: string, harness: Harness, dir: string): Promise<HarnessCommands>;
+  };
 }
 
 /** Pushes from main. */
@@ -244,4 +258,5 @@ export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
   images: ['toInbox'],
   git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files'],
   browser: ['forward', 'keys'],
+  harness: ['options', 'commands'],
 };

@@ -383,6 +383,17 @@ await test('files: / filters by name across folders; enter opens the first hit',
   assert.match(await p.locator('.pane.focus .file-v .crumbs').innerText(), /theme\.css/);
 });
 
+await test('files: rows show file-type and folder icons, not text badges', async p => {
+  await openFiles(p);
+  const tree = p.locator('.pane.focus .files-v .ptree');
+  const md = tree.locator('[role=treeitem]', { hasText: 'README.md' });
+  assert.equal(await md.locator('svg.fi').getAttribute('data-icon'), 'readme');
+  assert.ok(await md.locator('svg.fi path').count(), 'the icon is drawn inline');
+  assert.equal(await tree.locator('[role=treeitem]', { hasText: 'package.json' }).locator('svg.fi').getAttribute('data-icon'), 'package-json');
+  assert.match(await tree.locator('[role=treeitem][aria-expanded]').first().locator('svg.fi').getAttribute('data-icon'), /^folder/);
+  assert.equal(await tree.locator('.lang').count(), 0, 'no text badges');
+});
+
 await test('files: a click opens a file', async p => {
   await openFiles(p);
   await p.locator('.pane.focus .files-v .ptree').getByText('package.json').click();
@@ -401,14 +412,14 @@ async function openFile(p, name, { source = true } = {}) {
 const openReadme = (p, o) => openFile(p, 'README.md', o);
 const F = p => p.locator('.pane.focus .file-v');
 
-await test('file: syntax colours, a language badge, line numbers and the cursor line', async p => {
+await test('file: syntax colours, a file-type icon, line numbers and the cursor line', async p => {
   await openFiles(p);
   await keys(p, '/');
   await p.keyboard.type('store.ts');
   await p.keyboard.press('Enter');
   await F(p).locator('.src').waitFor();
-  assert.ok(await F(p).locator('.crumb.now .lang, .crumb.now [class*=badge]').count(), 'language badge');
-  assert.equal(await p.locator('.pane.focus .tab.on .lang').innerText(), 'TS', 'the tab shows the language badge in place of its icon');
+  assert.equal(await F(p).locator('.crumb.now svg.fi').getAttribute('data-icon'), 'typescript', 'file-type icon in the crumbs');
+  assert.equal(await p.locator('.pane.focus .tab.on svg.fi').getAttribute('data-icon'), 'typescript', 'the tab shows the file-type icon in place of its icon');
   assert.ok(await F(p).locator('.src .c span[class]').count(), 'syntax colours');
   assert.equal(await F(p).locator('.curl .n').innerText(), '1');
   await keys(p, 'j j');
@@ -888,4 +899,31 @@ await test('changes: a click draws the character cursor; double click, drag and 
   // Add to Chat quotes it into the thread's composer
   await bar(p).getByText('Add to Chat').click();
   await p.locator('.compw .bk .tok').first().waitFor();
+});
+
+await test('file: V shades the text, not the gutter, and moves nothing (read and edit)', async p => {
+  await openFile(p, 'package.json');
+  const row = F(p).locator('.src .dl').nth(1);
+  const box = () => row.evaluate(r => JSON.stringify([r.getBoundingClientRect(), r.querySelector('.c').getBoundingClientRect(), r.querySelector('.n').getBoundingClientRect()].map(b => [b.x, b.y, b.width, b.height])));
+  await keys(p, 'j j');   // the cursor on line 3, so line 2's gutter is plain
+  // the gutter's blank part, left of the number (whose glyph antialiasing may change with the line's paint)
+  const gutter = async () => { const b = await row.locator('.n').boundingBox(); return p.screenshot({ clip: { x: b.x + 1, y: b.y + 1, width: 20, height: b.height - 2 } }); };
+  const before = await box(), gut = await gutter();
+  await keys(p, 'k Shift+V j');
+  assert.equal(await mode(p), 'V-LINE');
+  assert.ok(await row.evaluate(r => r.classList.contains('vsel')), 'line 2 is selected');
+  assert.equal(await box(), before, 'the line, its text and its number keep their boxes');
+  assert.ok((await gutter()).equals(gut), 'the gutter is not shaded');
+  assert.match(await row.evaluate(r => getComputedStyle(r).backgroundImage), /gradient/, 'the text area is shaded');
+  await keys(p, 'Escape');
+  // editing: the field's V-LINE stays out of the line numbers (.ed-n)
+  await keys(p, 'i Escape');
+  const ed = F(p).locator('.ed'), eb = () => ed.evaluate(e => JSON.stringify([e.querySelector('.ed-n'), e.querySelector('.file-ed')].map(x => { const b = x.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; })));
+  const nb = await ed.locator('.ed-n').boundingBox(), numsShot = () => p.screenshot({ clip: { x: nb.x + 1, y: nb.y + 1, width: 20, height: 80 } });
+  const eBefore = await eb(), nums = await numsShot();
+  await keys(p, 'Shift+V');
+  assert.equal(await mode(p), 'V-LINE');
+  assert.equal(await eb(), eBefore, 'nothing moves');
+  assert.ok((await numsShot()).equals(nums), 'the line numbers\' column is not shaded');
+  await keys(p, 'Escape');
 });

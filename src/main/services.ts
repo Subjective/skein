@@ -1,6 +1,8 @@
 // The implementation of SkeinApi: thin glue from IPC to the core modules. No Electron imports here except
 // through the `shell` argument, so the same object could sit behind another transport.
 import type { SkeinApi } from '../shared/api';
+import { bundledCommands } from '../shared/commands';
+import { bundledOptions } from '../shared/models';
 import type { Settings } from '../shared/types';
 import { unimplemented, type ChatDriver, type Harnesses } from '../core/chat';
 import { emit } from '../core/events';
@@ -257,6 +259,17 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
     browser: {
       forward: (m, port) => forwards.forward(m, port),
       keys: keys => shell.browserKeys?.(keys),
+    },
+    harness: {
+      // asked from the harness on that machine (core/harness/options.ts); the bundled lists when it can't be
+      options: async (m, h) => {
+        try { return harnesses.options ? await harnesses.options(M(m), h) : bundledOptions(h, 'Not asked: no chat backend'); }
+        catch (e) { return bundledOptions(h, (e as Error).message); }
+      },
+      commands: async (m, h, dir) => {
+        try { return harnesses.commands ? await harnesses.commands(M(m), h, dir) : bundledCommands(h, 'Not asked: no chat backend'); }
+        catch (e) { return bundledCommands(h, (e as Error).message); }
+      },
     },
   };
   return { api, dispose: () => { ptys.killAll(); forwards.dispose(); machines.dispose(); follows.dispose(); if (ownerTimer) clearInterval(ownerTimer); } };

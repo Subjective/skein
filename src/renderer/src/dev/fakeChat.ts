@@ -75,9 +75,11 @@ export const histories: Record<string, ThreadEvent[]> = {
   t6: [
     user('The orders-by-account query got slow last week. Profile it.'),
     tool('Bash', 'psql -f bench/explain_orders.sql', { out: 'Seq Scan on orders  (cost=0.00..48211.40 rows=1203 width=96)\n  Filter: (account_id = 4471)\nExecution Time: 1840.221 ms' }),
-    text('It is a sequential scan. The index on `(account_id, created_at)` was dropped in migration `0042`.'),
+    text('It is a sequential scan. The index on `(account_id, created_at)` was dropped in migration `0042`. Put it back:\n\n```sql\nCREATE INDEX orders_account_created\n  ON orders (account_id, created_at);\n```\n\nThen run the plan again.'),
     { t: 'notice', id: id(), text: 'Context compacted to continue' },
     text('With the index back, p95 drops from 1.8 s to about 40 ms. The migration is ready to review.'),
+    user('Is it safe to build during business hours?'),
+    text('Yes, with `CONCURRENTLY` it does not lock writes ([docs](https://www.postgresql.org/docs/current/sql-createindex.html)):\n\n- build it on a **replica** first\n- then on the primary\n\n1. check the plan\n2. drop the old one'),
   ],
   t7: [
     user('Convert the INI loader configs to TOML and keep the old keys working.'),
