@@ -40,6 +40,19 @@ test('file search ranks by file name and opens a file tab', async p => {
   assert.ok(kinds.includes('file'), kinds.join(','));
 });
 
+test('file search opens at once while a slow folder is still being listed, then fills in', async p => {
+  // a big repo, a slow disk or SSH: the walk takes seconds; the popup must not wait for it
+  await p.evaluate(() => { const fs = window.__skein.api.fs, f = fs.find; fs.find = (m, d) => new Promise(r => setTimeout(() => r(f(m, d)), 1500)); });
+  await p.locator('#side').getByText('Tidy PowerShell profile', { exact: true }).first().click();   // a folder not indexed yet
+  await p.waitForTimeout(450);
+  const t0 = Date.now();
+  await keys(p, `${mod}+p`);
+  await p.locator('.menu.files').waitFor({ timeout: 400 });
+  assert.ok(Date.now() - t0 < 400, 'opened before the listing finished');
+  await p.keyboard.type('readme');
+  await p.locator('.menu.files .mi', { hasText: /README/i }).first().waitFor({ timeout: 4000 });
+});
+
 test('command line lists commands and runs one', async p => {
   await keys(p, 'Escape');
   await p.keyboard.type(':');

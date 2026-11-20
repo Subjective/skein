@@ -8,7 +8,7 @@ import type { Surface } from '../input/dispatcher';
 import { api } from '../api';
 import * as A from '../state/actions';
 import { allTabs, mkTab, type Tab, type Workspace } from '../state/layout';
-import { machine, openLayer, S, thread, toast, topLayer, update, useApp, ws } from '../state/store';
+import { machine, openLayer, S, thread, topLayer, update, useApp, ws } from '../state/store';
 import { fuzzyTop } from '../ui/fuzzy';
 import { Menu, type MenuItem, type MenuProps } from '../ui/Menu';
 import { Dialog, useDialogSurface } from '../ui/Dialog';
@@ -51,22 +51,47 @@ export async function loadDirs() {
   try { const v = (await api.app.load('dirs')) as Record<string, string[]> | undefined; if (v && typeof v === 'object') for (const [m, l] of Object.entries(v)) if (Array.isArray(l)) used[m] = l.filter(x => typeof x === 'string'); } catch { /* none kept */ }
 }
 
+// ctrl-p opens at once: it shows the folder's last index while a fresh one is made in the background, and fills
+// in when the first one arrives (a big repo, a slow disk or SSH used to hold the popup until the walk finished).
 const found = new Map<string, { at: number; list: string[] }>();
-async function openFiles() {
-  const { machine: m, dir } = here(), key = m + '\0' + dir;
-  let hit = found.get(key);
-  if (!hit || Date.now() - hit.at > 30_000) {
-    try { hit = { at: Date.now(), list: await api.fs.find(m, dir) }; found.set(key, hit); }
-    catch (e) { return toast(`Couldn't list files in ${dir}: ${(e as Error).message}`, { icon: 'alert' }, 5000); }
+const walking = new Map<string, Promise<string[]>>();
+const STALE = 30_000;
+function indexFiles(m: string, dir: string): Promise<string[]> {
+  const key = m + '\0' + dir;
+  let w = walking.get(key);
+  if (!w) {
+    w = api.fs.find(m, dir).then(list => { found.set(key, { at: Date.now(), list }); return list; }).finally(() => walking.delete(key));
+    walking.set(key, w);
   }
-  const list = hit.list;
+  return w;
+}
+/** Index the focused folder ahead of ctrl-p, when its index is missing or old. */
+export function prewarmFiles() {
+  const { machine: m, dir } = here(), hit = found.get(m + '\0' + dir);
+  if (!dir || (hit && Date.now() - hit.at < 5 * 60_000) || walking.has(m + '\0' + dir)) return;
+  if (machine(m)?.ssh && machine(m)?.link !== 'up') return;
+  indexFiles(m, dir).catch(() => {});
+}
+function FileSearch({ m, dir, close }: { m: string; dir: string; close: () => void }) {
+  const key = m + '\0' + dir;
+  const [list, setList] = useState<string[] | null>(() => found.get(key)?.list ?? null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let live = true;
+    const hit = found.get(key);
+    if (!hit || Date.now() - hit.at > STALE) indexFiles(m, dir).then(l => { if (live) setList(l); }, e => { if (live) setErr((e as Error).message); });
+    return () => { live = false; };
+  }, [key, m, dir]);
+  const items = useCallback((q: string) => fuzzyTop(q, list ?? [], 60).map(p => ({ label: base(p), hint: p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '', icon: <Icon name="file" />, data: p })), [list]);
   const mc = machine(m);
-  openMenu<string>({
-    modal: true, className: 'pal files', ranked: true, empty: list.length ? 'No matching files' : 'No files here',
-    search: { placeholder: `Search files in ${mc?.ssh ? mc.name + ':' : ''}${tildify(m, dir)}` },
-    items: q => fuzzyTop(q, list, 60).map(p => ({ label: base(p), hint: p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '', icon: <Icon name="file" />, data: p })),
-    onPick: it => { if (it.data) A.openFile(m, dir, it.data); },
-  });
+  return <Menu<string> modal className="pal files" ranked onClose={close}
+    empty={list === null ? (err ? `Couldn't list files in ${dir}: ${err}` : 'Listing files…') : list.length ? 'No matching files' : 'No files here'}
+    search={{ placeholder: `Search files in ${mc?.ssh ? mc.name + ':' : ''}${tildify(m, dir)}` }}
+    items={items} onPick={it => { if (it.data) A.openFile(m, dir, it.data); }} />;
+}
+function openFiles() {
+  const { machine: m, dir } = here();
+  openLayer(c => <FileSearch m={m} dir={dir} close={c} />);
 }
 
 // ---------- palette (mockup palette() and ACTIONS) ----------
@@ -82,7 +107,7 @@ const ACTIONS: [string, string, string][] = [
 const threadRight = (id: string) => { const t = thread(id); if (!t) return undefined; return t.status === 'idle' ? <span className="age">{ago(t.updatedAt)}</span> : <ThreadStatus t={t} />; };
 
 export function openPalette(mode: 'all' | 'file' = 'all') {
-  if (mode === 'file') { void openFiles(); return; }
+  if (mode === 'file') { openFiles(); return; }
   // every thread, as the mockup's: archived ones (last) and side chats too; a side chat opens as a popup
   const th = [...S.threads].sort((a, b) => Number(!!a.archived) - Number(!!b.archived) || b.updatedAt - a.updatedAt);
   const where = (t: ThreadMeta) => [machine(t.machine)?.name ?? t.machine, projectName(t.machine, t.dir), t.side && 'side chat', t.archived && 'archived'].filter(Boolean).join(' · ');

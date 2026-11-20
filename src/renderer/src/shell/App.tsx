@@ -5,7 +5,7 @@ import type { ThreadMeta } from '@shared/types';
 import { currentTab, markRead, turnEnded } from '../state/actions';
 import { leaves, type Workspace as Ws } from '../state/layout';
 import { S, thread, toast, update, useApp } from '../state/store';
-import { loadDirs } from './overlays';
+import { loadDirs, prewarmFiles } from './overlays';
 import { cx } from '../ui/primitives';
 import { retheme } from '../views/terminal/TerminalView';
 import { Layers, Toasts } from './Layers';
@@ -97,6 +97,8 @@ export async function boot() {
   // remote machines when you come back (at most every 5 minutes: each look is an ssh round trip)
   setInterval(() => rediscover(), 60_000);
   addEventListener('focus', () => rediscover(true));
+  // ctrl-p opens at once: keep the focused folder's file index warm (a missing one is made, an old one renewed)
+  setTimeout(prewarmFiles, 1500); setInterval(prewarmFiles, 5000);
   for (const m of machines) if (m.ssh) void api.machines.connect(m.id);
 }
 
