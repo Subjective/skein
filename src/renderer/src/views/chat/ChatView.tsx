@@ -192,8 +192,13 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     const d = tc.draft, text = outgoing(d);
     if (!text && !d.images.length) return;
     stick.current = true;
-    if (t.kind === 'sub') void api.chat.send(th.id, { text, images: d.images, sub: t.sub });
-    else void api.chat.send(th.id, { text, images: d.images, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) });
+    const sent = t.kind === 'sub' ? api.chat.send(th.id, { text, images: d.images, sub: t.sub })
+      : api.chat.send(th.id, { text, images: d.images, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) });
+    // refused (the terminal is mid-turn, another process has the thread): the message comes back to the composer
+    void sent.catch(e => {
+      if (!outgoing(tc.draft) && !tc.draft.images.length) { tc.draft = d; bump(); }
+      toast(String((e as Error)?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''), { icon: 'terminal' });
+    });
     tc.draft = blank(); bump();
     saveDraft(key, '');
   };
@@ -428,7 +433,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
             {taking
               ? <Button small data-esc onClick={() => { setTaking(false); void api.chat.drive(th.id, 'term'); }}>Cancel</Button>
               : <><Button small onClick={() => A.setView(t, 'term')}>Show terminal</Button>
-                <Button small variant="primary" title="Ends the terminal session and continues here" onClick={() => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); }}>Take back</Button></>}
+                <Button small variant="primary" title="Continue here. The terminal picks up what you send when you open it again" onClick={() => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); }}>Take back</Button></>}
           </div>
         ) : (
           <Composer ref={composer} tabId={t.id} persist={key} thread={th} draft={tc.draft} onDraft={setDraft} running={!!running} onSend={send} onStop={stop}

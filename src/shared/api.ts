@@ -163,7 +163,8 @@ export interface SkeinApi {
     send(thread: string, msg: ChatSend): Promise<void>;
     interrupt(thread: string): Promise<void>;
     answer(thread: string, requestId: string, optionId: string): Promise<void>;
-    /** Claude Code handoff (G4): hand the thread to a view. Resolves once that view drives. */
+    /** Claude Code handoff (G4, core/handoff): hand the thread to a view. Resolves once that view drives: chat after
+     *  the terminal's turn ends, the terminal after chat's. Handing it back to the terminal cancels a wait for chat. */
     drive(thread: string, view: ViewKind): Promise<void>;
     /** A chat view showing the thread opened (true) or closed (false): its transcript is followed live meanwhile
      *  (new entries arrive as 'chat' pushes, whoever writes them). */
@@ -232,7 +233,8 @@ export interface SkeinApi {
 /** Pushes from main. */
 export type SkeinEvent =
   | { type: 'pty.data'; id: string; data: string }
-  | { type: 'pty.exit'; id: string; code: number | null }
+  /** `handoff`: closed so chat could take the thread (core/handoff); its view resumes the session when shown again. */
+  | { type: 'pty.exit'; id: string; code: number | null; handoff?: boolean }
   | { type: 'machine'; machine: Machine }
   | { type: 'auth'; prompt: AuthPrompt }
   | { type: 'auth.done'; id: string }

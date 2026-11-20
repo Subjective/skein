@@ -216,3 +216,29 @@ describe('Follower', () => {
     } finally { fs.dispose(); }
   });
 });
+
+describe('Follows.turnState (the handoff asks whether the terminal is mid-turn)', () => {
+  let root: string; const env = { ...process.env };
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'skein-state-')); process.env.CLAUDE_CONFIG_DIR = join(root, 'claude'); });
+  afterEach(() => { process.env = { ...env }; rmSync(root, { recursive: true, force: true }); });
+
+  it('reads the transcript as it is now, without moving the live baseline', async () => {
+    const sid = '31111111-2222-3333-4444-555555555555', dir = join(root, 'claude', 'projects', '-p'), file = join(dir, `${sid}.jsonl`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(file, user('u1', null, 'hi') + '\n');
+    const t: ThreadMeta = { id: 't1', harness: 'claude', sessionId: sid, machine: 'local', dir: '/p', title: 'x', createdAt: 0, updatedAt: 0, status: 'idle' };
+    const pushed: string[] = [];
+    const local = { id: 'local', name: 'This computer', link: 'up' } as unknown as Machine;
+    const fs = new Follows({ machine: () => local, thread: () => t, bySession: () => t, owner: () => 'pty', event: (_t, e) => pushed.push(e.id), activity: () => {} },
+      { watch: false, throttle: 10, tail: (p, off, sink) => new LocalTail(p, off, sink, { poll: 5000, watch: false }) });
+    try {
+      expect(await fs.turnState('t1')).toBe('running');           // no follower yet: a look of its own
+      await fs.history('t1');                                       // now followed, with a slow poll
+      appendFileSync(file, asst('a1', 'u1', 'm1', { type: 'text', text: 'hello' }, 'end_turn') + '\n');
+      expect(await fs.turnState('t1', { fresh: true })).toBe('idle'); // the tail hasn't seen it; a fresh look has
+      expect(await fs.turnState('t1')).toBe('running');           // the tail's view, a poll behind
+      fs.changed(file);                                             // the watcher's kick: the reply still arrives live
+      await until(() => pushed.includes('m1:0'));
+    } finally { fs.dispose(); }
+  });
+});

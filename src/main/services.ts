@@ -14,6 +14,7 @@ import { toInbox } from '../core/images';
 import { Machines } from '../core/machines';
 import { machineIO, moveBlocked, moveSession } from '../core/move';
 import { Ptys, ptyAvailable } from '../core/pty';
+import { Handoff } from '../core/handoff';
 import { cwdOf, harnessOf, harnessUnder, listProcs } from '../core/detect';
 import { Follows } from '../core/follow';
 import { discoverLocal, discoverRemote } from '../core/discover';
@@ -85,6 +86,12 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       if (patch.external) watchOwner();
     },
     unknown: () => { void threads.discover('local').then(added => { for (const t of added) emit({ type: 'thread', thread: t }); }, () => {}); },
+  });
+  // Claude Code: one writer per session between the chat driver and Skein's terminal (core/handoff)
+  const handoff = new Handoff({
+    hasTerm: id => ptys.hasThread(id),
+    closeTerm: id => ptys.killThread(id, { handoff: true }),
+    turnState: (id, o) => follows.turnState(id, o),
   });
   // The outside writer is gone: its process exited (this computer), or it has been quiet for half an hour (an SSH
   // machine, or a platform where a process can't be matched to its session). Then Skein may drive again.
@@ -193,13 +200,22 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
     chat: {
       send: async (id, msg) => {
         // one writer per session: another process has this one until you take over
-        if (threads.get(id).external) throw new Error('This thread is running in another terminal. Take over to send from here.');
+        const t = threads.get(id);
+        if (t.external) throw new Error('This thread is running in another terminal. Take over to send from here.');
+        if (t.harness === 'claude') {
+          if (t.drive === 'term' && !msg.sub) throw new Error('The terminal is driving this thread. Take it back to send from chat.');
+          // the terminal's TUI holds the conversation from before this message: close it, its view resumes later
+          await handoff.beforeSend(id);
+        }
         return driver(id).send(msg);
       },
       interrupt: id => driver(id).interrupt(),
       answer: (id, req, opt) => driver(id).answer(req, opt),
       drive: async (id, view) => {
-        if (view === 'term') { const d = drivers.get(id); if (d) { await d.release(); drivers.delete(id); } }
+        if (view === 'term') {
+          handoff.cancel(id);
+          const d = drivers.get(id); if (d) { await d.release(); drivers.delete(id); }
+        } else if (!(await handoff.toChat(id))) return; // the terminal took it back while its turn ran
         threads.update(id, { drive: view });
       },
       follow: (id, on) => follows.follow(id, on),

@@ -168,7 +168,12 @@ URL parameters: `scene`, `theme=dark|light`, `side=grouped|recent`, `vim=on|off`
 - **Claude Code: one view drives a thread at a time** (G4). Chat drives through the Agent SDK. Showing the
   terminal waits for the turn to end (or "Interrupt and open"), then runs `claude --resume <id>`. While the
   terminal drives, chat is a read-only mirror with Show terminal and Take back; taking back waits for the
-  TUI's turn to end too. Quitting the TUI (`/exit`) gives the thread back to chat. A small orange dot on the
+  TUI's turn to end too. The TUI stays open after Take back, so a look at chat and back costs nothing; chat's
+  first send closes it (refused while it is mid-turn), and the terminal view runs `claude --resume` again when it
+  next shows, so it has what chat wrote. Two processes must never write one session at once: each chains entries
+  off its own last message, the file forks, and a resume shows one branch (`core/handoff.ts`). Claude Code has no
+  way for the SDK to attach to a running TUI (Remote Control only relays through claude.ai). Quitting the TUI
+  (`/exit`) gives the thread back to chat. A small orange dot on the
   chat | terminal toggle marks the view that drives. **Codex** needs none of this: both views attach to one
   app-server (`codex --remote`), so both are live.
 - **Images** (G14): chat, side chats and subagents send a structured attachment, nothing is copied. A terminal
