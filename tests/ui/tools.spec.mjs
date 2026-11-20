@@ -782,3 +782,105 @@ await test('tabs: a sidebar thread dragged into the panes lands as a tab where i
   assert.ok(await p.locator('.pane.focus .tab.on', { hasText: 'Add timestamps' }).count(), 'the thread is the active tab there');
   assert.equal(await p.locator('.tab.ghost, .drop').count(), 0);
 });
+
+// ---------- the mouse on text in tools (VIM-MODEL rule 10) ----------
+
+const selText = p => p.evaluate(() => getSelection().toString());
+const bar = p => p.locator('.seltb');
+/** The centre of the first occurrence of `word` in an element's text. */
+async function wordAt(loc, word) {
+  return loc.evaluate((el, w) => {
+    const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n, acc = '', nodes = [];
+    while ((n = walk.nextNode())) { nodes.push([n, acc.length]); acc += n.data; }
+    const i = acc.indexOf(w); if (i < 0) return null;
+    const at = k => { const [nn, b] = nodes.filter(([x, b0]) => b0 <= k && k < b0 + x.data.length)[0]; return [nn, k - b]; };
+    const r = document.createRange(), [sn, so] = at(i), [en, eo] = at(i + w.length - 1);
+    r.setStart(sn, so); r.setEnd(en, eo + 1);
+    const b = r.getBoundingClientRect();
+    return { x: b.x + b.width / 2, y: b.y + b.height / 2, l: b.x + 2, r: b.right - 2 };
+  }, word);
+}
+
+await test('file: double click selects a word in VISUAL with Add to Chat, triple the line, never editing', async p => {
+  await openFile(p, 'package.json');
+  const line = F(p).locator('.src .dl').nth(1).locator('.c');
+  const w = await wordAt(line, 'name');
+  await p.mouse.dblclick(w.x, w.y);
+  await settle(p, 200);
+  assert.equal(await mode(p), 'VISUAL');
+  assert.equal(await selText(p), 'name');
+  assert.ok(await bar(p).isVisible(), 'Add to Chat bar');
+  assert.ok(!(await F(p).locator('.ed').isVisible()), 'not editing');
+  // a click elsewhere lets it go
+  await F(p).locator('.src .dl').nth(3).locator('.c').click();
+  await settle(p, 150);
+  assert.equal(await mode(p), 'NORMAL');
+  assert.equal(await bar(p).count(), 0);
+  // triple: the line in V-LINE
+  await p.mouse.click(w.x, w.y, { clickCount: 1 }); await p.mouse.click(w.x, w.y, { clickCount: 2 }); await p.mouse.click(w.x, w.y, { clickCount: 3 });
+  await settle(p, 200);
+  assert.equal(await mode(p), 'V-LINE');
+  assert.match(await selText(p), /"name"/);
+  assert.ok(await bar(p).isVisible());
+  await keys(p, 'Escape');
+  assert.equal(await mode(p), 'NORMAL');
+  assert.equal(await bar(p).count(), 0);
+});
+
+await test('file: a drag selects in VISUAL with Add to Chat; the line number puts the cursor at the line start', async p => {
+  await openFile(p, 'package.json');
+  const line = F(p).locator('.src .dl').nth(1).locator('.c');
+  const a = await wordAt(line, 'name'), b = await wordAt(line, 'skein');
+  await p.mouse.move(a.l, a.y); await p.mouse.down(); await p.mouse.move(b.r, b.y, { steps: 6 }); await p.mouse.up();
+  await settle(p, 200);
+  assert.equal(await mode(p), 'VISUAL');
+  assert.match(await selText(p), /^name.*skein$/);
+  assert.ok(await bar(p).isVisible());
+  await F(p).locator('.src .dl').nth(2).locator('.n').click();
+  await settle(p, 150);
+  assert.equal(await mode(p), 'NORMAL');
+  const row = F(p).locator('.src .dl').nth(2);
+  assert.equal(await row.evaluate(r => { const c = r.querySelector('.c'), vc = r.querySelector('.vc'); const rg = document.createRange(); rg.setStart(c, 0); rg.setEndBefore(vc); return rg.toString().length; }), 0, 'column 0');
+});
+
+await test('changes: a click draws the character cursor; double click, drag and triple select with Add to Chat, not open the file', async p => {
+  await openChanges(p);
+  const tabs = await p.locator('.tab').count();
+  const line = C(p).locator('.diff.flat .dl.add .c').filter({ hasText: 'import { load }' }).first();
+  const w = await wordAt(line, 'load');
+  await p.mouse.click(w.x, w.y);
+  await settle(p, 150);
+  assert.ok(['o', 'a'].includes(await C(p).locator('.dl.curl .vc').innerText()), 'the character cursor where clicked (the middle of load)');
+  await p.mouse.dblclick(w.x, w.y);
+  await settle(p, 200);
+  assert.equal(await mode(p), 'VISUAL');
+  assert.equal(await selText(p), 'load');
+  assert.ok(await bar(p).isVisible());
+  assert.equal(await p.locator('.tab').count(), tabs, 'no file opened');
+  // a click on the toolbar lets the selection go
+  await C(p).locator('.tool-h').click({ position: { x: 400, y: 10 } });
+  await settle(p, 150);
+  assert.equal(await mode(p), 'NORMAL');
+  assert.equal(await selText(p), '');
+  assert.equal(await bar(p).count(), 0);
+  // a drag
+  const a = await wordAt(line, 'import'), b = await wordAt(line, 'from');
+  await p.mouse.move(a.l, a.y); await p.mouse.down(); await p.mouse.move(b.r, b.y, { steps: 6 }); await p.mouse.up();
+  await settle(p, 200);
+  assert.equal(await mode(p), 'VISUAL');
+  assert.equal(await selText(p), 'import { load } from');
+  assert.ok(await bar(p).isVisible());
+  await keys(p, 'Escape');
+  assert.equal(await mode(p), 'NORMAL');
+  assert.equal(await bar(p).count(), 0);
+  // triple: V-LINE on that line
+  await p.mouse.click(w.x, w.y, { clickCount: 1 }); await p.mouse.click(w.x, w.y, { clickCount: 2 }); await p.mouse.click(w.x, w.y, { clickCount: 3 });
+  await settle(p, 200);
+  assert.equal(await mode(p), 'V-LINE');
+  assert.match(await selText(p), /import \{ load \} from '\.\/store';/);
+  assert.ok(await bar(p).isVisible());
+  assert.equal(await p.locator('.tab').count(), tabs, 'no file opened');
+  // Add to Chat quotes it into the thread's composer
+  await bar(p).getByText('Add to Chat').click();
+  await p.locator('.compw .bk .tok').first().waitFor();
+});

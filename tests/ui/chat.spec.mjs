@@ -633,3 +633,82 @@ await test('composer controls: i goes back into the text at its end', async p =>
   assert.equal(await mode(p), 'INSERT');
   assert.equal(await composer(p).evaluate(el => el.selectionStart), 'one two three'.length);
 });
+
+// ---------- wave 3: clicks ----------
+
+await test('a click on chrome while typing drops the composer to NORMAL; reader cursor cleared', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  await composer(p).click();
+  assert.equal(await mode(p), 'INSERT');
+  await p.locator('#status').click({ position: { x: 300, y: 5 } });
+  await settle(p);
+  assert.equal(await mode(p), 'NORMAL');
+  const b = await p.locator('.pane.focus .m-asst p').first().boundingBox();
+  await p.mouse.click(b.x + 10, b.y + 8);
+  await settle(p);
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'reader on');
+  await p.locator('#status').click({ position: { x: 300, y: 5 } });
+  await settle(p);
+  assert.equal(await p.locator('.pane.focus [data-read].rd').count(), 0, 'reader cleared');
+});
+
+await test('double-click on blank space beside a line does nothing', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  const th = await p.locator('.pane.focus .thread').boundingBox();
+  const b = await p.locator('.pane.focus .m-asst p').last().boundingBox();
+  await p.mouse.dblclick(th.x + 6, b.y + b.height - 6);
+  await settle(p);
+  assert.equal(await p.locator('.seltb').count(), 0, 'no quote bar');
+  assert.notEqual(await mode(p), 'VISUAL');
+});
+
+await test('double-click on your own message: edit box with the word in VISUAL; triple-click opens no menus', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const word = async () => p.locator('.pane.focus .m-user', { hasText: 'Add a regression test too' }).evaluate(el => {
+    const t = [...el.querySelectorAll('.mt *, .mt')].flatMap(e => [...e.childNodes]).find(n => n.nodeType === 3 && n.data.includes('regression'));
+    const r = document.createRange(), i = t.data.indexOf('regression') + 3; r.setStart(t, i); r.setEnd(t, i + 1);
+    const b = r.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  });
+  const at = await word();
+  await p.mouse.dblclick(at.x, at.y);
+  await p.locator('.pane.focus .m-edit').waitFor();
+  await settle(p);
+  assert.equal(await mode(p), 'VISUAL');
+  assert.equal(await p.locator('.pane.focus .m-edit textarea').evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd)), 'regression');
+  assert.equal(await p.locator('.menu').count(), 0);
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  await settle(p);
+  const at2 = await word();
+  await p.mouse.move(at2.x, at2.y);
+  for (const n of [1, 2, 3]) { await p.mouse.down({ clickCount: n }); await p.mouse.up({ clickCount: n }); }
+  await settle(p);
+  assert.equal(await p.locator('.menu').count(), 0, 'no model menu');
+});
+
+await test('esc esc leaves the composer unfocused; i types at the end', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).fill('abc def');
+  await composer(p).press('Escape');
+  await p.keyboard.press('0');
+  await p.keyboard.press('Escape');
+  await settle(p);
+  assert.ok(!(await composer(p).evaluate(el => el === document.activeElement)), 'nothing focused');
+  await p.keyboard.press('i');
+  await settle(p);
+  assert.equal(await mode(p), 'INSERT');
+  assert.equal(await composer(p).evaluate(el => el.selectionStart), 7);
+});
+
+await test('launcher: j walks from the controls to the chips and the cards', async p => {
+  await p.locator('#side').getByText('New thread').first().click();
+  const T = p.locator('.pane.focus .newp textarea:visible');
+  await T.waitFor();
+  await T.press('Escape');
+  await p.keyboard.press('j');
+  await p.keyboard.press('j');
+  await settle(p);
+  assert.ok(await p.locator('.pane.focus .newp .under .kcur').count(), 'a chip is marked');
+  await p.keyboard.press('j');
+  await settle(p);
+  assert.ok(await p.locator('.pane.focus .newp .cards .kcur').count(), 'a card is marked');
+});
