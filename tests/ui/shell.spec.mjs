@@ -63,7 +63,7 @@ test('command line lists commands and runs one', async p => {
   assert.equal(await panes(p), 2);
 });
 
-/** Two tabs in the pane: the launcher becomes a shell, then ldr c adds a launcher (on a launcher it only focuses it). */
+/** Two tabs in the pane: the launcher becomes a shell, then ldr c adds a launcher. */
 async function twoTabs(p) {
   await p.locator('.pane .card', { hasText: 'Shell' }).click();
   await ldr(p, 'c');
@@ -71,9 +71,7 @@ async function twoTabs(p) {
 
 test('leader keys: new tab, split, zoom, close', async p => {
   await ldr(p, 'c');
-  assert.deepEqual(await tabsIn(p), [1], 'ldr c on a launcher focuses it, no second launcher');
-  await twoTabs(p);
-  assert.deepEqual(await tabsIn(p), [2]);
+  assert.deepEqual(await tabsIn(p), [2], 'ldr c opens another launcher, even from a launcher');
   await ldr(p, 'v');
   assert.equal(await panes(p), 2);
   await ldr(p, 'z');
@@ -544,4 +542,17 @@ test('window drag: only top-edge tab bars move the window; a popup header and a 
   await settle(p);
   const lower = await region('.split.d-col > .cell:last-child .tb, .split.d-col > .cell:last-child .tb *');
   if (lower.length) assert.deepEqual([...new Set(lower)], ['no-drag'], 'a lower pane does not drag the window');
+});
+
+test('the tab bar + opens another new-thread tab every time', async p => {
+  const n = () => p.locator('.pane.focus .tab').count();
+  const before = await n();
+  const plus = p.locator('.pane.focus .tb [aria-label="New tab"]');
+  await plus.click(); await plus.click(); await plus.click();
+  await settle(p);
+  assert.equal(await n(), before + 3, 'three more tabs');
+  assert.equal(await mode(p), 'INSERT', 'the newest launcher has the caret');
+  await ldr(p, 'c');
+  await settle(p);
+  assert.equal(await n(), before + 4, 'ldr c does the same');
 });
