@@ -1,13 +1,14 @@
 // What a new tab shows: one composer (the model picks the harness), where it runs, and the other tab kinds.
 // enter starts the thread with the prompt; an empty enter just opens the harness.
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Harness, ThreadMeta } from '@shared/types';
 import { MODELS } from '@shared/models';
 import { api } from '../api';
 import * as A from '../state/actions';
 import { mkTab, type Tab } from '../state/layout';
 import { machine, S, toast, update, useApp, ws } from '../state/store';
-import { openMenu } from './overlays';
+import { addHostMenu, knownDirs, linkDot, openFolderPicker, openMenu, sshAddr } from './overlays';
+import { showAuth } from './AuthDialog';
 import { harnessName, tildify } from './meta';
 import { Chip, Dot, Icon } from '../ui/primitives';
 import { Composer, type ComposerHandle } from '../views/chat/Composer';
@@ -21,6 +22,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   const s = useApp();
   const [draft, setDraft] = useState<Draft>(blank);
   const comp = useRef<ComposerHandle>(null);
+  useEffect(() => { launcherFocus.set(t.id, () => comp.current?.focus(true)); return () => { launcherFocus.delete(t.id); }; }, [t.id]);
   const m = machine(t.machine) || s.machines[0];
   const h = harnessOf(t);
   const missing = m && !m.has.includes(h);
@@ -70,18 +72,30 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   };
   const stand: ThreadMeta = { id: t.id, harness: h, machine: m?.id || 'local', dir, title: '', model: modelOf(t), effort: t.effort, perm: t.perm, createdAt: 0, updatedAt: 0, status: 'idle' };
 
+  // the machine and folder menus open above their chips, as every composer menu does (mockup pickMachine, pickDir)
   const pickMachine = (el: HTMLElement) => openMenu<string>({
-    anchor: el.getBoundingClientRect(), place: 'bottom-start', width: 260,
-    items: s.machines.map(x => ({ label: x.name, icon: <Icon name={x.ssh ? 'host' : 'laptop'} />, right: x.ssh ? <Dot color={x.link === 'up' ? 'green' : x.link === 'down' ? 'red' : 'amber'} /> : undefined, on: x.id === m?.id, data: x.id })),
+    anchor: el.getBoundingClientRect(), place: 'top-start', width: 280,
+    items: [...s.machines.map(x => ({ label: x.name, icon: <Icon name={x.ssh ? 'host' : 'laptop'} />, hint: sshAddr(x), right: linkDot(x) ?? undefined, on: x.id === m?.id, data: x.id })),
+      { label: 'Add SSH host', icon: <Icon name="plus" />, hint: '~/.ssh/config', data: '' }],
     onPick: it => {
-      const nm = machine(it.data);
-      update(() => { t.machine = it.data; t.dir = nm?.home ? '~' : '~'; });
-      if (nm?.ssh && nm.link !== 'up') void api.machines.connect(nm.id);
+      if (!it.data) { void addHostMenu(); return; }
+      const nm = machine(it.data); if (!nm) return;
+      // the folder stays when that machine knows it, else its most recent folder
+      const known = knownDirs(nm.id);
+      update(() => { t.machine = nm.id; t.dir = known.includes(dir) ? dir : known[0] || '~'; });
       // G6: picking a machine without this harness switches to one it has, and says so
-      if (nm && nm.has.length && !nm.has.includes(harnessOf(t))) { const other = nm.has[0]; update(() => { t.model = `${other}:`; t.perm = undefined; }); toast(`${nm.name} has ${harnessName(other)} only, so the thread will use it`); }
+      if (nm.has.length && !nm.has.includes(harnessOf(t))) {
+        const other = nm.has[0], md = MODELS[other][0];
+        update(() => { t.model = `${other}:${md.id}`; t.perm = undefined; });
+        toast(<span>{nm.name} has only {harnessName(other)}. Switched to <b>{md.label}</b></span>, { icon: other });
+      }
+      A.save();
+      if (nm.ssh && nm.link === 'auth' && showAuth(nm.id)) return;
+      if (nm.ssh && nm.link !== 'up') void api.machines.connect(nm.id);
     },
   });
-  const pickDir = (el: HTMLElement) => dirMenu({ machine: t.machine, dir }, el, d => { update(() => { t.dir = d; }); A.save(); });
+  const pickDir = (el: HTMLElement) => openFolderPicker(t.machine || m?.id || 'local', el.getBoundingClientRect(), d => { update(() => { t.dir = d; }); A.save(); },
+    { place: 'top-start', width: 360, current: dir, recent: true });
   const open = (kind: 'shell' | 'changes' | 'files' | 'browser') => update(x => { Object.assign(t, mkTab(kind, { machine: t.machine, dir: t.dir }), { id: t.id }); x.tick++; });
 
   return (
@@ -104,32 +118,5 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
 
 /** Extra command-line arguments for a thread's first launch (model, first prompt). Read once. */
 export const pendingArgs = new Map<string, string[]>();
-
-/** Folder picker on a machine, starting at `at.dir`: type a path to list it; tab (or l) goes in, h goes up,
- *  enter picks. A new thread's folder and moving a thread both use it. */
-export function dirMenu(at: { machine?: string; dir?: string }, el: HTMLElement, pick: (dir: string) => void, o: { placeholder?: string } = {}) {
-  const t = at;
-  let cwd = t.dir || '~';
-  let entries: { name: string; dir: boolean }[] = [];
-  const close = { fn: () => {} };
-  const load = async (d: string) => { try { entries = (await api.fs.list(t.machine || 'local', d)).filter(e => e.dir && !e.hidden); } catch { entries = []; } };
-  const show = async () => {
-    await load(cwd);
-    close.fn();
-    close.fn = openMenu<string>({
-      anchor: el.getBoundingClientRect(), place: 'bottom-start', width: 380, search: { placeholder: o.placeholder || 'Folder', value: '' }, keep: false,
-      items: [{ label: cwd, icon: <Icon name="check" />, hint: 'Use this folder', data: '.' }, { label: '..', icon: <Icon name="folder" />, data: '..' }, ...entries.map(e => ({ label: e.name, icon: <Icon name="folder" />, data: e.name }))],
-      onPick: it => {
-        if (it.data === '.') { pick(cwd); return; }
-        cwd = it.data === '..' ? (cwd.replace(/[\\/][^\\/]+[\\/]?$/, '') || '/') : `${cwd.replace(/[\\/]$/, '')}/${it.data}`;
-        void show();
-      },
-      keys: (k, it) => {
-        if ((k === 'l' || k === 'tab') && it?.data && it.data !== '.') { cwd = it.data === '..' ? (cwd.replace(/[\\/][^\\/]+[\\/]?$/, '') || '/') : `${cwd.replace(/[\\/]$/, '')}/${it.data}`; void show(); return true; }
-        if (k === 'h') { cwd = cwd.replace(/[\\/][^\\/]+[\\/]?$/, '') || '/'; void show(); return true; }
-        return false;
-      },
-    });
-  };
-  void show();
-}
+/** Each new tab's way back into its composer in INSERT (`:tabnew` on a new tab, as the mockup's tabNew). */
+export const launcherFocus = new Map<string, () => void>();

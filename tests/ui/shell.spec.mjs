@@ -146,7 +146,7 @@ test('keyboard sheet: j moves, enter then leader and a key writes an nnoremap li
   await p.keyboard.type('?');
   await p.locator('.keys2').waitFor();
   assert.match(await p.locator('.keys2 header').innerText(), /Keyboard/);
-  await keys(p, 'j j j j');
+  await keys(p, 'j j j j j');   // past the five Find rows
   assert.match(await p.locator('.k-row.cur').innerText(), /Split right/);
   await keys(p, 'Enter');
   assert.match(await p.locator('.k-row.cur .kk.cap').innerText(), /press a key/);
@@ -365,10 +365,24 @@ test('app NORMAL: g v switches chat and terminal', async p => {
   assert.notEqual(await view(), v0);
 });
 
-test('app NORMAL: / opens the palette', async p => {
-  await keys(p, 'Escape');
+test('/ is always a search where you are: the chat text from app NORMAL, the threads in the sidebar; never the palette', async p => {
+  await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
+  await p.locator('.pane .chat').first().waitFor();
+  await p.waitForTimeout(450);
+  await keys(p, 'Escape Escape');   // composer NORMAL, then app NORMAL
   await p.keyboard.press('/');
-  await p.locator('.menu.pal').waitFor();
+  const q = p.locator('.menu .pfx', { hasText: '/' });
+  await q.waitFor();
+  assert.equal(await p.locator('.menu.pal').count(), 0, 'no palette');
+  await keys(p, 'Escape Escape');
+  await ldr(p, 'h');   // the leftmost pane's left is the sidebar
+  assert.equal(await p.evaluate(() => window.__skein.S.sideFocus), true, 'sidebar has the keys');
+  await p.keyboard.press('/');
+  await p.locator('.menu.side-q').waitFor();
+  await p.keyboard.type('queue');
+  assert.match(await p.locator('.menu.side-q').innerText(), /Refactor queue worker/);
+  await keys(p, 'Enter');
+  assert.equal(await p.evaluate(() => window.__skein.S.threads.find(t => t.id === window.__skein.S.sideCursor)?.title), 'Refactor queue worker', 'cursor on the pick');
 });
 
 test('menus: tab picks like enter, space picks and stays open', async p => {
@@ -392,4 +406,129 @@ test('sidebar: a click gives it the keys, the view toggle says click to switch, 
   assert.equal(await p.evaluate(() => window.__skein.S.sideFocus), false);
   assert.match(await p.locator('#side .s-top button').nth(2).getAttribute('title'), /click to switch/);
   assert.equal(await p.locator('#side .s-arch').count(), 1);
+});
+
+test('new thread: machine and folder menus open above their chips; the folder is the shared folder field', async p => {
+  const chipM = p.locator('.pane.focus .newp .chip[title="Machine"]'), chipD = p.locator('.pane.focus .newp .chip[title="Directory"]');
+  await chipM.click();
+  const mm = p.locator('.menu').last(); await mm.waitFor();
+  const [cb, mb] = [await chipM.boundingBox(), await mm.boundingBox()];
+  assert.ok(mb.y + mb.height <= cb.y + 1, 'machine menu above its chip');
+  assert.equal(Math.round(mb.width), 280);
+  assert.match(await mm.innerText(), /Add SSH host/);
+  // a machine that knows the folder keeps it
+  await keys(p, 'Escape');
+  await chipD.click(); await p.locator('.menu.dirs .mi', { hasText: 'skein' }).first().click(); await settle(p);
+  await p.evaluate(() => { const S = window.__skein.S; S.projects = { ...S.projects, linux: ['~/projects/skein'] }; });
+  await chipM.click();
+  await p.locator('.menu .mi', { hasText: 'linux' }).click(); await settle(p);
+  assert.match(await chipD.innerText(), /skein/);
+  await chipD.click();
+  const dm = p.locator('.menu.dirs'); await dm.waitFor();
+  const [db, fb] = [await chipD.boundingBox(), await dm.boundingBox()];
+  assert.ok(fb.y + fb.height <= db.y + 1, 'folder menu above its chip');
+  assert.equal(Math.round(fb.width), 360);
+  assert.equal(await dm.locator('input').getAttribute('placeholder'), 'Folder or path on linux');
+  assert.match(await dm.innerText(), /Recent folders[\s\S]*trade-ticker[\s\S]*Browse/);
+  await dm.locator('.mi', { hasText: 'etl-config' }).click(); await settle(p);
+  assert.match(await chipD.innerText(), /etl-config/);
+});
+
+test('new thread: a machine without the harness switches it and names the model', async p => {
+  await p.locator('.pane.focus .newp .chip[title="Machine"]').click();
+  await p.locator('.menu .mi', { hasText: 'build-07' }).click(); await settle(p);
+  assert.match(await p.locator('.toast').last().innerText(), /build-07 has only Codex\. Switched to GPT-6\.2 Sol/);
+  assert.match(await p.locator('.pane.focus .newp .chip[title="Directory"]').innerText(), /ci/);   // its known folder
+});
+
+test('sidebar: dragging a project shows its folder and name under the pointer', async p => {
+  const row = p.locator('#side .s-d[data-machine=local]').first();
+  const a = await row.boundingBox();
+  await p.mouse.move(a.x + 30, a.y + a.height / 2); await p.mouse.down();
+  await p.mouse.move(a.x + 40, a.y + 40, { steps: 5 });
+  const pv = p.locator('body > .s-d.drag-preview');
+  assert.equal(await pv.count(), 1);
+  assert.equal(await pv.locator('.project-folder').count(), 1);
+  assert.match(await pv.innerText(), /skein|dotfiles/);
+  await p.mouse.up(); await settle(p);
+  assert.equal(await pv.count(), 0);
+});
+
+test('tabs: alt-click x pops a tab out and the tab before it becomes active', async p => {
+  await twoTabs(p);
+  await p.locator('.pane.focus .card', { hasText: 'Shell' }).click();
+  await ldr(p, 'c');
+  const tabs = p.locator('.pane.focus .tab');
+  assert.equal(await tabs.count(), 3);
+  const ids = await p.evaluate(() => { const S = window.__skein.S, w = S.workspaces.find(x => x.id === S.wid); return w.tree.tabs.map(t => t.id); });
+  await tabs.nth(1).click(); await settle(p);
+  await tabs.nth(1).locator('.tx').click({ modifiers: ['Alt'] }); await settle(p);
+  assert.equal(await p.locator('.peek').count(), 1);
+  const active = await p.evaluate(() => { const S = window.__skein.S, w = S.workspaces.find(x => x.id === S.wid); return w.tree.active; });
+  assert.equal(active, ids[0]);
+});
+
+test('app NORMAL: j moves the sidebar cursor without focusing the sidebar, o opens it', async p => {
+  await p.locator('#side').getByText('Add timestamps to chat rows', { exact: true }).first().click();
+  await p.locator('.pane .chat').first().waitFor();
+  await keys(p, 'Escape Escape');
+  const S = () => p.evaluate(() => { const S = window.__skein.S; return { cur: S.sideCursor, focus: S.sideFocus }; });
+  await keys(p, 'j');
+  const after = await S();
+  assert.equal(after.focus, false);
+  assert.notEqual(after.cur, 't3');
+  assert.equal(await p.locator(`#side .row.cur[data-thread="${after.cur}"]`).count(), 1);
+  await keys(p, 'o'); await settle(p, 300);
+  const open = await p.evaluate(() => { const S = window.__skein.S, w = S.workspaces.find(x => x.id === S.wid); return w.tree.tabs.find(t => t.id === w.tree.active).thread; });
+  assert.equal(open, after.cur);
+});
+
+test('palette: archived threads and side chats are listed too', async p => {
+  await p.evaluate(() => { const S = window.__skein.S; S.threads.find(t => t.id === 't4').archived = true; });
+  await keys(p, `${mod}+k`);
+  const row = p.locator('.menu.pal .mi', { hasText: 'Tidy PowerShell profile' });
+  assert.equal(await row.count(), 1);
+  assert.match(await row.locator('.mh').innerText(), /archived/);
+});
+
+test('workspaces: switching clears the sidebar cursor', async p => {
+  await ldr(p, 'h'); await keys(p, 'j j Escape');
+  assert.ok(await p.evaluate(() => window.__skein.S.sideCursor));
+  await ldr(p, 'w'); await p.keyboard.type('review'); await keys(p, 'Enter');
+  assert.equal(await p.evaluate(() => window.__skein.S.sideCursor), null);
+  await ldr(p, 'h'); await keys(p, 'j Escape');
+  await keys(p, 'Control+Tab');
+  assert.equal(await p.evaluate(() => window.__skein.S.sideCursor), null);
+});
+
+test('sidebar: double-click renames a project and a thread in place; typed keys reach the field', async p => {
+  await p.locator('#side').getByText('dotfiles', { exact: true }).dblclick();
+  const inp = p.locator('#side .sidebar-name-input');
+  await inp.waitFor();
+  await p.keyboard.type('Xy');
+  assert.equal(await inp.inputValue(), 'Xy', 'typing replaces the selected name');
+  await p.keyboard.press('Enter');
+  await p.locator('#side').getByText('Xy', { exact: true }).waitFor();
+  assert.equal(await inp.count(), 0, 'enter closes the field');
+  await p.locator('#side').getByText('Tidy PowerShell profile', { exact: true }).dblclick();
+  await inp.waitFor();
+  await p.keyboard.type('Nope');
+  await p.keyboard.press('Escape');
+  await settle(p);
+  assert.equal(await p.locator('#side').getByText('Tidy PowerShell profile', { exact: true }).count(), 1, 'esc keeps the old name');
+});
+
+test('window drag: only top-edge tab bars move the window; a popup header and a lower pane never do', async p => {
+  await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
+  await p.locator('.pane .chat').first().waitFor();
+  await p.waitForTimeout(450);
+  await p.locator('.pane.focus .sc-link').first().click();
+  await p.locator('.peek').waitFor();
+  const region = sel => p.evaluate(s => [...document.querySelectorAll(s)].map(e => getComputedStyle(e).getPropertyValue('-webkit-app-region')), sel);
+  assert.deepEqual([...new Set(await region('.peek, .peek *'))], ['no-drag'], 'nothing in a popup drags the window');
+  assert.ok((await region('.pane .tb .drag')).includes('drag'), 'a top tab bar still drags it');
+  await ldr(p, 's');   // split below
+  await settle(p);
+  const lower = await region('.split.d-col > .cell:last-child .tb, .split.d-col > .cell:last-child .tb *');
+  if (lower.length) assert.deepEqual([...new Set(lower)], ['no-drag'], 'a lower pane does not drag the window');
 });

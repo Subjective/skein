@@ -4,7 +4,7 @@ import { openLayer } from '../state/store';
 import { useDialogSurface } from './Dialog';
 
 function Lightbox({ src, close }: { src: string; close: () => void }) {
-  useDialogSurface({ onEsc: close, key: k => { if (k === 'q' || k === 'enter' || k === 'space') { close(); return true; } return k.length === 1; } });
+  useDialogSurface({ onEsc: close, key: k => { if (k === 'q' || k === '?' || k === 'enter' || k === 'space') { close(); return true; } return k.length === 1; } });
   return <div className="scrim lightbox" role="dialog" aria-label="Image" onClick={close}><img src={src} alt="" /></div>;
 }
 

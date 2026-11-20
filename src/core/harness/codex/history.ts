@@ -15,8 +15,8 @@ export interface CodexHistory {
 
 type Line = { timestamp?: string; type?: string; payload?: Record<string, unknown> };
 
-export function parseCodexRollout(text: string): CodexHistory {
-  const lines = jsonLines(text) as Line[];
+export function parseCodexRollout(text: string | Record<string, unknown>[]): CodexHistory {
+  const lines = (typeof text === 'string' ? jsonLines(text) : text) as Line[];
   const modern = lines.some(l => l.type === 'event_msg' && l.payload?.type === 'item_completed');
   const c = collector();
   const turnOf = new Map<string, string>();

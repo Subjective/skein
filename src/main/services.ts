@@ -12,7 +12,8 @@ import { toInbox } from '../core/images';
 import { Machines } from '../core/machines';
 import { machineIO, moveBlocked, moveSession } from '../core/move';
 import { Ptys, ptyAvailable } from '../core/pty';
-import { cwdOf, harnessUnder, listProcs } from '../core/detect';
+import { cwdOf, harnessOf, harnessUnder, listProcs } from '../core/detect';
+import { Follows } from '../core/follow';
 import { discoverLocal, discoverRemote } from '../core/discover';
 import type { Store } from '../core/store';
 import { Threads } from '../core/threads';
@@ -44,10 +45,16 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
   // each time an SSH machine comes up, pick up sessions that were started there outside Skein
   machines.onUp(m => { threads.discover(m.id, m).catch(e => log('ssh', m.id, 'discovery failed', (e as Error).message)); });
   const drivers = new Map<string, ChatDriver>();
+  // While Skein's chat driver runs a turn (and a few seconds after, for trailing writes), the transcript's new lines
+  // are ours: the driver pushes them itself. Other writers are followed from the transcript (core/follow).
+  const ownUntil = new Map<string, number>();
   const host = {
     machine: (id: string) => machines.get(id),
     thread: (id: string) => threads.get(id),
-    update: (id: string, patch: object) => { threads.update(id, patch); },
+    update: (id: string, patch: Partial<import('../shared/types').ThreadMeta>) => {
+      if (patch.status) ownUntil.set(id, patch.status === 'running' || patch.status === 'wait' ? Infinity : Date.now() + 5000);
+      threads.update(id, patch);
+    },
     event: (thread: string, event: import('../shared/types').ThreadEvent, replace?: boolean) => emit({ type: 'chat', thread, event, replace }),
   };
   const driver = (id: string) => {
@@ -57,6 +64,48 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
   };
   const M = (id: string) => machines.get(id);
   const forwards = new Forwards(M);
+  // Live follow (core/follow): sessions written outside Skein's chat driver show up as they happen, and one
+  // written by another process is that process's until you take over (ThreadMeta.external).
+  const follows = new Follows({
+    machine: M,
+    thread: id => threads.list().find(t => t.id === id),
+    bySession: sid => threads.bySession(sid),
+    owner: id => ((ownUntil.get(id) ?? 0) > Date.now() ? 'driver' : ptys.hasThread(id) ? 'pty' : null),
+    event: (thread, event, replace) => emit({ type: 'chat', thread, event, replace }),
+    activity: (id, a) => {
+      const t = threads.list().find(x => x.id === id); if (!t) return;
+      const patch: Partial<import('../shared/types').ThreadMeta> = t.external ? {} : { external: Date.now() };
+      if (a.state === 'running' && t.status !== 'running' && t.status !== 'wait') patch.status = 'running';
+      else if (a.state === 'idle' && t.status === 'running') patch.status = 'idle';
+      // a whole turn landed between two looks: still go through running, so an unseen thread gets its blue dot
+      else if (a.state === 'idle' && a.ended) { threads.update(id, { ...patch, status: 'running' }); patch.status = 'idle'; }
+      if (Object.keys(patch).length) threads.update(id, patch);
+      if (patch.external) watchOwner();
+    },
+    unknown: () => { void threads.discover('local').then(added => { for (const t of added) emit({ type: 'thread', thread: t }); }, () => {}); },
+  });
+  // The outside writer is gone: its process exited (this computer), or it has been quiet for half an hour (an SSH
+  // machine, or a platform where a process can't be matched to its session). Then Skein may drive again.
+  let ownerTimer: ReturnType<typeof setInterval> | null = null;
+  const QUIET = 30 * 60_000;
+  const checkOwners = async () => {
+    const out = threads.list().filter(t => t.external);
+    if (!out.length) { if (ownerTimer) clearInterval(ownerTimer); ownerTimer = null; return; }
+    const local = out.some(t => !M(t.machine).ssh) ? await listProcs().catch(() => null) : null;
+    for (const t of out) {
+      if (ptys.hasThread(t.id)) { threads.update(t.id, { external: 0 }); continue; }   // a Skein terminal has it now
+      const quiet = Date.now() - Math.max(t.external || 0, t.updatedAt) > QUIET;
+      if (M(t.machine).ssh || !local) { if (quiet) threads.update(t.id, { external: 0, ...(t.status === 'running' ? { status: 'idle' as const } : {}) }); continue; }
+      const tuis = local.filter(p => harnessOf(p.cmd) === t.harness);
+      const byId = tuis.some(p => !!t.sessionId && p.cmd.includes(t.sessionId));
+      // Linux tells a process's folder: a TUI there may be this session (started plainly, then /resume)
+      const byDir = process.platform === 'linux' && tuis.some(p => cwdOf(p.pid) === t.dir);
+      const alive = byId || byDir || (process.platform !== 'linux' && !quiet);
+      if (!alive && t.status !== 'running') threads.update(t.id, { external: 0 });
+    }
+  };
+  const watchOwner = () => { if (!ownerTimer) { ownerTimer = setInterval(() => void checkOwners(), process.platform === 'win32' ? 60_000 : 15_000); ownerTimer.unref?.(); } };
+  if (threads.list().some(t => t.external)) watchOwner();
   // A thread adopted from a shell learns its session id once the harness writes its transcript: look for a new
   // one of that harness (started after adoption, not known yet, its folder first) until it shows or the terminal ends.
   const watchSession = (thread: string, ptyId: string, since: number) => {
@@ -114,8 +163,15 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
         try { const s = await harnesses.start(t, host); return s.sessionId && s.sessionId !== t.sessionId ? threads.update(t.id, { sessionId: s.sessionId }) : t; }
         catch (e) { log('chat', 'start failed', (e as Error).message); return t; }
       },
-      update: async (id, patch) => threads.update(id, patch),
-      history: async id => { const t = threads.get(id); return harnesses.history(t, M(t.machine)); },
+      update: async (id, patch) => {
+        return threads.update(id, patch);
+      },
+      history: async id => {
+        const t = threads.get(id);
+        // read through the follower, so live pushes pick up exactly where this ends
+        const evs = await follows.history(id).catch(() => null);
+        return evs ?? harnesses.history(t, M(t.machine));
+      },
       move: async (id, machine, dir) => {
         const t = threads.get(id), from = M(t.machine), to = M(machine);
         const abs = await files.resolve(to, dir).catch(() => dir);
@@ -125,6 +181,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
         const d = drivers.get(id);
         if (d) { await d.release(); drivers.delete(id); }
         harnesses.forget?.(id);
+        follows.forget(id);
         await ptys.killThread(id);
         const r = await moveSession(t, from, to, abs, { ...machineIO, log });
         log('move', id, `${from.id}:${t.dir} -> ${to.id}:${abs}`, r.copied.map(c => c.join(' -> ')).join('; ') || 'nothing copied');
@@ -132,13 +189,18 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       },
     },
     chat: {
-      send: (id, msg) => driver(id).send(msg),
+      send: async (id, msg) => {
+        // one writer per session: another process has this one until you take over
+        if (threads.get(id).external) throw new Error('This thread is running in another terminal. Take over to send from here.');
+        return driver(id).send(msg);
+      },
       interrupt: id => driver(id).interrupt(),
       answer: (id, req, opt) => driver(id).answer(req, opt),
       drive: async (id, view) => {
         if (view === 'term') { const d = drivers.get(id); if (d) { await d.release(); drivers.delete(id); } }
         threads.update(id, { drive: view });
       },
+      follow: (id, on) => follows.follow(id, on),
     },
     pty: {
       spawn: async spec => {
@@ -196,5 +258,5 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       keys: keys => shell.browserKeys?.(keys),
     },
   };
-  return { api, dispose: () => { ptys.killAll(); forwards.dispose(); machines.dispose(); } };
+  return { api, dispose: () => { ptys.killAll(); forwards.dispose(); machines.dispose(); follows.dispose(); if (ownerTimer) clearInterval(ownerTimer); } };
 }

@@ -54,22 +54,50 @@ describe('keymap clashes', () => {
       for (const l of LEADERS) expect(bindings(os).filter(b => b.layer !== 'leader' && b.keys === l).map(b => b.command), l).toEqual([]);
     });
 
-    it(`${os}: inside any popup, every global key goes to the popup (ctrl-k / ctrl-p move its list, never open a second search)`, () => {
+    it(`${os}: inside a menu, keys it uses stay with it; any other global chord closes it, then runs`, () => {
       const km = Keymap.build('', os);
       let tried = 0;
-      for (const [k] of km.global) {
+      for (const [k, b] of km.global) {
         const e = ev(k);
         if (keyOf(e) !== k) continue;   // a chord this test can't synthesise
         tried++;
         const ran: string[] = [], seen: string[] = [];
-        const popup: Surface = { kind: 'list', mode: () => 'INSERT', key: x => { seen.push(x); return POPUP_NAV.includes(x); }, local: () => true };
-        const d = new Dispatcher(km, { surface: () => popup, run: c => { ran.push(c); }, vim: () => true, leaderKey: () => 'ctrl-space', pending: () => {} });
+        let open = true;
+        const menu: Surface = { kind: 'list', mode: () => 'INSERT', key: x => { seen.push(x); return POPUP_NAV.includes(x); }, local: () => true, dismiss: () => { open = false; } };
+        const pane: Surface = { kind: 'layout', mode: () => 'NORMAL', key: () => false };
+        const d = new Dispatcher(km, { surface: () => (open ? menu : pane), run: c => { ran.push(c); }, vim: () => true, leaderKey: () => 'ctrl-space', pending: () => {} });
         const handled = d.handle(e);
-        const ws = k === canon('ctrl-tab', os) || k === canon('ctrl-shift-tab', os);
-        expect(ran, `${os} ${k} ran a global inside a popup`).toEqual(ws ? [km.global.get(k)!.command] : []);
-        if (!ws) { expect(seen, `${os} ${k} never reached the popup`).toEqual([k]); expect(handled, `${os} ${k} fell through to the browser`).toBe(true); }
+        const ws = b.command === 'wsnext' || b.command === 'wsprev';
+        if (ws) { expect(ran).toEqual([b.command]); expect(open, `${os} ${k}: ctrl-tab keeps the switcher`).toBe(true); continue; }
+        expect(seen, `${os} ${k} never reached the menu first`).toEqual([k]);
+        if (POPUP_NAV.includes(k)) { expect(ran, `${os} ${k} is the menu's own key`).toEqual([]); expect(open).toBe(true); }
+        else { expect(open, `${os} ${k} should close the menu`).toBe(false); expect(ran, `${os} ${k} should run after closing`).toEqual([b.command]); }
+        expect(handled).toBe(true);
       }
       expect(tried, 'synthesised too few global keys to mean anything').toBeGreaterThanOrEqual(km.global.size - 2);
+    });
+
+    it(`${os}: a dialog (no dismiss) keeps every global chord: your input stays`, () => {
+      const km = Keymap.build('', os);
+      for (const [k, b] of km.global) {
+        const e = ev(k);
+        if (keyOf(e) !== k || b.command === 'wsnext' || b.command === 'wsprev') continue;
+        const ran: string[] = [];
+        const dialog: Surface = { kind: 'field', mode: () => 'INSERT', key: () => false, local: () => true };
+        const d = new Dispatcher(km, { surface: () => dialog, run: c => { ran.push(c); }, vim: () => true, leaderKey: () => 'ctrl-space', pending: () => {} });
+        expect(d.handle(e), `${os} ${k} fell through`).toBe(true);
+        expect(ran, `${os} ${k} ran over a dialog`).toEqual([]);
+      }
+    });
+
+    it(`${os}: the leader closes a menu and arms`, () => {
+      const km = Keymap.build('', os);
+      let open = true, armed = false;
+      const menu: Surface = { kind: 'list', mode: () => 'INSERT', key: () => false, local: () => true, dismiss: () => { open = false; } };
+      const pane: Surface = { kind: 'layout', mode: () => 'NORMAL', key: () => false };
+      const d = new Dispatcher(km, { surface: () => (open ? menu : pane), run: () => {}, vim: () => true, leaderKey: () => 'ctrl-space', pending: p => { armed = p.leader; } });
+      expect(d.handle(ev('ctrl-space'))).toBe(true);
+      expect(open).toBe(false); expect(armed).toBe(true);
     });
   }
 

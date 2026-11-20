@@ -43,15 +43,16 @@ test('m on a thread picks a project on another machine, confirms the route, and 
   assert.equal(await p.locator('#side .s-d[data-machine=linux][data-dir="~/repo/trade-ticker"] + .project-threads .row[data-thread=t4]').count(), 1);
 });
 
-test('m then Other folder walks the folder menu, and esc cancels the dialog', async p => {
+test('m then Other folder opens the shared folder field, and esc cancels the dialog', async p => {
   await cursorTo(p, 't3');
   await keys(p, 'm');
   await p.keyboard.type('other');
   await keys(p, 'ArrowDown');  // the This PC entry comes first; the second is linux's
   await keys(p, 'Enter');
   await settle(p, 200);
-  assert.match(await p.locator('.menu input').getAttribute('placeholder'), /Folder on linux/);
-  await keys(p, 'Enter'); // "Use this folder"
+  assert.match(await p.locator('.menu input').getAttribute('placeholder'), /Folder or path on linux/);
+  assert.match(await p.locator('.menu.dirs').innerText(), /trade-ticker[\s\S]*Browse/); // known folders, then the machine to walk
+  await keys(p, 'Enter'); // its first known folder
   await settle(p);
   assert.equal(await p.locator('[role=dialog].mv').count(), 1);
   await keys(p, 'Escape');
@@ -86,12 +87,20 @@ test('dragging a thread onto a machine heading asks for the folder there', async
   await drag(p, row, head);
   assert.equal(await head.evaluate(e => e.classList.contains('drop-into')), true);
   await p.mouse.up(); await settle(p, 250);
-  assert.match(await p.locator('.menu input').getAttribute('placeholder'), /Folder on linux/);
+  assert.match(await p.locator('.menu input').getAttribute('placeholder'), /Folder or path on linux/);
   await keys(p, 'Enter');
   await settle(p);
   await p.locator('[role=dialog].mv button.primary').click();
   await settle(p, 500);
   assert.equal((await meta(p, 't3')).machine, 'linux');
+});
+
+test('dropping a thread on a machine with a same-named repo goes straight to the dialog', async p => {
+  await p.evaluate(() => { const S = window.__skein.S; S.projects = { ...S.projects, linux: ['~/work/skein'] }; });
+  await drag(p, p.locator('#side .row[data-thread=t3]'), p.locator('#side .s-h[data-machine=linux]'));
+  await p.mouse.up(); await settle(p, 250);
+  assert.equal(await p.locator('.menu.dirs').count(), 0);
+  assert.match(await p.locator('[role=dialog].mv .mv-route').innerText(), /linux[\s\S]*~\/work\/skein/);
 });
 
 test('a running thread is refused, with the reason', async p => {

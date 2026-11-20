@@ -197,11 +197,23 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   };
 
   // ---- the row under the text (keyboard) ----
-  const ctl = useRef<{ i: number; un?: () => void }>({ i: 0 });
-  const buttons = () => [...(cf.current?.querySelectorAll<HTMLButtonElement>(':scope > button') ?? [])];
-  const ctlMark = (i: number) => { const bs = buttons(); bs.forEach(b => b.classList.remove('kcur')); ctl.current.i = Math.max(0, Math.min(bs.length - 1, i)); bs[ctl.current.i]?.classList.add('kcur'); };
+  const ctl = useRef<{ r: number; i: number; un?: () => void }>({ r: 0, i: 0 });
+  // the rows under the text: the controls, and on a new thread also its machine / folder / worktree chips and the
+  // four cards (j / k between rows, h / l along one)
+  const rows = () => {
+    const np = p.fresh ? cf.current?.closest('.newp') : null;
+    return [cf.current ? [...cf.current.querySelectorAll<HTMLButtonElement>(':scope > button')] : [],
+      ...(np ? ['.under', '.cards'].map(q => [...np.querySelectorAll<HTMLButtonElement>(`${q} button`)]) : [])].filter(r => r.length);
+  };
+  const buttons = () => rows()[ctl.current.r] ?? [];
+  const unmark = () => rows().flat().forEach(b => b.classList.remove('kcur'));
+  const ctlMark = (i: number, r = ctl.current.r) => {
+    const rs = rows(); unmark(); ctl.current.r = Math.max(0, Math.min(rs.length - 1, r));
+    const bs = rs[ctl.current.r] ?? []; ctl.current.i = Math.max(0, Math.min(bs.length - 1, i));
+    const b = bs[ctl.current.i]; b?.classList.add('kcur'); b?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  };
   const ctlEnd = (back?: 'normal' | 'insert') => {
-    buttons().forEach(b => b.classList.remove('kcur')); ctl.current.un?.(); ctl.current.un = undefined;
+    unmark(); ctl.current.un?.(); ctl.current.un = undefined;
     if (back) field.current?.focus(back === 'insert'); else { props.current.onLeave?.(); update(s => { s.tick++; }); }
   };
   const ctlSurface: Surface = {
@@ -210,7 +222,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       const i = ctl.current.i;
       if (k === 'h' || k === 'left') ctlMark(i - 1);
       else if (k === 'l' || k === 'right') ctlMark(i + 1);
-      else if (k === 'k' || k === 'up') ctlEnd('normal');
+      else if (k === 'j' || k === 'down') ctlMark(i, ctl.current.r + 1);
+      else if (k === 'k' || k === 'up') { if (ctl.current.r > 0) ctlMark(i, ctl.current.r - 1); else ctlEnd('normal'); }
       else if (k === 'i' || k === 'a') { const f = field.current; if (f) f.set(f.state().text); ctlEnd('insert'); }   // back at the END of the text (mockup keys.js)
       else if (k === 'esc') ctlEnd();
       else if (k === 'enter' || k === 'space') { const b = buttons()[i]; ctlEnd(); b?.click(); }
@@ -222,11 +235,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     (document.activeElement as HTMLElement | null)?.blur();
     const un = registerTab(p.tabId, ctlSurface);
     // any mousedown takes the row's cursor away (the click itself decides where the keys go next)
-    const md = () => { buttons().forEach(b => b.classList.remove('kcur')); if (ctl.current.un === off) { off(); ctl.current.un = undefined; } };
+    const md = () => { unmark(); if (ctl.current.un === off) { off(); ctl.current.un = undefined; } };
     const off = () => { removeEventListener('mousedown', md, true); un(); };
     addEventListener('mousedown', md, true);
     ctl.current.un = off;
-    ctlMark(0); update(s => { s.tick++; });
+    ctlMark(0, 0); update(s => { s.tick++; });
   };
   useEffect(() => () => ctl.current.un?.(), []);
 
@@ -333,7 +346,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
           startMode={p.startMode} onPaste={e => { const fs = clipImages(e.clipboardData); if (fs.length) { e.preventDefault(); addFiles(fs); } }} />
       </div>
       <div className="cf" ref={cf}>
-        <IconButton icon="plus" label="Attach image · or paste one" onClick={() => file.current?.click()} />
+        <IconButton icon="plus" label="Attach image · or paste one" onMouseDown={e => e.preventDefault()} onClick={() => file.current?.click()} />
         {!p.bare && <Chip icon="shield" lbl="lbl" label={permLabel(h, th.perm)} title="Permissions" onClick={e => pickPerm(e.currentTarget.getBoundingClientRect())} />}
         <span className="sp" />
         {!p.bare && <Chip icon={h} caret raw title="Model and effort" label={<><span>{modelLabel(h, th.model)}</span><span className="lbl dim">{effortLabel(th.effort)}{ultraOf(th.id) && modelDef(h, th.model).ultra ? ' · Ultracode' : ''}</span></>}

@@ -33,11 +33,11 @@ export function currentChain(entries: Entry[]): Entry[] {
 
 export interface ClaudeHistory { events: ThreadEvent[]; fold: ClaudeFold }
 
-/** Fold transcript text into events. Pure, for tests. */
-export function parseClaudeTranscript(text: string): ClaudeHistory {
+/** Fold transcript text (or its already parsed lines) into events. Pure, for tests. */
+export function parseClaudeTranscript(text: string | Record<string, unknown>[]): ClaudeHistory {
   const c = collector();
   const fold = new ClaudeFold(c.emit);
-  const chain = currentChain(jsonLines(text) as Entry[]);
+  const chain = currentChain((typeof text === 'string' ? jsonLines(text) : text) as Entry[]);
   let turnStart: number | null = null, turnEnd = 0, turnId = '';
   const endTurn = () => {
     if (turnStart != null && turnEnd - turnStart >= 1000) fold.worked('w-' + turnId, turnEnd - turnStart);

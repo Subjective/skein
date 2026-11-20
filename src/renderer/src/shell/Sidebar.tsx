@@ -1,6 +1,6 @@
 // The sidebar: threads across workspaces, pinned first, then machine > project > thread (or most recent).
 // It is a pane (VIM-MODEL section 4): leader h / alt-h from the leftmost pane focuses it.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Machine, ThreadMeta } from '@shared/types';
 import { kb } from '../input/platform';
 import type { Surface } from '../input/dispatcher';
@@ -118,11 +118,18 @@ const renameProject = (m: string, d: string, v: string | null) => {
 function startProjectDrag(e: React.MouseEvent, m: string, d: string) {
   if (e.button !== 0 || S.sideEdit) return;
   const src = e.currentTarget as HTMLElement, x0 = e.clientX, y0 = e.clientY;
-  let on = false, over: HTMLElement | null = null, edge: 'before' | 'after' = 'before';
+  let on = false, over: HTMLElement | null = null, edge: 'before' | 'after' = 'before', preview: HTMLElement | null = null;
   const unmark = () => { if (over) delete over.dataset.dropEdge; over = null; };
   const mv = (ev: MouseEvent) => {
     if (!on && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 5) return;
-    if (!on) { on = true; src.classList.add('drag-source'); document.body.classList.add('dragging-thread'); document.getSelection()?.removeAllRanges(); }
+    if (!on) {
+      on = true; src.classList.add('drag-source'); document.body.classList.add('dragging-thread'); document.getSelection()?.removeAllRanges();
+      // the project's folder and name follow the pointer (the mockup's drag image)
+      preview = document.createElement('div'); preview.className = 's-d drag-preview';
+      for (const sel of ['.project-folder', '.t']) { const n = src.querySelector(sel); if (n) preview.append(n.cloneNode(true)); }
+      document.body.append(preview);
+    }
+    if (preview) preview.style.transform = `translate(${ev.clientX - 12}px, ${ev.clientY - 15}px)`;
     unmark();
     const row = (document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null)?.closest<HTMLElement>('#side .s-d');
     if (!row || row === src || row.dataset.machine !== m) return;
@@ -132,6 +139,7 @@ function startProjectDrag(e: React.MouseEvent, m: string, d: string) {
   const up = () => {
     removeEventListener('mousemove', mv); removeEventListener('mouseup', up, true);
     if (!on) return;
+    preview?.remove(); preview = null;
     src.classList.remove('drag-source'); document.body.classList.remove('dragging-thread');
     const swallow = (ev: Event) => { ev.stopPropagation(); ev.preventDefault(); };
     addEventListener('click', swallow, true); setTimeout(() => removeEventListener('click', swallow, true), 0);
@@ -168,6 +176,7 @@ const sideSurface: Surface = {
         if (isFold) { fold(key!); return true; }
         if (t) A.openThread(t.id, { split: k === 'O' || k === 'shift-enter' });
         return true;
+      case '/': searchSidebar(); return true;
       case 'x': if (t) { go(i + 1); archive(t); } return true;
       case 'p': if (t) pin(t); return true;
       case 'm': {
@@ -185,6 +194,43 @@ const sideSurface: Surface = {
   },
 };
 export const sidebarSurface = sideSurface;
+
+/** `/` in the sidebar (or app NORMAL with the sidebar cursor showing): filter its threads by title, project or
+ *  machine. Enter puts the sidebar cursor on the pick (VIM-MODEL rule 22: `/` is always a search where you are). */
+export function searchSidebar() {
+  const rows = navOrder().filter(x => !x.startsWith('fold:')).map(id => S.threads.find(t => t.id === id)).filter((t): t is ThreadMeta => !!t);
+  const top = document.querySelector('#side .s-nav')?.getBoundingClientRect() ?? document.querySelector('#side')?.getBoundingClientRect() ?? null;
+  openMenu<string>({
+    anchor: top, place: 'bottom-start', width: Math.max(220, (top?.width ?? 260) - 8), className: 'side-q',
+    search: { placeholder: 'Filter threads', prefix: '/' }, empty: 'No matching threads',
+    items: rows.map(t => ({ label: t.title, hint: `${projectName(t.machine, t.dir)}`, icon: <Icon name={t.harness} size="hm" />, data: t.id })),
+    onPick: it => { if (!it.data) return; const id = it.data; update(s => { s.sideFocus = true; s.sideOpen = true; s.sideCursor = id; s.tick++; }); requestAnimationFrame(() => document.querySelector(`#side .row[data-thread="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' })); },
+  });
+}
+
+/** App NORMAL with nothing to type into (the layout surface): j / k (and the arrows) move the sidebar cursor among
+ *  threads without focusing the sidebar, enter / o open it, O / shift-enter in a split (mockup keys.js App NORMAL). */
+export function cursorKey(k: string): boolean {
+  const letters = S.settings.vim;
+  const step = k === 'down' || (letters && k === 'j') ? 1 : k === 'up' || (letters && k === 'k') ? -1 : 0;
+  if (step) {
+    const order = navOrder().filter(x => !x.startsWith('fold:'));
+    if (!order.length) return true;
+    let i = order.indexOf(S.sideCursor || '');
+    if (i < 0) { const t = A.currentTab(); i = t.thread ? order.indexOf(t.thread) : -1; }
+    const n = order[Math.max(0, Math.min(order.length - 1, i + step))];
+    update(s => { s.sideCursor = n; s.tick++; });
+    requestAnimationFrame(() => document.querySelector(`#side .row[data-thread="${CSS.escape(n)}"]`)?.scrollIntoView({ block: 'nearest' }));
+    return true;
+  }
+  const open = k === 'enter' || (letters && k === 'o'), split = k === 'shift-enter' || (letters && k === 'O');
+  if (open || split) {
+    const t = S.sideCursor && S.threads.find(x => x.id === S.sideCursor);
+    if (t) A.openThread(t.id, { split });
+    return true;
+  }
+  return false;
+}
 
 /** Fold or unfold under a heading: its chevron turns from where it was (the mockup's redrawDisclosure). */
 function turn(head: HTMLElement, change: () => void) {
@@ -301,6 +347,9 @@ function resizeSide(e: React.PointerEvent<HTMLDivElement>) {
 export function Sidebar() {
   const s = useApp();
   if (s.threads.length || seen) noticeFresh();   // threads change in place, so compare every render (cheap)
+  // ages ("3m", "2h") move on by themselves: redraw twice a minute
+  const [, tick] = useState(0);
+  useEffect(() => { const i = setInterval(() => tick(n => n + 1), 30_000); return () => clearInterval(i); }, []);
   useEffect(() => { try { const w = +(localStorage.getItem(WKEY) || 0); if (w >= 200) setWidth(Math.min(w, innerWidth * 0.6)); } catch { /* default width */ } }, []);
   const live = s.threads.filter(t => !t.archived && !t.side);
   const pinned = live.filter(t => t.pinned), rest = live.filter(t => !t.pinned), archived = s.threads.filter(t => t.archived && !t.side);

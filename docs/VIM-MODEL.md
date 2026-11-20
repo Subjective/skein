@@ -104,21 +104,28 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
     (rule 2). While a search is active `n` repeats it, even in a thread with a waiting request (rule 14); with
     no search, `n` answers the request. In a reader `?` is the backward search; the keyboard popup's `?` works
     from every other surface.
-20. **A focused popup is modal.** While a temporary surface has the keys (the composer's `/` and `@` lists, any
-    menu, picker, palette or dialog), it gets every key and the global bindings and the leader wait: `ctrl-p` /
-    `ctrl-n` move in a `/` list instead of opening file search, `ctrl-k` moves up a menu instead of opening the
-    palette, and nothing opens behind Settings. Only `ctrl-tab` passes, so the workspace switcher keeps cycling.
-    This holds for every overlay, the ctrl-k palette and ctrl-p file search included: inside them ctrl-k / ctrl-p
-    move up and ctrl-j / ctrl-n move down, so a search never opens on top of itself. A dialog with text fields (the
-    commit message) is modal too. (`input/dispatcher.ts`: a surface marked `local`; `shell/keyboard.ts` marks every
-    overlay's surface local. `input/keyclash.test.ts` fails on a key bound twice, a global that a popup can't
-    override, a terminal global that takes a shell key, or a surface handler a global would always pre-empt.)
+20. **A focused popup keeps its own keys; other chords close a menu first.** While a temporary surface has the
+    keys, the keys it uses always win: typing, `ctrl-n` / `ctrl-p` / `ctrl-j` / `ctrl-k`, the arrows, enter, tab and
+    esc. So inside the ctrl-k palette or ctrl-p file search, ctrl-k and ctrl-p move the list, and a search never opens
+    on top of itself. Any other global chord or the leader (alt-h j k l, the leader, mod-k / mod-p on a Mac, where the
+    list uses ctrl) closes a menu first and then runs, as in VS Code and Vim: leaving a popup by moving away is
+    natural. A dialog that holds your input (the commit message, Settings, a sign-in) keeps every chord until you
+    close it, so nothing is lost by accident. ctrl-tab always passes, so the workspace switcher keeps cycling.
+    Popped-out tabs are panes, not menus: every global works in them as usual. (`input/dispatcher.ts`: a surface
+    marked `local`, with `dismiss` for a menu; `shell/keyboard.ts` marks every overlay local; `ui/Menu.tsx` dismisses.
+    `input/keyclash.test.ts` fails on a key bound twice, a global a menu can't keep, a dialog that lets a chord through,
+    a terminal global that takes a shell key, or a surface handler a global would always pre-empt.)
 21. **A popup with a search or input field opens in INSERT.** The palette, file search, the `:` line, the workspace
     menu, the model picker, thread move, the folder picker, the commit filter and go-to-file all start with the caret
     in the field, so typing filters at once. `ctrl-n` / `ctrl-p` and the arrows move the selection while typing,
     `esc` drops the field to NORMAL for `j` / `k`, and a second `esc` closes. A popup without a field (a row's ⋯
     menu, the ctrl-tab switcher while ctrl is held) has nothing to type into and is a plain list. One rule in
     `ui/Menu.tsx`, not a per-popup choice.
+22. **`/` is always a search where you are, never the palette.** In the chat reader, a file, a diff and the
+    terminal scrollback it searches the text (`?` backwards, `n` / `N` step). In the sidebar, Files or any list it
+    filters the list. From app NORMAL with nothing focused it searches the focused pane's text (a chat goes into its
+    reader, a terminal into its scrollback). In a menu it goes back to the search field. ctrl-k is the palette.
+    (A deliberate change from the mockup, where app NORMAL `/` opened the palette; `search` in `shell/commands.ts`.)
 
 ## 4. Per-surface summary
 
@@ -139,7 +146,7 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 | Menus, keyboard popup | List | NORMAL | `esc` closes |
 | Settings | List (two: sections, then the section's rows) | NORMAL | The section list has the keys first: `j` / `k` move over sections (the page follows), `l`, `enter` or `tab` go into its rows. In the rows `j` / `k` move, `h` / `l` lower and raise a row's value (a choice, a switch), `enter` presses; `esc`, `shift-tab`, or `h` on a row with no value go back to the sections; `esc` there closes, `q` closes from either. `H` / `L` mean tabs everywhere and do nothing in this dialog. |
 | Folder fields (workspace menu, a machine's +, a new thread's directory) | List + Field | INSERT | known folders and the machines to browse; type a path (`~/...`, `/...`, or in the workspace menu `machine:~/...`) to list that folder; `tab` (or `l` / right in NORMAL) goes into the folder under the cursor (on a row with nothing to go into, `tab` moves on), `h` back up, `enter` chooses it |
-| Sidebar | List (a pane) | NORMAL | leader `h` / `alt-h` from the leftmost pane focuses it (opening it if hidden); `j` `k` move over sections, projects and threads; `h` / `l` fold and unfold (`h` on a thread goes to its project); `enter` / `o` opens in the last pane, `shift-enter` / `O` in a split; `c` new thread in the project, `p` pin, `x` archive, `m` move to another project or machine (a menu of projects on every machine plus Other folder…, then a confirm dialog whose buttons are a row, rule 16; the mouse drags the row onto a project or a machine heading); `l`, leader `l` or `esc` back to the panes. A click in the sidebar gives it the keys (opening a thread hands them to the thread); a click in the panes takes them back |
+| Sidebar | List (a pane) | NORMAL | leader `h` / `alt-h` from the leftmost pane focuses it (opening it if hidden); `j` `k` move over sections, projects and threads; `h` / `l` fold and unfold (`h` on a thread goes to its project); `enter` / `o` opens in the last pane, `shift-enter` / `O` in a split; `c` new thread in the project, `p` pin, `x` archive, `m` move to another project or machine (a menu of projects on every machine plus Other folder…, then a confirm dialog whose buttons are a row, rule 16; the mouse drags the row onto a project or a machine heading); `l`, leader `l` or `esc` back to the panes. A click in the sidebar gives it the keys (opening a thread hands them to the thread); a click in the panes takes them back. In app NORMAL with nothing to type into, `j` / `k` (and the arrows) move its cursor among threads without focusing it and `enter` / `o` (`O` in a split) open the thread there, as the mockup; a chat's own app-NORMAL keys (`k` reader, `enter` composer, `y` / `n`) come first. Switching workspace clears the cursor |
 | Workspaces (a whole layout per project) | Layout | any | `ctrl-tab` most recent first, release to switch; leader `w` or `:workspace` to search, create, rename (`r`), close (`d`) |
 | Panes, tabs, popups | Layout | any | `\|` `\` split, `H` `L` tabs, `g t` / `g T` tabs, `g v` chat or terminal, `/` the palette, leader for the rest: `o` focuses each popup in turn then the panes, `d` docks the focused popup as a tab, `r` rotates the split, `<` `>` resize side by side and `+` `-` stacked, `esc` reads a terminal's scrollback (elsewhere: NORMAL), `space` NORMAL. `ctrl-w` in NORMAL arms the leader (`ctrl-w v`, `ctrl-w q` ...); `:only` has no default key. `ctrl-o` from a popup goes back to the pane it came from, leaving it open; `ctrl-i` goes forward to that same popup |
 
@@ -166,8 +173,7 @@ The Electron build must also drop the default menu accelerators that would swall
 - **One register.** No named registers, no explicit `"+` / `"*`, and `p` in VISUAL does not replace the selection.
 - **Counts stop at the edges they knew before**: `5j` past a reader's last line goes to the field below (rule 7)
   like `j` does, and a count before `G` in the chat transcript is ignored.
-- **App NORMAL `j` / `k` / `enter` / `o`** (moving the sidebar's cursor without focusing the sidebar, as the mockup does)
-  are not built: with nothing to type into, those keys do nothing.
-- **`ctrl-o` / `ctrl-i` always take the key**, even with nothing to jump to (the mockup lets them through then).
+- **App NORMAL `k` in a chat** enters the transcript reader (and `enter` goes back to the composer), so there only
+  `j`, the arrows, `o` / `O` move and open the sidebar cursor; in the mockup `k` moves the cursor up too.
 - **The mockup** still has the old behaviour (Settings' `H` / `L`, a model selector with a search field whose
   `h` / `l` change effort, no counts or search in readers); the build follows this document.

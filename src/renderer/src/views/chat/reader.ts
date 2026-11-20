@@ -48,6 +48,7 @@ export class Reader {
   private g = false;
   private br: string | null = null;
   private unreg: (() => void) | null = null;
+  private offDown: ((e: MouseEvent) => void) | null = null;
   private count = new Count();
   private nodes: Text[] = [];
   readonly search = new ReaderSearch(() => ({
@@ -124,7 +125,12 @@ export class Reader {
     this.own();
     this.draw();
   }
-  private own() { this.unreg?.(); this.unreg = registerTab(this.host.tabId, this.surface); update(s => { s.tick++; }); }
+  private own() {
+    if (!this.offDown) {   // any mousedown outside the quote bar ends reading (the mockup's Reader.off); a click on the text starts it again on mouseup
+      this.offDown = (e: MouseEvent) => { if (this.on && !(e.target as Element | null)?.closest?.('.seltb')) this.clear(); };
+      document.addEventListener('mousedown', this.offDown, true);
+    }
+    this.unreg?.(); this.unreg = registerTab(this.host.tabId, this.surface); update(s => { s.tick++; }); }
   /** Stop drawing; the composer or something else takes the keys. */
   clear() {
     if (!this.on) return;
@@ -245,6 +251,8 @@ export class Reader {
   fromMouse(e: MouseEvent, root: HTMLElement) {
     this.root = root;
     const s = getSelection()!;
+    const gut = (e.target as Element).closest?.('.diff .dl > .n');   // a diff's line number: the start of that line
+    if (gut) { s.removeAllRanges(); const p = gut.nextElementSibling && this.firstText(gut.nextElementSibling); if (p) this.begin(root, 'n', p); return; }
     const actionable = (e.target as Element).closest('button, input, textarea, summary, img, a, [data-act]');
     if (s.isCollapsed && (actionable || !root.contains(e.target as Node))) return;
     const c = caretAt(e.clientX, e.clientY);
@@ -362,6 +370,17 @@ export class Reader {
   }
 }
 
+/** Is the point over a character (not the blank space beside a line, a margin, the gap next to a bubble)? */
+export function onText(x: number, y: number): boolean {
+  const c = caretAt(x, y), n = c?.startContainer; if (!c || !n || n.nodeType !== 3) return false;
+  const t = n as Text, r = document.createRange();
+  for (const o of [c.startOffset - 1, c.startOffset]) {
+    if (o < 0 || o >= t.data.length || !t.data[o].trim()) continue;
+    r.setStart(t, o); r.setEnd(t, o + 1);
+    for (const b of r.getClientRects()) if (x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2) return true;
+  }
+  return false;
+}
 function caretAt(x: number, y: number): Range | null {
   const d = document as Document & { caretPositionFromPoint?(x: number, y: number): { offsetNode: Node; offset: number } | null };
   if (document.caretRangeFromPoint) return document.caretRangeFromPoint(x, y);

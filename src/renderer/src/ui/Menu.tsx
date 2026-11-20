@@ -138,6 +138,7 @@ export function Menu<D>(p: MenuProps<D>) {
     const surface: Surface = {
       kind: 'list',
       local: () => true,
+      dismiss: () => p.onClose(),
       mode: () => (st.current.ins ? 'INSERT' : p.search && S.settings.vim && fs.current.mode.startsWith('V') ? fs.current.mode as 'VISUAL' | 'V-LINE' : 'NORMAL'),
       key: k0 => {
         const { ins: typing } = st.current;

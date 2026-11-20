@@ -9,6 +9,8 @@
 /* Only tab bars along the window's top edge move the window. A popup's header moves the popup, and a pane
    below another (the lower half of a column split) is in the middle of the window. Overlays never drag it. */
 .peek, .peek *, .split.d-col > .cell:last-child .tb, .scrim, .layer, .menu, .dialog, .toast, .seltb { -webkit-app-region: no-drag; }
+/* the header's spacer too: `.tb .drag` above is more specific than `.peek *`, so without these it still moved the window */
+.peek .tb .drag, .split.d-col > .cell:last-child .tb .drag { -webkit-app-region: no-drag; }
 /* macOS: traffic lights sit over the sidebar's top row (or the first tab bar when the sidebar is hidden) */
 [data-os="mac"] .s-top { padding-left: 78px; }
 [data-os="mac"] .tb.corner { padding-left: 78px; }
@@ -69,7 +71,7 @@ textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit;
 #status kbd.seq { margin-left: 4px; }
 
 /* the sidebar floats over the panes in a narrow window (G10) */
-#app.float-side #side { position: fixed; left: 0; top: 0; bottom: 0; width: min(300px, 86vw); z-index: 45; box-shadow: var(--shadow); }
+#app.float-side #side { position: fixed; left: 0; top: 0; bottom: 0; width: min(280px, 80vw); z-index: 45; box-shadow: var(--shadow); }
 #app.float-side { grid-template-columns: minmax(0, 1fr); }
 
 @keyframes fadeUp { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
