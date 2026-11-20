@@ -29,7 +29,7 @@ export function parseClaudeHead(text: string): Omit<Found, 'updatedAt' | 'create
   for (const o of lines(text)) {
     if (o.type === 'summary' && o.summary && !summary) summary = o.summary;
     if (o.cwd && !dir) dir = o.cwd;
-    if (o.gitBranch && !branch) branch = o.gitBranch;
+    if (o.gitBranch && o.gitBranch !== 'HEAD' && !branch) branch = o.gitBranch; // 'HEAD': no repo, or detached
     if (o.sessionId && !sessionId) sessionId = o.sessionId;
     if (o.timestamp && !created) created = Date.parse(o.timestamp);
     if (o.type === 'user' && !title && !o.isMeta) { const t = textOf(o.message?.content); if (!isNoise(t)) title = tidy(t); }
