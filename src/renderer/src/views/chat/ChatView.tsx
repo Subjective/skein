@@ -7,17 +7,17 @@ import type { ThreadEvent, ThreadMeta } from '@shared/types';
 import type { Surface } from '../../input/dispatcher';
 import { registerTab, tabSurface } from '../../input/surfaces';
 import { api } from '../../api';
-import type { Tab } from '../../state/layout';
+import { allTabs, type Tab } from '../../state/layout';
 import { machine, S, thread, toast, update, useApp, ws } from '../../state/store';
 import * as A from '../../state/actions';
 import { Button, cx, Dot, Icon, Spinner } from '../../ui/primitives';
 import { harnessName, setSubNames } from '../../shell/meta';
 import { clipImages, Composer, type ComposerHandle } from './Composer';
-import { onText, Reader, SEL_BLOCK } from './reader';
+import { onText, Reader, SEL_BLOCK, selectable } from './reader';
 import { Ticks } from './Ticks';
 import { fixError, Transcript, type TranscriptCtx } from './Transcript';
-import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, startChat, tabChat, useChat, type Draft } from './state';
-import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, registerChatTab, subList } from './threads';
+import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, startChat, tabChat, tokenOf, ultraFor, useChat, type Draft } from './state';
+import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, quoteToTab, registerChatTab, subList } from './threads';
 import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
 import { shownToRaw } from './markdown';
@@ -63,7 +63,8 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     document.addEventListener('paste', paste);
     return () => document.removeEventListener('paste', paste);
   }, [focused, mirror, tc]);
-  // a mouse drag in the transcript stays inside the block it started in, live, as it moves (annot.js boundDrag)
+  // a mouse drag in the transcript stays inside the message it started in (a whole reply, or one of your bubbles),
+  // live, as it moves (annot.js boundDrag); the reader's v / V use the same bound (SEL_BLOCK)
   useEffect(() => {
     let root: Element | null = null;
     const down = (e: MouseEvent) => { const el = e.target as Element; root = e.button === 0 && read.current?.contains(el) && !el.closest('input, textarea, [contenteditable=true]') ? read.current : null; };
@@ -74,7 +75,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
       if (!block || !s.focusNode || block.contains(s.focusNode)) return;
       const forward = !!(s.anchorNode.compareDocumentPosition(s.focusNode) & Node.DOCUMENT_POSITION_FOLLOWING);
       const w = document.createTreeWalker(block, NodeFilter.SHOW_TEXT), texts: Text[] = []; let n: Node | null;
-      while ((n = w.nextNode())) if ((n as Text).data.trim()) texts.push(n as Text);
+      while ((n = w.nextNode())) if ((n as Text).data.trim() && selectable(n)) texts.push(n as Text);
       const end = forward ? texts[texts.length - 1] : texts[0];
       if (end) s.extend(end, forward ? end.length : 0);
     };
@@ -192,7 +193,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     if (!text && !d.images.length) return;
     stick.current = true;
     if (t.kind === 'sub') void api.chat.send(th.id, { text, images: d.images, sub: t.sub });
-    else void api.chat.send(th.id, { text, images: d.images, model: th.model, effort: th.effort, perm: th.perm });
+    else void api.chat.send(th.id, { text, images: d.images, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) });
     tc.draft = blank(); bump();
     saveDraft(key, '');
   };
@@ -268,7 +269,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     const ed = tc.edit; if (!ed) return;
     const text = outgoing(ed.draft); if (!text && !ed.draft.images.length) return;
     rewindTo(th.id, ed.event);
-    void api.chat.send(th.id, { text, images: ed.draft.images, rewind: ed.event, model: th.model, effort: th.effort, perm: th.perm });
+    void api.chat.send(th.id, { text, images: ed.draft.images, rewind: ed.event, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) });
     tc.edit = undefined; bump(); stick.current = true; composer.current?.focus(true);
   };
   const laterSides = useMemo(() => {
@@ -279,9 +280,24 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
 
   // ---- our / commands ----
   const lastText = () => [...lg.events].reverse().find(e => e.t === 'text')?.id;
+  // /side: a new side chat about the quote in the composer (its quotes move over with it), else the last reply
+  const sideFromDraft = async () => {
+    const qs = tc.draft.quotes;
+    const at = qs.map(q => /^ev:[^:]+:(.+)$/.exec(q.src)?.[1]).find(Boolean) ?? lastText();
+    const id = await newSide(th, at);
+    if (qs.length) {
+      let text = tc.draft.text;
+      for (const q of qs) text = text.replace(tokenOf(q), '');
+      text = text.replace(/ {2,}/g, ' ').trim();
+      tc.draft = { ...tc.draft, text, quotes: [] };
+      saveDraft(key, text, []); composer.current?.field()?.set(text); bump();
+    }
+    openSide(id);
+    if (qs.length) requestAnimationFrame(() => { const x = allTabs(ws()).find(y => y.tab.thread === id); if (x) for (const q of qs) quoteToTab(x.tab.id, q); });
+  };
   const onCommand = (cmd: string, anchor: DOMRect) => {
     if (cmd === '/subagents') return subList(th, lg.events, anchor);
-    if (cmd === '/side') return void newSide(th, lastText()).then(openSide);
+    if (cmd === '/side') return void sideFromDraft();
     if (cmd === '/sidechats') return chooseSide(th, anchor, lastText(), openSide);
   };
 

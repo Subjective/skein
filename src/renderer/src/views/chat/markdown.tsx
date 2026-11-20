@@ -50,8 +50,11 @@ export function shownToRaw(s: string, base = 0): number[] {
 /** Inline Markdown only (your own messages). */
 export const Inline = ({ text }: { text: string }) => <>{inline(text)}</>;
 
+/** Each block carries the source lines it came from (`data-ml="first-last"`, 0-based, inclusive; a list item its
+ *  own line, a fenced block its fences too) so a linewise yank can copy the Markdown, not the rendering. */
 export function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
+  const ml = (a: number, b: number) => `${a}-${b}`;
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   let i = 0, k = 0;
   while (i < lines.length) {
@@ -59,30 +62,53 @@ export function Markdown({ text }: { text: string }) {
     if (!l.trim()) { i++; continue; }
     const fence = /^```(\w*)/.exec(l);
     if (fence) {
-      const body: string[] = []; i++;
+      const body: string[] = [], a = i; i++;
       while (i < lines.length && !lines[i].startsWith('```')) body.push(lines[i++]);
       i++;
-      blocks.push(<pre key={k++} className="out code">{body.join('\n')}</pre>);
+      blocks.push(<pre key={k++} className="out code" data-ml={ml(a, Math.min(i, lines.length) - 1)} data-fence>{body.join('\n')}</pre>);
       continue;
     }
     const h = /^(#{1,3})\s+(.*)$/.exec(l);
-    if (h) { const H = (`h${h[1].length + 2}`) as 'h3'; blocks.push(<H key={k++}>{inline(h[2])}</H>); i++; continue; }
+    if (h) { const H = (`h${h[1].length + 2}`) as 'h3'; blocks.push(<H key={k++} data-ml={ml(i, i)}>{inline(h[2])}</H>); i++; continue; }
     if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
-      const ordered = /^\s*\d+\./.test(l), items: string[] = [];
+      const ordered = /^\s*\d+\./.test(l), items: string[] = [], a = i;
       while (i < lines.length && /^\s*([-*]|\d+\.)\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*([-*]|\d+\.)\s+/, ''));
       const L = ordered ? 'ol' : 'ul';
-      blocks.push(<L key={k++}>{items.map((x, j) => <li key={j}>{inline(x)}</li>)}</L>);
+      blocks.push(<L key={k++}>{items.map((x, j) => <li key={j} data-ml={ml(a + j, a + j)}>{inline(x)}</li>)}</L>);
       continue;
     }
     if (l.startsWith('>')) {
-      const q: string[] = [];
+      const q: string[] = [], a = i;
       while (i < lines.length && lines[i].startsWith('>')) q.push(lines[i++].replace(/^>\s?/, ''));
-      blocks.push(<blockquote key={k++}>{inline(q.join(' '))}</blockquote>);
+      blocks.push(<blockquote key={k++} data-ml={ml(a, i - 1)}>{inline(q.join(' '))}</blockquote>);
       continue;
     }
-    const p: string[] = [];
+    const p: string[] = [], a = i;
     while (i < lines.length && lines[i].trim() && !/^(```|#{1,3}\s|>|\s*([-*]|\d+\.)\s)/.test(lines[i])) p.push(lines[i++]);
-    blocks.push(<p key={k++}>{p.map((x, j) => <Fragment key={j}>{j > 0 && <br />}{inline(x)}</Fragment>)}</p>);
+    blocks.push(<p key={k++} data-ml={ml(a, i - 1)}>{p.map((x, j) => <Fragment key={j}>{j > 0 && <br />}{inline(x)}</Fragment>)}</p>);
   }
   return <>{blocks}</>;
+}
+
+/** The Markdown source behind the part of a rendered message (`el`, rendered by Markdown from `md`) that `range`
+ *  covers, in whole source lines: bullets, numbers, emphasis, links and code fences as written. A code block
+ *  the range covers only partly gives its fences and the lines covered. Null when the range covers no block. */
+export function rawLines(el: Element, md: string, range: Range): string | null {
+  const raw = md.replace(/\r\n/g, '\n').split('\n'), keep = new Set<number>();
+  for (const b of el.querySelectorAll<HTMLElement>('[data-ml]')) {
+    if (!range.intersectsNode(b)) continue;
+    const [a, z] = b.dataset.ml!.split('-').map(Number);
+    if (b.hasAttribute('data-fence')) {   // the fences, and the body lines the range covers
+      const line = (n: Node, o: number) => { const r = document.createRange(); r.selectNodeContents(b); r.setEnd(n, o); return r.toString().split('\n').length - 1; };
+      const closed = z > a && !!raw[z]?.startsWith('```'), last = Math.max(0, z - a - (closed ? 2 : 1));
+      const i0 = b.contains(range.startContainer) ? line(range.startContainer, range.startOffset) : 0;
+      const i1 = b.contains(range.endContainer) ? line(range.endContainer, range.endOffset) : last;
+      keep.add(a); if (closed) keep.add(z);
+      for (let j = i0; j <= Math.min(i1, last); j++) keep.add(a + 1 + j);
+    } else for (let j = a; j <= z; j++) keep.add(j);
+  }
+  if (!keep.size) return null;
+  const lo = Math.min(...keep), hi = Math.max(...keep), out: string[] = [];
+  for (let j = lo; j <= hi; j++) if (keep.has(j) || !raw[j]?.trim()) out.push(raw[j] ?? '');
+  return out.join('\n');
 }
