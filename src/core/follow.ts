@@ -344,6 +344,19 @@ export class Follows {
     }
   }
 
+  /** Whether the thread's last turn is still going, from its transcript. 'idle' when there is none. `fresh`: read
+   *  the file now rather than trust a running tail (which can be a poll behind). */
+  async turnState(id: string, o: { fresh?: boolean } = {}): Promise<TurnState> {
+    const f = this.map.get(id);
+    if (f?.following && !o.fresh) return f.state();
+    // a look of its own: the follower's baseline stays where it is, so live pushes miss nothing
+    const t = this.host.thread(id); if (!t) return 'idle';
+    const found = await locate(t, this.host.machine(t.machine)).catch(() => null);
+    if (!found) return 'idle';
+    const entries = jsonLines(found.text.slice(0, found.text.lastIndexOf('\n') + 1));
+    return t.harness === 'claude' ? claudeTurnState(entries) : codexTurnState(entries);
+  }
+
   /** Let go of a thread (it moved, or was removed): the next look starts from its record. */
   forget(id: string) { this.map.get(id)?.stop(); this.map.delete(id); this.want.delete(id); }
 

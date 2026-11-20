@@ -1026,3 +1026,42 @@ await test('reader yank: V y in a code block copies it with its fences; v y copi
   got = await clip(p);
   assert.equal(got, 'build it on a replica first', JSON.stringify(got));
 });
+
+await test('handoff: after chat sends, the terminal starts again and resumes (one writer at a time)', async p => {
+  // the terminal drives: show it, so its TUI runs
+  await p.locator('#side').getByText('Migrate ETL config to TOML', { exact: true }).first().click();
+  await p.evaluate(() => { const a = window.__skein.api, spawn = a.pty.spawn; window.__spawns = []; a.pty.spawn = async s => { window.__spawns.push(s); return spawn(s); }; });
+  const seg = v => p.locator(`.pane.focus .tb .seg button[aria-label^="${v}"]`);
+  await seg('Terminal').click();
+  await p.locator('.pane.focus .term-host .xterm').waitFor();
+  await p.waitForFunction(() => window.__spawns.length === 1);
+  // a look at chat and back keeps the same TUI
+  await seg('Chat').click();
+  await p.locator('.pane.focus .mirror').waitFor();
+  await seg('Terminal').click();
+  await p.locator('.pane.focus .term-host .xterm').waitFor();
+  await settle(p, 200);
+  assert.equal(await p.evaluate(() => window.__spawns.length), 1, 'no restart when chat sent nothing');
+  // chat takes it back and sends: the TUI closes (no "exited" row), and showing the terminal starts it again
+  await seg('Chat').click();
+  await p.locator('.pane.focus .mirror').getByRole('button', { name: 'Take back' }).click();
+  await composer(p).fill('Rename the env var too');
+  await composer(p).press('Enter');
+  await p.locator('.pane.focus .m-user', { hasText: 'Rename the env var too' }).waitFor();
+  await seg('Terminal').click();
+  await p.waitForFunction(() => window.__spawns.length === 2);
+  const [first, again] = await p.evaluate(() => window.__spawns);
+  assert.equal(again.run.kind, 'claude');
+  assert.equal(again.run.session, first.run.session, 'the same session, resumed');
+  assert.equal(again.run.args, undefined, 'a first prompt is not sent again');
+  assert.equal(await p.locator('.pane.focus .t-exit').count(), 0);
+});
+
+await test('send refused (the terminal is mid-turn): the message comes back to the composer, with the reason', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await p.evaluate(() => { window.__skein.api.chat.send = async () => { throw new Error("Error invoking remote method 'chat.send': Error: Claude Code is still running a turn in the terminal."); }; });
+  await composer(p).fill('Also show seconds');
+  await composer(p).press('Enter');
+  await p.locator('.toast', { hasText: 'Claude Code is still running a turn in the terminal.' }).waitFor();
+  assert.equal(await composer(p).inputValue(), 'Also show seconds');
+});
