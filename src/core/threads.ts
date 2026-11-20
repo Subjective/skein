@@ -16,7 +16,11 @@ export class Threads {
   bySession(sessionId: string) { return this.list().find(t => t.sessionId === sessionId); }
 
   update(id: string, patch: Partial<ThreadMeta>): ThreadMeta {
-    const t = { ...this.get(id), ...patch, id };
+    const prev = this.get(id);
+    // activity moves a thread up the Recent list: a turn starting or ending, or it asking you something. Marking a
+    // reply read or unread is not activity.
+    const moved = patch.status && prev && patch.status !== prev.status && patch.status !== 'unread' && !(prev.status === 'unread' && patch.status === 'idle');
+    const t = { ...prev, ...(moved && patch.updatedAt === undefined ? { updatedAt: Date.now() } : {}), ...patch, id };
     this.map.set(id, t); this.store.put('threads', id, t); emit({ type: 'thread', thread: t });
     return t;
   }
@@ -42,7 +46,12 @@ export class Threads {
     const added: ThreadMeta[] = [];
     for (const f of found) {
       const known = this.bySession(f.sessionId);
-      if (known) { if (f.updatedAt > known.updatedAt) this.update(known.id, { updatedAt: f.updatedAt, ...(known.title === 'New thread' ? { title: f.title } : {}) }); continue; }
+      if (known) {
+        const patch: Partial<ThreadMeta> = {};
+        if (f.updatedAt > known.updatedAt) Object.assign(patch, { updatedAt: f.updatedAt }, known.title === 'New thread' ? { title: f.title } : {});
+        if (Object.keys(patch).length) this.update(known.id, patch);
+        continue;
+      }
       const t: ThreadMeta = { id: 't-' + f.sessionId.slice(0, 8), harness: f.harness, sessionId: f.sessionId, machine, dir: f.dir, title: f.title, branch: f.branch, createdAt: f.createdAt, updatedAt: f.updatedAt, status: 'idle', discovered: true, drive: f.harness === 'claude' ? 'chat' : undefined };
       this.map.set(t.id, t); this.store.put('threads', t.id, t); added.push(t);
       if (remote) emit({ type: 'thread', thread: t });

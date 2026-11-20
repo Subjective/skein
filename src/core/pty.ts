@@ -153,6 +153,8 @@ export class Ptys {
     if (l.kept && m.persist && l.spec.thread) return run(m, killLine(l.spec.thread, m.persist)).then(() => undefined, () => undefined);
     return Promise.resolve();
   }
+  /** Is a terminal of this thread open (its program writes the thread's transcript)? */
+  hasThread(thread: string) { for (const l of this.ptys.values()) if (l.spec.thread === thread && !l.closed) return true; return false; }
   /** Close every terminal tied to a thread (it is moving). */
   async killThread(thread: string) { await Promise.all([...this.ptys].filter(([, l]) => l.spec.thread === thread).map(([id]) => this.kill(id))); }
   /** App quit: let persistent remote sessions keep running, so a turn survives restarting Skein. */

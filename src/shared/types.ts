@@ -70,6 +70,9 @@ export interface ThreadMeta {
   discovered?: boolean;
   /** Context window used, 0-100, when the harness reports it. */
   ctx?: number;
+  /** When a process outside Skein (the harness in another terminal) last took this thread: Skein follows its
+   *  transcript and doesn't send to it until you take over (one writer per session). 0 or absent: Skein may drive. */
+  external?: number;
 }
 
 // ---- normalized conversation events, rendered by the chat view and derived from either harness ----

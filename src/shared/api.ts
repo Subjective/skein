@@ -160,6 +160,9 @@ export interface SkeinApi {
     answer(thread: string, requestId: string, optionId: string): Promise<void>;
     /** Claude Code handoff (G4): hand the thread to a view. Resolves once that view drives. */
     drive(thread: string, view: ViewKind): Promise<void>;
+    /** A chat view showing the thread opened (true) or closed (false): its transcript is followed live meanwhile
+     *  (new entries arrive as 'chat' pushes, whoever writes them). */
+    follow(thread: string, on: boolean): void;
   };
   pty: {
     spawn(spec: PtySpec): Promise<string>;
@@ -230,13 +233,13 @@ export type SkeinEvent =
 /** What the preload exposes on window.skein. pty.write / resize / kill are fire-and-forget (ipc send). */
 export type SkeinBridge = SkeinApi & { on(fn: (e: SkeinEvent) => void): () => void; setTheme(dark: boolean): void };
 
-export const FIRE_AND_FORGET = new Set(['pty.write', 'pty.resize', 'pty.kill', 'browser.keys']);
+export const FIRE_AND_FORGET = new Set(['pty.write', 'pty.resize', 'pty.kill', 'browser.keys', 'chat.follow']);
 export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
   app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'notify'],
   machines: ['list', 'add', 'remove', 'connect', 'answer', 'sshHosts'],
   fs: ['list', 'read', 'write', 'resolve', 'find'],
   threads: ['list', 'discover', 'create', 'update', 'history', 'move'],
-  chat: ['send', 'interrupt', 'answer', 'drive'],
+  chat: ['send', 'interrupt', 'answer', 'drive', 'follow'],
   pty: ['spawn', 'write', 'resize', 'kill', 'adopt'],
   images: ['toInbox'],
   git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files'],
