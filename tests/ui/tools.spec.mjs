@@ -590,7 +590,7 @@ await test('shell: claude typed in a shell tab turns it into a thread in the sid
   await settle(p, 300);
   await p.keyboard.type('claude');
   await p.keyboard.press('Enter');
-  await p.locator('.toast', { hasText: 'Claude Code detected in this shell · added to the sidebar' }).waitFor();
+  await p.locator('.toast', { hasText: 'Claude Code detected in this shell' }).waitFor();
   assert.ok(await p.locator('.pane.focus .tab.on .i-claude').count(), 'the tab is a Claude Code thread');
   assert.ok(await p.locator('.pane.focus .seg').count(), 'with the chat / terminal switch');
   assert.ok(await p.locator('#side').getByText('New thread', { exact: true }).count(), 'listed in the sidebar');

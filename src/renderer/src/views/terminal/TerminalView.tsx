@@ -189,7 +189,7 @@ function detect(tab: Tab, e: TermEntry, seen?: Harness) {
     });
     e.onEnter = undefined;
     A.save();
-    toast(<><b>{harnessName(th.harness)}</b> detected in this shell · added to the sidebar</>, { icon: th.harness });
+    toast(<><b>{harnessName(th.harness)}</b> detected in this shell</>, { icon: th.harness });
   }).catch(() => {}).finally(() => adopting.delete(tab.id));
 }
 
