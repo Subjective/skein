@@ -64,3 +64,10 @@ export const Dot = ({ color, pulse, label }: { color: 'green' | 'amber' | 'red' 
 export const Kbd = ({ k }: { k: string }) => <kbd>{kb(k)}</kbd>;
 export const Switch = ({ on, onChange, label }: { on: boolean; onChange: (v: boolean) => void; label: string }) =>
   <button type="button" role="switch" aria-checked={on} aria-label={label} className="sw-btn" onClick={() => onChange(!on)}><span className={cx('sw', on && 'on')} /></button>;
+
+/** The round send button at the end of a composer; a square stops a running turn. */
+export const SendButton = ({ stop, label, ...rest }: BtnProps & { stop?: boolean; label?: string }) => (
+  <button type="button" className={cx('send', stop && 'stop')} aria-label={label || (stop ? 'Stop' : 'Send')} title={label || (stop ? 'Stop' : 'Send')} {...rest}>
+    {stop ? <span className="sq" /> : <Icon name="up" />}
+  </button>
+);

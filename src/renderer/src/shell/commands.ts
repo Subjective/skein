@@ -3,6 +3,7 @@ import { S, toast, update, ws } from '../state/store';
 import * as A from '../state/actions';
 import { openCmdline, openKeys, openPalette, openPaneSearch, openSettings, openWorkspaces } from './overlays';
 import { scrollback } from '../views/terminal/scrollback';
+import { quoteSelection } from '../views/chat/threads';
 
 const RUN: Record<string, () => void> = {
   palette: () => openPalette(),
@@ -34,8 +35,8 @@ const RUN: Record<string, () => void> = {
   back: () => { const w = ws(); if (w.pf) update(s => { const p = w.pops.find(x => x.tab.id === w.pf); s.tick++; w.pf = null; if (p?.from) w.focus = p.from; }); },
   forward: () => { const w = ws(); const p = w.pops[w.pops.length - 1]; if (p && !w.pf) update(s => { w.pf = p.tab.id; s.tick++; }); },
   popout: () => A.popOut(),
-  quote: () => toast('Select text in a thread first'),
-  quoteside: () => toast('Select text in a thread first'),
+  quote: () => { if (!quoteSelection(false)) toast('Select text in a thread first'); },
+  quoteside: () => { if (!quoteSelection(true)) toast('Select text in a thread first'); },
   termall: () => A.allViews('term'),
   chatall: () => A.allViews('chat'),
   only_: () => A.only(),
