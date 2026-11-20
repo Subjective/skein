@@ -138,6 +138,8 @@ await test('edit from the reader: x on your message edits it in NORMAL', async p
   await p.keyboard.press('x');
   const box = p.locator('.pane.focus .m-edit textarea');
   await box.waitFor();
+  // the edit box animates in and takes the keys a frame later; on a loaded CI runner the first read can land before that
+  await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'NORMAL' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
   assert.equal(await box.inputValue(), 'y PowerShell profile takes two seconds to load. Trim it.');
   assert.equal(await mode(p), 'NORMAL');
 });
