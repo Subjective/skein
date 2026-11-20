@@ -21,6 +21,7 @@ export function useDialogSurface(o: { onEsc: () => void; key?: (k: string) => bo
   useEffect(() => {
     const surface: Surface = {
       kind: 'list',
+      local: () => true,
       mode: () => ref.current.mode?.() ?? 'NORMAL',
       key: k => { if (k === 'esc') { ref.current.onEsc(); return true; } return ref.current.key?.(k) ?? false; },
     };
