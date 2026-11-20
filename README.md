@@ -66,6 +66,12 @@ pnpm 10 runs install scripts only for packages listed in `package.json` under `p
 - **Keys:** `ctrl-space` is the leader (`ldr v` split right, `ldr s` split down, `ldr t` chat ⇄ terminal,
   `ldr h/j/k/l` focus, `ldr [` read a terminal's scrollback). `?` shows them all. On a Mac app shortcuts use ⌘.
   The full model is [docs/VIM-MODEL.md](docs/VIM-MODEL.md).
+- **Find things:** `ctrl-k` (⌘K) searches threads and actions, `ctrl-p` (⌘P) searches files in the focused
+  tab's folder, `ldr w` switches workspaces and `ctrl-tab` jumps to the last one.
+- **Terminal copy and paste on Windows:** `ctrl-c` copies a selection (with nothing selected it interrupts),
+  `ctrl-v` pastes. A screenshot on the clipboard is saved to `~/.skein/inbox` and its path pasted, which
+  Claude Code and Codex turn into `[Image #1]`. Over SSH the image is uploaded first.
+- **Tabs:** drag a tab onto another pane's tab bar to move it, onto a pane's edge to split, or outside to pop it out.
 
 ## Develop
 
