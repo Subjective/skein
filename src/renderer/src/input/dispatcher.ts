@@ -80,6 +80,8 @@ export class Dispatcher {
       }
       if (this.seq) { this.clearSeq(); return true; }
     }
+    // NORMAL and VISUAL never type: a plain key nobody wanted is dropped, not inserted into a field
+    if (this.host.vim() && (mode === 'NORMAL' || mode.startsWith('V')) && k.length === 1) return true;
     return false;
   }
 

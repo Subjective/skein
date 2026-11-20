@@ -65,7 +65,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   return (
     <div className="newp"><div className="col">
       <div className="comp">
-        <div className="taw"><VimField ref={field} tabId={t.id} value={draft} onChange={setDraft} placeholder="Ask anything" autoFocus={focused} onEnter={() => void start()} /></div>
+        <div className="taw"><VimField ref={field} tabId={t.id} value={draft} onChange={setDraft} placeholder="Ask anything" autoFocus={focused} startMode={t.startNormal ? 'NORMAL' : 'INSERT'} onEnter={() => void start()} /></div>
         <div className="cf">
           <span className="sp" />
           <Chip icon={h} label={modelLabel(t)} caret onClick={e => pickModel(e.currentTarget)} title="Model" />

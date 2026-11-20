@@ -5,7 +5,7 @@
 import type { PtySpec } from '@shared/api';
 import { api } from '../../api';
 import type { Tab } from '../../state/layout';
-import { thread, update } from '../../state/store';
+import { S, thread, update } from '../../state/store';
 import * as A from '../../state/actions';
 import { Button, Icon, Spinner } from '../../ui/primitives';
 import { harnessName } from '../../shell/meta';
@@ -13,6 +13,29 @@ import { startPty, termOf, useTerminal } from './TerminalView';
 import { pendingArgs } from '../../shell/Launcher';
 
 const takeArgs = (id: string) => { const a = pendingArgs.get(id); return a?.length ? a : undefined; };
+
+// A TUI's terminal title tells us two things: what the thread is about (Claude Code titles the terminal
+// with a summary) and whether it is working (a spinner glyph in front). Codex prints its own title too.
+const SPIN = /^[\u2800-\u28ff\u2730-\u273f\u00b7*✳✻✽✶✢·◐◓◑◒⠁-⣿]\s*/;
+function onTitle(id: string, raw: string) {
+  const th = thread(id); if (!th) return;
+  const running = SPIN.test(raw);
+  const title = raw.replace(SPIN, '').replace(/^(Claude Code|Codex)\s*[-–—:]?\s*/i, '').trim();
+  const patch: Partial<typeof th> = {};
+  if (title && title.length > 2 && !/^(claude|codex|bash|zsh|pwsh|powershell)$/i.test(title) && th.title !== title) patch.title = title.slice(0, 80);
+  const status = running ? 'running' : th.status === 'running' ? 'idle' : undefined;
+  if (status && status !== th.status) patch.status = status;
+  if (Object.keys(patch).length) { update(() => Object.assign(th, patch)); void api.threads.update(id, patch); }
+}
+/** The TUI rang the bell or sent a notification: it is waiting on you (G13). */
+function attention(id: string, text: string) {
+  const th = thread(id); if (!th) return;
+  const seen = document.hasFocus() && A.currentTab().thread === id;
+  if (seen) return;
+  update(() => { th.status = 'wait'; });
+  void api.threads.update(id, { status: 'wait' });
+  if (S.settings.notify !== 'off' && !document.hasFocus()) void api.app.notify(th.title, text || 'Waiting on you', id);
+}
 
 export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
   const th = thread(t.thread);
@@ -27,6 +50,11 @@ export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
     if (cur?.harness === 'claude') void api.chat.drive(cur.id, 'chat');
   };
   const host = useTerminal(t, focused, spec, onExit);
+  const e0 = termOf(t.id);
+  if (e0 && th) {
+    e0.onTitle = title => onTitle(th.id, title);
+    e0.onAttention = text => attention(th.id, text);
+  }
   if (!th) return <div className="empty">This thread is gone.</div>;
   if (waiting) {
     return (

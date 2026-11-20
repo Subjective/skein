@@ -27,6 +27,9 @@ export interface TermEntry {
   exited: number | null | undefined;
   spec: PtySpec;
   onExit?: (code: number | null) => void;
+  /** The program set the terminal title (OSC 0/2) or asked for attention (bell, OSC 9 / 777). */
+  onTitle?: (title: string) => void;
+  onAttention?: (text: string) => void;
 }
 const cache = new Map<string, TermEntry>();
 export const termOf = (tabId: string) => cache.get(tabId);
@@ -79,6 +82,11 @@ export function ensureTerm(tabId: string, spec: PtySpec, onExit?: (code: number 
     return true;
   });
   term.onData(d => { if (entry.ptyId) api.pty.write(entry.ptyId, d); });
+  term.onTitleChange(title => entry.onTitle?.(title));
+  term.onBell(() => entry.onAttention?.(''));
+  // OSC 9 (iTerm2 / Windows Terminal) and OSC 777;notify (rxvt): desktop notifications from the TUI
+  term.parser.registerOscHandler(9, data => { if (!/^\d+;/.test(data)) entry.onAttention?.(data); return true; });
+  term.parser.registerOscHandler(777, data => { const m = /^notify;([^;]*);?(.*)$/.exec(data); if (m) entry.onAttention?.(m[2] || m[1]); return true; });
   term.onResize(({ cols, rows }) => { if (entry.ptyId) api.pty.resize(entry.ptyId, cols, rows); });
   el.addEventListener('paste', ev => { if (pasteImage(tabId, entry, ev)) { ev.preventDefault(); ev.stopPropagation(); } }, true);
   return t;

@@ -40,7 +40,7 @@ if (existsSync(ePath)) {
   const bin = join(root, 'node_modules', 'electron', 'dist', readFileSync(ePath, 'utf8').trim());
   existsSync(bin) ? ok('Electron runtime', 'downloaded') : fail('Electron is installed but its binary is missing', 'Run `pnpm rebuild electron` (set ELECTRON_MIRROR first if github.com is blocked).');
 } else if (existsSync(join(root, 'node_modules', 'electron'))) {
-  fail('Electron runtime not downloaded yet', 'Run `pnpm install` again (it downloads it), or `node scripts/ensure-electron.mjs`. Set ELECTRON_MIRROR first if github.com is blocked.');
+  fail('Electron runtime not downloaded yet', 'Run `pnpm install` again (it downloads it), or `node scripts/postinstall.mjs`. Set ELECTRON_MIRROR first if github.com is blocked.');
 } else {
   const host = mirror ? new URL(mirror).host : 'github.com';
   const reach = await new Promise(res => {

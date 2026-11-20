@@ -57,7 +57,7 @@ export function addTab(p: Pane, t: Tab) { p.tabs.push(t); p.active = t.id; ws().
 
 export function split(dir: 'row' | 'col', tab?: Tab) {
   update(s => {
-    const w = ws(), g = focusedPane(w), n = mkPane(tab || launcherFor(activeTab(g)));
+    const w = ws(), g = focusedPane(w), n = mkPane(tab || { ...launcherFor(activeTab(g)), startNormal: true });
     w.tree = splitAt(w.tree, g.id, dir, n); w.focus = n.id; w.zoom = false; w.pf = null; s.sideFocus = false; s.tick++;
   });
   save();

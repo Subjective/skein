@@ -1,6 +1,6 @@
 // Terminals: node-pty for local programs, `ssh -tt` for remote ones. One manager, ids are opaque strings.
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { chmodSync, existsSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import type { PtySpec } from '../shared/api';
 import type { Machine } from '../shared/types';
@@ -17,6 +17,14 @@ try {
   ptyMod = require('node-pty');
 } catch (e) { ptyError = (e as Error).message; log('pty', 'node-pty failed to load', ptyError); }
 export const ptyAvailable = () => !!ptyMod;
+
+// macOS: node-pty's spawn-helper must be executable (scripts/postinstall.mjs fixes it too; this covers copies)
+if (process.platform === 'darwin') {
+  try {
+    const dir = dirname(require.resolve('node-pty/package.json'));
+    for (const d of readdirSync(join(dir, 'prebuilds'))) { const h = join(dir, 'prebuilds', d, 'spawn-helper'); if (existsSync(h)) chmodSync(h, 0o755); }
+  } catch { /* not there: built from source */ }
+}
 
 const TERM_ENV = { TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM: 'Skein' };
 

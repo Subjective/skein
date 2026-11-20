@@ -20,6 +20,8 @@ export interface Tab {
   effort?: string;
   perm?: string;
   worktree?: boolean;
+  /** A launcher made by a split opens in NORMAL (B10), so | then \\ splits twice instead of typing. */
+  startNormal?: boolean;
 }
 
 export interface Pane { type: 'pane'; id: string; tabs: Tab[]; active: string }

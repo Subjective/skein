@@ -83,7 +83,7 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
       }
       const r = step(s, k);
       if (r.handled) apply(r.s, r.fx);
-      return r.handled || k.length === 1; // NORMAL: plain keys never type
+      return r.handled; // unhandled plain keys go on to the app's normal layer (H L | \\ :); the dispatcher stops them typing
     },
     imap: first => {
       const s = st.current, el = ta.current; if (!el) return;
