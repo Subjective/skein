@@ -2,10 +2,18 @@
 import type { Harness } from '@shared/types';
 import type { Tab } from '../state/layout';
 import { machine, S, thread } from '../state/store';
+import { hostOf } from '../views/tools/address';
 
 export const harnessName = (h: Harness) => (h === 'claude' ? 'Claude Code' : 'Codex');
 /** A project's name in the sidebar: a name the user gave it, ~ for the home folder, else the folder's name. */
 export const projectName = (m: string, d: string) => (S.settings as unknown as { names?: Record<string, string> }).names?.[m + ':' + d] || (d === S.machines.find(x => x.id === m)?.home ? '~' : base(d)) || d;
+/** A path as people read it: the machine's home folder shown as ~ (the stored path stays absolute). */
+export function tildify(m: string | undefined, d: string): string {
+  const home = S.machines.find(x => x.id === (m || 'local'))?.home?.replace(/[\\/]+$/, '');
+  if (!home || !d.startsWith(home)) return d;
+  const rest = d.slice(home.length);
+  return rest === '' ? '~' : /^[\\/]/.test(rest) ? '~' + rest : d;
+}
 const base = (p = '') => p.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '') || p;
 
 export function tabMeta(t: Tab): { icon: string; title: string; ssh?: boolean } {
@@ -20,7 +28,7 @@ export function tabMeta(t: Tab): { icon: string; title: string; ssh?: boolean } 
     case 'file': return { icon: 'file', title: base(t.path) };
     case 'sub': return { icon: 'agent', title: subName(t) };
     case 'vimrc': return { icon: 'sliders', title: 'vimrc' };
-    case 'browser': return { icon: 'globe', title: 'Browser' };
+    case 'browser': return { icon: 'globe', title: t.title || hostOf(t.url || '') || 'Browser', ssh };
     default: return { icon: 'compose', title: 'New thread' };
   }
 }

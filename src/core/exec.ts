@@ -25,12 +25,12 @@ export function sshBin(platform = process.platform, env: NodeJS.ProcessEnv = pro
 /** Options every ssh invocation shares. ControlMaster keeps one connection per host on macOS / Linux.
  *  Windows OpenSSH has no multiplexing (a ControlMaster line in the user's config makes it fail), so it is
  *  switched off there and each call opens its own connection; askpass answers cover the repeats. */
-export function sshBase(m: Machine, o: { tty?: boolean; batch?: boolean; compress?: boolean; platform?: NodeJS.Platform } = {}): string[] {
+export function sshBase(m: Machine, o: { tty?: boolean; batch?: boolean; compress?: boolean; platform?: NodeJS.Platform; mux?: boolean } = {}): string[] {
   if (!m.ssh) throw new Error(`${m.name} is not an SSH machine`);
   // SKEIN_SSH_CONFIG: use another ssh config file (tests; also handy for a work-only config)
   const a = [...(process.env.SKEIN_SSH_CONFIG ? ['-F', process.env.SKEIN_SSH_CONFIG] : []), '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=3', '-o', 'ConnectTimeout=15'];
   // SKEIN_SSH_NO_MUX: behave as on Windows (tests run the Windows connection model on Linux this way)
-  if ((o.platform ?? process.platform) === 'win32' || process.env.SKEIN_SSH_NO_MUX) a.push('-o', 'ControlMaster=no', '-o', 'ControlPath=none');
+  if ((o.platform ?? process.platform) === 'win32' || process.env.SKEIN_SSH_NO_MUX || o.mux === false) a.push('-o', 'ControlMaster=no', '-o', 'ControlPath=none');
   else a.push('-o', 'ControlMaster=auto', '-o', 'ControlPath=~/.ssh/skein-%C', '-o', 'ControlPersist=10m');
   if (o.batch) a.push('-o', 'BatchMode=yes');
   if (o.compress) a.push('-C');

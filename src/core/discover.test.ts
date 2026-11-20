@@ -11,6 +11,10 @@ describe('discovery', () => {
     ].map(o => JSON.stringify(o)).join('\n');
     expect(parseClaudeHead(text)).toMatchObject({ harness: 'claude', dir: '/w/app', title: 'Fix the restore race', branch: 'main', sessionId: 'abc' });
   });
+  it('shows no branch where Claude Code wrote HEAD (no repo, or detached)', () => {
+    const text = JSON.stringify({ type: 'user', message: { content: 'hi' }, cwd: '/root', sessionId: 's', gitBranch: 'HEAD' });
+    expect(parseClaudeHead(text)?.branch).toBeUndefined();
+  });
   it('reads a Codex rollout head', () => {
     const text = [
       { type: 'session_meta', payload: { id: 'x1', cwd: '/w/x', timestamp: '2026-01-01T00:00:00Z', git: { branch: 'dev' } } },

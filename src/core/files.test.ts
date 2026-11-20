@@ -12,10 +12,11 @@ describe('find', () => {
     expect(out).toContain('package.json');
     expect(out.some(p => p.startsWith('node_modules/'))).toBe(false);
   });
-  it('walks a plain folder, skipping node_modules', async () => {
+  it('walks a plain folder, skipping node_modules and hidden folders but not hidden files', async () => {
     const d = mkdtempSync(join(tmpdir(), 'skein-find-'));
-    mkdirSync(join(d, 'a', 'node_modules'), { recursive: true });
+    mkdirSync(join(d, 'a', 'node_modules'), { recursive: true }); mkdirSync(join(d, '.cache'));
     writeFileSync(join(d, 'a', 'x.txt'), ''); writeFileSync(join(d, 'a', 'node_modules', 'y.js'), '');
-    expect(await find(local, d)).toEqual(['a/x.txt']);
+    writeFileSync(join(d, '.cache', 'z.log'), ''); writeFileSync(join(d, '.bashrc'), '');
+    expect((await find(local, d)).sort()).toEqual(['.bashrc', 'a/x.txt']);
   });
 });

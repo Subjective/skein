@@ -8,7 +8,7 @@ import * as A from '../state/actions';
 import { mkTab, type Tab } from '../state/layout';
 import { machine, S, toast, update, useApp } from '../state/store';
 import { openMenu } from './overlays';
-import { harnessName } from './meta';
+import { harnessName, tildify } from './meta';
 import { Chip, Dot, Icon, SendButton } from '../ui/primitives';
 import { VimField, type VimFieldHandle } from '../ui/VimField';
 
@@ -67,7 +67,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
     },
   });
   const pickDir = (el: HTMLElement) => dirMenu(t, el, d => { update(() => { t.dir = d; }); A.save(); });
-  const open = (kind: 'shell' | 'changes' | 'files') => update(x => { Object.assign(t, mkTab(kind, { machine: t.machine, dir: t.dir }), { id: t.id }); x.tick++; });
+  const open = (kind: 'shell' | 'changes' | 'files' | 'browser') => update(x => { Object.assign(t, mkTab(kind, { machine: t.machine, dir: t.dir }), { id: t.id }); x.tick++; });
 
   return (
     <div className="newp"><div className="col">
@@ -81,12 +81,12 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
       </div>
       <div className="under pick">
         <Chip icon={m?.ssh ? 'host' : 'laptop'} label={<>{m?.name}{m?.ssh && m.link !== 'up' && <> <Dot color={m.link === 'down' ? 'red' : 'amber'} /></>}</>} caret onClick={e => pickMachine(e.currentTarget)} title="Machine" />
-        <Chip className="path" icon="folder" label={t.dir || '~'} caret onClick={e => pickDir(e.currentTarget)} title="Folder" />
+        <Chip className="path" icon="folder" label={t.dir ? tildify(t.machine, t.dir) : '~'} caret onClick={e => pickDir(e.currentTarget)} title="Folder" />
         <span className="sp" />
       </div>
       {missing && <div className="link-note"><Icon name="alert" /><span>{harnessName(h)} is not installed on {m?.name}.</span></div>}
       <div className="cards">
-        {([['shell', 'terminal', 'Shell'], ['changes', 'diff', 'Changes'], ['files', 'file', 'Files']] as const).map(([k, i, n]) => <button key={k} className="card" onClick={() => open(k)}><Icon name={i} /><span>{n}</span></button>)}
+        {([['shell', 'terminal', 'Shell'], ['changes', 'diff', 'Changes'], ['files', 'file', 'Files'], ['browser', 'globe', 'Browser']] as const).map(([k, i, n]) => <button key={k} className="card" onClick={() => open(k)}><Icon name={i} /><span>{n}</span></button>)}
       </div>
     </div></div>
   );

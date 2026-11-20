@@ -12,10 +12,10 @@ The app is in `src/`; the interactive HTML mockup it follows is in `mockups/`. H
 | `src/shared/api.ts` | The only contract between renderer and main: `SkeinApi` (request / response) and `SkeinEvent` (pushes). The preload builds `window.skein` from it. Replacing Electron (Tauri fallback) means reimplementing this transport only. |
 | `src/shared/types.ts` | Machine, ThreadMeta, ThreadEvent (normalized chat events), Settings |
 | `src/main/` | Electron shell only: window, our own menu (G3), IPC wiring. `services.ts` implements `SkeinApi` over `src/core`. |
-| `src/core/` | Node-only, no Electron: `store` (node:sqlite metadata), `machines` (local + SSH probe), `exec` (local spawn / system ssh with ControlMaster), `pty` (node-pty), `discover` (sessions in ~/.claude and ~/.codex), `threads`, `files`, `git`, `images` (inbox), `chat` (the seam for the chat drivers) |
-| `src/renderer/src/input/` | The input layer: `keys` (one key name form), `platform` (per-OS keys, `kb()`), `keymap` (commands, default bindings, vimrc), `dispatcher` (the single keydown handler), `vimtext` (the Vim engine for fields), `surfaces` (who owns the keyboard) |
+| `src/core/` | Node-only, no Electron: `store` (node:sqlite metadata), `machines` (local + SSH probe), `exec` (local spawn / system ssh with ControlMaster), `pty` (node-pty), `discover` (sessions in ~/.claude and ~/.codex), `threads`, `files`, `git`, `images` (inbox), `forward` (ssh port forwards for Browser tabs), `chat` (the seam for the chat drivers) |
+| `src/renderer/src/input/` | The input layer: `keys` (one key name form), `platform` (per-OS keys, `kb()`), `keymap` (commands, default bindings, vimrc), `dispatcher` (the single keydown handler), `vimtext` (the Vim engine for fields), `surfaces` (who owns the keyboard), `readerkeys` (counts and search matching every reader shares, pure), `register` (the one unnamed register, clipboard fallback) |
 | `src/renderer/src/state/` | `store` (one mutable state + version), `layout` (pane tree, pure), `actions` (what commands do) |
-| `src/renderer/src/ui/` | The component library: `primitives` (Icon, IconButton, Button, Chip, Seg, Dot, Spinner, Kbd, Switch), `Menu` (every list), `Dialog`, `VimField` (every editable text), `motion` (animation tokens), `icons` |
+| `src/renderer/src/ui/` | The component library: `primitives` (Icon, IconButton, Button, Chip, Seg, Dot, Spinner, Kbd, Switch), `Menu` (every list; its search field runs `vimtext` in NORMAL), `Dialog`, `VimField` (every editable text), `search` (the `/` `?` prompt and `n` / `N` for every reader), `motion` (animation tokens), `icons` |
 | `src/renderer/src/shell/` | App frame: Sidebar, Workspace (panes, tabs, popups), StatusBar, Launcher (new tab), overlays (palette, : line, settings, keyboard sheet), commands |
 | `src/renderer/src/views/` | `terminal/` (xterm.js with WebGL and image addons, scrollback reader, image paste, Claude handoff), `chat/`, `tools/` |
 | `src/renderer/src/styles/` | `skein.css` is the mockup's stylesheet, the source of the look. `app.css` adds only what the real app needs. |
@@ -50,6 +50,49 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   machine (each turn sends the thread's cwd); another machine gets the rollout at the same `sessions/YYYY/MM/DD/`
   path. Across machines, files go over SSH (text through `core/files`, folders as a tar stream). Originals are
   never deleted or archived, and code does not move (conversation only). The toast's Undo moves it back.
+- **Browser tab: an Electron `<webview>`**, not a WebContentsView managed from main. A webview is a DOM element, so
+  it follows splits, popups, zoom and hidden tabs with no bounds syncing, and menus and dialogs draw over it. It is
+  locked down in main: `will-attach-webview` drops any preload, turns Node off, sandboxes the page, forces its own
+  session (`persist:skein-browser`, which grants no permissions but clipboard write and fullscreen) and refuses
+  anything but http(s); the page's navigations and redirects stay on http(s) and its new windows open in the
+  system browser. The renderer's CSP is unchanged (a webview is not a frame to it); dev:web adds `frame-src`
+  for its `<iframe>` stand-in. Moving the tab to another pane re-creates the page (a webview reloads when it is
+  re-parented); switching tabs only hides it.
+- **Browser keys** follow a terminal (VIM-MODEL rule 11): `i` / `gi` / a click give the page the keys (TERMINAL),
+  `esc` takes them back. Keys pressed in a page never reach the window, so the renderer sends main the list it
+  keeps (esc, the leader, the terminal's global keys, mod-l) and main's `before-input-event` hands those back
+  as `browser.key` events, which go through the one dispatcher. mod-l on a Browser tab edits the address
+  instead of quoting a selection.
+- **Browser on an SSH machine**: localhost (and 127.0.0.1, ::1, 0.0.0.0) means that machine. Main forwards the
+  port with `ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:<free port>:localhost:<port>` on a connection of its
+  own (a ControlMaster would keep the forward after we let go), waits until the local port accepts, and the page
+  loads from it while the address bar keeps the remote's address, with `<machine> → :<local port>` beside it.
+  One forward per machine and port, kept until it dies or the app quits; a failure is a row with Retry.
+- **Closing VIM-MODEL section 6** (2026-11-20; rules 18 and 19, section 4's Menu search field and Settings rows):
+  - A menu's search field is a Field in NORMAL: it keeps the focus (read-only) and its block cursor, and runs
+    `vimtext`. The list keeps `j` `k` `gg` `G` `enter` `q` (counts move the list: `3j`); everything else goes to the
+    field. The menu owner's `keys` come first, so a folder field keeps `h` / `l` for out / in and the workspace list
+    keeps `d`. The model picker has no search field in the build (the mockup's had one), so its `h` / `l` effort
+    keys never clashed; `l` still picks in a menu without a search field.
+  - Settings is two lists. The section list has the keys when it opens (`j` / `k` sections, `l` / `enter` / `tab`
+    in); the rows take `h` / `l` as values (a switch counts: `h` off, `l` on), and `esc` / `shift-tab` / `h` on a
+    row with no value go back. `J` / `K` (the old section keys) are gone; `H` / `L` do nothing in the dialog.
+  - Readers share `input/readerkeys.ts` (Count, literal smart-case `findAll`, `nextHit` with wrap) and
+    `ui/search.tsx` (`ReaderSearch`: the prompt is the shared Menu with prefix `/` or `?`, listing matches nearest
+    first; `n` / `N`; esc clears). Each reader gives it its text as strings and its cursor as a position: the
+    scrollback its buffer lines (matches drawn as xterm decorations, capped at 400), the chat reader its text nodes
+    (CSS highlight `rsearch`), the file its lines (`.hit`), the diff its rows (`.hit` in code lines).
+  - Changes: `/` now searches the diff like every reader; the tree's search moved to `f` (it was `/`).
+  - The open file's `/` used to be a "find lines" menu with its own n / N; it is now the shared prompt, which still
+    lists matching lines with their numbers.
+  - One unnamed register for all fields (`input/register.ts`), filled by readers' yanks too; `p` with it empty puts
+    the system clipboard. No `"+` or named registers. `vimtext` gained `NG` / `Ngg`, `3p`, and counts after an
+    operator (`d2w`, `2d3w`); `r` followed by a digit replaces with that digit (it used to start a count).
+- **Final polish pass** (2026-11-20, in the real app, both themes): a path under the machine's home reads `~/...`
+  in the status bar and the folder chip, as the sidebar already did (stored paths stay absolute). Claude Code
+  writes `gitBranch: "HEAD"` outside a repo, which is now no branch. File search outside a repo skips hidden
+  folders (a home folder's `.cache` filled the list); hidden files still show. A failed Browser load names the
+  cause in words and hides the engine's white page. The keyboard sheet flows in columns and lists reader keys.
 
 ## Read first
 
@@ -184,7 +227,7 @@ window under 900 px for the narrow layout.
 
 ## Open
 
-- Gaps listed at the end of [VIM-MODEL.md](docs/VIM-MODEL.md) (no counts or `/` search in readers, Settings' H / L, ...).
+- Gaps listed at the end of [VIM-MODEL.md](docs/VIM-MODEL.md) (search across formatting in chat, literal search only, one register, ...).
 - Whether `y` / `n` should answer a request from the composer or only on the request card.
 - File editing has no undo and no unsaved-changes warning. Folder browsing has no loading state.
 - Place memory covers popups only, not tab or workspace switches.

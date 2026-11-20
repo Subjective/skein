@@ -41,13 +41,14 @@ export async function resolve(m: Machine, path: string): Promise<string> {
 
 // ---------- file search ----------
 const FIND_CAP = 20000;
-const SKIP = new Set(['.git', 'node_modules', 'out', 'dist', 'build', '.next', 'target', '__pycache__', '.venv', 'venv']);
+const SKIP = new Set(['node_modules', 'out', 'dist', 'build', 'target', '__pycache__', 'venv']);
 
-/** Every file under dir, relative to it: git's list (tracked and untracked, ignores applied) in a repo, else a capped walk. */
+/** Every file under dir, relative to it: git's list (tracked and untracked, ignores applied) in a repo, else a capped
+ *  walk that skips hidden folders (a home folder's .cache would otherwise fill the list). */
 export async function find(m: Machine, dir: string): Promise<string[]> {
   const root = await resolve(m, dir);
   if (m.ssh) {
-    const r = await run(m, `cd ${sqPath(root)} && { git ls-files -co --exclude-standard 2>/dev/null || find . -type f -not -path '*/.git/*' -not -path '*/node_modules/*' | sed 's#^\\./##'; } | head -n ${FIND_CAP}`);
+    const r = await run(m, `cd ${sqPath(root)} && { git ls-files -co --exclude-standard 2>/dev/null || find . -type f -not -path '*/.*/*' -not -path '*/node_modules/*' | sed 's#^\\./##'; } | head -n ${FIND_CAP}`);
     if (r.code !== 0 && !r.stdout) throw new Error(r.stderr.trim() || `Could not search ${dir}`);
     return r.stdout.split('\n').filter(Boolean);
   }
@@ -63,7 +64,7 @@ export async function find(m: Machine, dir: string): Promise<string[]> {
     for (const e of es) {
       if (out.length >= FIND_CAP) return;
       const p = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) { if (!SKIP.has(e.name)) await walk(p, depth + 1); } else if (e.isFile()) out.push(p);
+      if (e.isDirectory()) { if (!SKIP.has(e.name) && !e.name.startsWith('.')) await walk(p, depth + 1); } else if (e.isFile()) out.push(p);
     }
   };
   await walk('', 0);

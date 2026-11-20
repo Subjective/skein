@@ -10,8 +10,8 @@ import { ctxOf, viewState, type Ctx } from './repo';
 export interface FileNav { hist: { path: string; line: number }[]; hi: number; goto?: { line: number; col?: number } }
 export const fileNav = (t: Tab) => viewState<FileNav>(t.id + ':nav', () => ({ hist: [{ path: t.path || '', line: 1 }], hi: 0 }));
 
-/** Changes or Files beside the current tab: an open one for the same folder is reused. */
-export function openTool(kind: 'changes' | 'files', from: Tab = A.currentTab()) {
+/** Changes, Files or a Browser beside the current tab: an open one for the same folder is reused. */
+export function openTool(kind: 'changes' | 'files' | 'browser', from: Tab = A.currentTab()) {
   const c = ctxOf(from);
   const hit = allTabs(ws()).find(x => x.tab.kind === kind && ctxOf(x.tab).dir === c.dir && ctxOf(x.tab).machine === c.machine);
   if (hit?.pane) { A.activate(hit.pane.id, hit.tab.id); return; }

@@ -1,6 +1,7 @@
 // The status bar: the mode pill (whatever has the keys), the workspace, where the focused tab runs,
 // and the leader's keys while it is armed.
 import { kb } from '../input/platform';
+import { tildify } from './meta';
 import * as A from '../state/actions';
 import { machine, thread, useApp, ws } from '../state/store';
 import { cx, Icon } from '../ui/primitives';
@@ -21,7 +22,7 @@ export function StatusBar() {
       <button className="wsb" title={`Workspaces · ${kb('ctrl-tab')} goes to the last one`} onClick={() => run('workspaces')}>{ws().name}</button>
       {s.leader
         ? <span className="lead">{LEADER.map(([k, l]) => <span key={k}><kbd>{k}</kbd>{l}</span>)}</span>
-        : <span className="loc"><Icon name={m?.ssh ? 'host' : 'laptop'} /><span>{m?.name}</span><span className="dim">{dir}</span>{th?.branch && <><Icon name="branch" /><span className="dim">{th.branch}</span></>}</span>}
+        : <span className="loc"><Icon name={m?.ssh ? 'host' : 'laptop'} /><span>{m?.name}</span><span className="dim">{dir && tildify(m?.id, dir)}</span>{th?.branch && <><Icon name="branch" /><span className="dim">{th.branch}</span></>}</span>}
       {s.seq && <kbd className="seq">{s.seq}</kbd>}
       <span className="sp" />
     </div>

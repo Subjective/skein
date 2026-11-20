@@ -80,6 +80,24 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
     way out, `k` reads the thread above, and `i` presses the button that gets you typing (Take back).
 13. **Vim keys off removes the NORMAL layer only.** No modes, `esc` just leaves, and everything stays
     reachable through modifiers, the leader, arrows and the mouse.
+18. **One register, with the clipboard behind it.** Every field shares one unnamed register, as Vim has one per
+    instance, not per buffer: `y`, `d`, `c`, `x` fill it, `p` / `P` (with a count, `3p`) put it, in any field.
+    A yank in a reader (the thread, a file, a diff, the scrollback) fills it too, and every yank also goes to the
+    system clipboard. While the register is empty, `p` / `P` put the system clipboard instead, so text copied in
+    another app pastes with `p`; clipboard text that ends in a newline goes in as whole lines. There are no named
+    registers and no `"+`: the clipboard is only the fallback. Lines put into a one-line field (a menu's search)
+    go in as text.
+19. **Every reader takes counts and searches the same way.** A count repeats a motion (`5j`, `3w`, `2}`) and
+    `NG` / `Ngg` go to line N (in a diff, the Nth row; in the chat transcript, which has no line numbers, `G`
+    still goes back to the composer). Fields take the same counts, before or after an operator (`2d3w`).
+    `/` searches forwards and `?` backwards: a prompt opens (the shared menu, prefix `/` or `?`), typing
+    highlights every match in the reader and lists them nearest first, `enter` jumps to the one picked. After
+    that `n` repeats the search in its direction and `N` the other way, each with a count; going past an end
+    wraps with a short notice ("Search hit BOTTOM, continuing at TOP"). Matching is literal and smart case (all
+    lower case ignores case). `esc` in the reader first clears the search, then does its usual step back
+    (rule 2). While a search is active `n` repeats it, even in a thread with a waiting request (rule 14); with
+    no search, `n` answers the request. In a reader `?` is the backward search; the keyboard popup's `?` works
+    from every other surface.
 
 ## 4. Per-surface summary
 
@@ -90,13 +108,15 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 | Mirror bar, handoff card, upload error, SSH dialog buttons, move dialog | List (one row) | NORMAL | rule 16 |
 | SSH sign-in (passphrase, code) | Field | INSERT | `enter` connects; `esc` NORMAL on the buttons, `esc` again cancels |
 | Composer controls (attach, permissions, model, send; machine, directory) | List | NORMAL | `j` from the text's last line; `h` `l` along, `enter` presses, `k` back to the text |
-| Menu search field | Field | INSERT for model, subagent, and side chat searches | Typing filters the list. In composer menus, moving the pointer over a result selects it. Arrow keys continue from that result and Enter opens it. |
+| Menu search field | Field | INSERT (NORMAL in menus that open on a pick, like a folder's crumbs) | Typing filters the list. In composer menus, moving the pointer over a result selects it. Arrow keys continue from that result and Enter opens it. In NORMAL the field keeps its cursor and is a Field wherever that does not clash with the list: `j` `k` `gg` `G` (with counts) move the list, `enter` picks, `q` / `esc` close; `h` `l` `w` `b` `e` `0` `$` move the field's cursor, `x` `dw` `D` `C` `~` `p` `u` edit it, `i` `a` `I` `A` (and `/`) type again. A menu's own keys come first: a folder field's `h` / `l` go up and into folders, the workspace list's `d` closes a workspace. A menu without a search field keeps `h` / `l` for its items' values (the model picker's effort, rule 3) and `l` picks. |
 | Side chat or subagent popup | Field | INSERT | opens ready to type into its composer |
-| Thread, side chat, subagent, file, diff, scrollback | Reader | NORMAL | entered from the field below, by click, or leader `[` |
-| Changes (diff + file tree) | Reader + Field | NORMAL | `/` searches the tree, `enter` there goes to the first match; on a file's header `s` stages, `x` reverts (Undo in the toast), `enter` on "N unmodified lines" shows them |
+| Thread, side chat, subagent, file, diff, scrollback | Reader | NORMAL | entered from the field below, by click, or leader `[`; counts, `/` `?` `n` `N` (rule 19) |
+| Changes (diff + file tree) | Reader + Field | NORMAL | `/` `?` search the diff like any reader; `f` searches the tree, `enter` there goes to the first match; on a file's header `s` stages, `x` reverts (Undo in the toast), `enter` on "N unmodified lines" shows them |
+| Browser tab | Terminal (the page) + Field (address) | NORMAL (a new tab: INSERT in the address) | `i` / `gi` or a click give the page the keys (TERMINAL), `esc` takes them back; while the page has them Skein keeps only rule 11's keys and mod-l. In NORMAL: `r` reload, `[` `]` and `ctrl-o` / `ctrl-i` back and forward, `o` / `ctrl-l` / mod-l the address (`enter` goes, `esc` `esc` puts it back), `j` `k` `ctrl-d` `ctrl-u` `gg` `G` scroll the page, `enter` on an error presses Retry, `H` / `L` tabs |
 | Open file | Reader | NORMAL | `ctrl-o` / `ctrl-i` back and forward through files opened in that tab; the path's folders and the tree switch file in place |
 | Rows inside a thread | List | NORMAL | `l` / `h` unfold / fold; `enter` opens |
-| Menus, settings, keyboard popup | List | NORMAL | `esc` closes |
+| Menus, keyboard popup | List | NORMAL | `esc` closes |
+| Settings | List (two: sections, then the section's rows) | NORMAL | The section list has the keys first: `j` / `k` move over sections (the page follows), `l`, `enter` or `tab` go into its rows. In the rows `j` / `k` move, `h` / `l` lower and raise a row's value (a choice, a switch), `enter` presses; `esc`, `shift-tab`, or `h` on a row with no value go back to the sections; `esc` there closes, `q` closes from either. `H` / `L` mean tabs everywhere and do nothing in this dialog. |
 | Folder fields (workspace menu, a new thread's directory) | List + Field | INSERT | type a path to list that folder; `tab` (or `l` in NORMAL) goes into the folder under the cursor, `h` back up, `enter` chooses it |
 | Sidebar | List (a pane) | NORMAL | leader `h` / `alt-h` from the leftmost pane focuses it (opening it if hidden); `j` `k` move over sections, projects and threads; `h` / `l` fold and unfold (`h` on a thread goes to its project); `enter` / `o` opens in the last pane, `shift-enter` / `O` in a split; `c` new thread in the project, `p` pin, `x` archive, `m` move to another project or machine (a menu of projects on every machine plus Other folder…, then a confirm dialog whose buttons are a row, rule 16; the mouse drags the row onto a project or a machine heading); `l`, leader `l` or `esc` back to the panes |
 | Workspaces (a whole layout per project) | Layout | any | `ctrl-tab` most recent first, release to switch; leader `w` or `:workspace` to search, create, rename (`r`), close (`d`) |
@@ -117,10 +137,13 @@ One table, read by the input layer before anything else (`mockups/platform.js`, 
 The Electron build must also drop the default menu accelerators that would swallow these keys (`ctrl-w`,
 `ctrl-tab`, `ctrl-shift-a`, `cmd-k` in some menus) by building its own application menu (G3).
 
-## 6. Where the mockup does not yet follow this
+## 6. Where the build does not yet follow this
 
-- **A search field's cursor cannot move** in NORMAL (`h` / `l` there change effort in the model selector).
-- **Settings uses `H` / `L` for sections**, which elsewhere mean previous / next tab.
-- **Readers have no counts and no `/` search.** Fields have no counts or yank / paste (undo and redo are rule 17).
-- **The code has five separate key handlers** (composer, reader, menu, settings, keyboard popup). The
-  build should have one dispatcher and one interface per surface kind, so these rules live in one place.
+- **Search in the chat transcript matches within one run of text.** A phrase split by formatting (inline code,
+  bold, a link) is not found as a whole; each part is.
+- **Search is literal.** No regular expressions, no `*` / `#` (search for the word under the cursor), no `:s`.
+- **One register.** No named registers, no explicit `"+` / `"*`, and `p` in VISUAL does not replace the selection.
+- **Counts stop at the edges they knew before**: `5j` past a reader's last line goes to the field below (rule 7)
+  like `j` does, and a count before `G` in the chat transcript is ignored.
+- **The mockup** still has the old behaviour (Settings' `H` / `L`, a model selector with a search field whose
+  `h` / `l` change effort, no counts or search in readers); the build follows this document.
