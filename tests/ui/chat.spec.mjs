@@ -116,6 +116,36 @@ await test('reader: G goes to the last line and stays in the reader', async p =>
   assert.ok(gap < 60, `scrolled to the last line (${gap})`);
 });
 
+await test('reader: k from the composer never scrolls; leader [ goes back to where the cursor was', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const th = p.locator('.pane.focus .thread');
+  const cur = () => p.evaluate(() => { const h = [...(CSS.highlights.get('vcur') || [])][0]; const s = document.querySelector('.pane.focus .thread').getBoundingClientRect(); const r = h ? h.getBoundingClientRect() : document.querySelector('.pane.focus .rowcur')?.getBoundingClientRect(); return r && { top: r.top - s.top, bottom: s.bottom - r.bottom }; });
+  await composer(p).press('Escape');
+  await p.keyboard.press('g'); await p.keyboard.press('g'); await settle(p);
+  await p.keyboard.press('q'); await settle(p);
+  // the cursor it left (the top line) is still on screen: k goes back to it
+  await p.keyboard.press('k'); await settle(p);
+  assert.ok((await th.evaluate(e => e.scrollTop)) < 50, 'still at the top');
+  assert.ok((await cur()).top < 80, 'on the line it left');
+  await p.keyboard.press('q'); await settle(p);
+  // scrolled away from it: k takes the bottom line on screen, and the transcript stays put
+  const mid = await th.evaluate(e => { e.scrollTop = Math.round((e.scrollHeight - e.clientHeight) / 2); return e.scrollTop; });
+  await settle(p);
+  await p.keyboard.press('k'); await settle(p, 300);
+  assert.equal(await th.evaluate(e => e.scrollTop), mid, 'k did not scroll');
+  const c = await cur();
+  assert.ok(c && c.bottom >= 20 && c.bottom < 140, `on the bottom line on screen (${JSON.stringify(c)})`);
+  await p.keyboard.press('q'); await settle(p);
+  // leader [ goes back to that line, scrolling to it
+  await th.evaluate(e => { e.scrollTop = 0; });
+  await settle(p);
+  await p.keyboard.press('Control+Space'); await p.keyboard.press('[');
+  await settle(p, 300);
+  assert.ok((await th.evaluate(e => e.scrollTop)) > 50, 'scrolled back to it');
+  const d = await cur();
+  assert.ok(d && d.top >= 0 && d.bottom >= 0, 'the cursor is on screen');
+});
+
 await test('requests: 1 of 3, y allows the oldest, n denies the next, buttons answer the last', async p => {
   await openChat(p, 'Plan image paste over SSH');
   await p.locator('.pane.focus .appr .count', { hasText: '1 of 3' }).waitFor();

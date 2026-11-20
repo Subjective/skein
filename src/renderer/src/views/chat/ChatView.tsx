@@ -93,7 +93,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   useEffect(() => { if (running) since.current = Date.now(); }, [running]);
   // the transcript is followed live while the chat shows it, whoever writes it (another terminal, Skein's own)
   useEffect(() => { api.chat.follow(th.id, true); return () => api.chat.follow(th.id, false); }, [th.id]);
-  useEffect(() => registerChatTab(t.id, { thread: th.id, draft: key, composer, reader: () => reader, enter: () => !!read.current && reader.enter(read.current) }), [t.id, th.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => registerChatTab(t.id, { thread: th.id, draft: key, composer, reader: () => reader, enter: () => !!read.current && reader.enter(read.current, 'back') }), [t.id, th.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // rule 15: a popup over this pane notes where the keyboard was (the reader's cursor, or the composer's mode and
   // position) and puts it back when it closes
   useEffect(() => registerHooks(t.id, {
@@ -159,7 +159,8 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
         else bs[i].click();
         return true;
       }
-      if ((k === 'k' || k === 'G' || k === 'up') && read.current) { reader.enter(read.current); return true; }
+      if ((k === 'k' || k === 'up') && read.current) { reader.enter(read.current, 'view'); return true; }
+      if (k === 'G' && read.current) { reader.enter(read.current); return true; }
       return false;
     },
   };
@@ -438,7 +439,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
           <Composer ref={composer} tabId={t.id} persist={key} thread={th} draft={tc.draft} onDraft={setDraft} running={!!running} onSend={send} onStop={stop}
             placeholder={t.kind === 'sub' ? `Message ${sub?.name || 'subagent'}` : th.side ? 'Ask in this side chat' : undefined}
             showContext={!th.side && t.kind !== 'sub'} bare={t.kind === 'sub'} onCommand={onCommand} onLeave={() => { if (ws().pf === t.id) A.closeFocusedPopup(); else { (document.activeElement as HTMLElement | null)?.blur(); idle(); } }}
-            onLeaveUp={() => { if (read.current && !reader.enter(read.current)) composer.current?.focus(false); }} onNormalKey={onNormalKey} />
+            onLeaveUp={() => { if (read.current && !reader.enter(read.current, 'view')) composer.current?.focus(false); }} onNormalKey={onNormalKey} />
         )}
         {t.kind === 'sub' && sub && (
           <div className="under"><span className="u" title="Subagent of this thread"><Icon name={th.harness} />{th.title}</span><span className="sp" />
