@@ -17,7 +17,7 @@ const w = (p: string, t: string) => { mkdirSync(join(dir, p, '..'), { recursive:
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'skein-git-'));
   sh('init', '-q', '-b', 'main');
-  sh('config', 'user.email', 't@example.com'); sh('config', 'user.name', 'T'); sh('config', 'commit.gpgsign', 'false');
+  sh('config', 'user.email', 't@example.com'); sh('config', 'user.name', 'T'); sh('config', 'commit.gpgsign', 'false'); sh('config', 'core.autocrlf', 'false');
   w('a.txt', 'one\ntwo\nthree\n'); w('src/b.ts', 'export const b = 1;\n');
   sh('add', '-A'); sh('commit', '-q', '-m', 'first');
   w('a.txt', 'one\nTWO\nthree\nfour\n');

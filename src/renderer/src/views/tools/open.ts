@@ -40,7 +40,11 @@ export function openFile(ctx: Ctx, path: string, o: { line?: number; col?: numbe
   fileNav(t).goto = { line: o.line || 1, col: o.col };
   if (hit?.pane) { A.activate(hit.pane.id, t.id); return; }
   if (hit) { update(() => { ws().pf = t.id; }); return; }
-  update(s => { A.addTab(A.focusedPane(), t); ws().pf = null; s.tick++; });
+  update(s => {
+    const g = A.focusedPane(), a = g.tabs.find(x => x.id === g.active);
+    if (a?.kind === 'new') { g.tabs[g.tabs.indexOf(a)] = t; g.active = t.id; } else A.addTab(g, t);
+    ws().pf = null; s.sideFocus = false; s.tick++;
+  });
   A.save();
 }
 
