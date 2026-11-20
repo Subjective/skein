@@ -4,7 +4,8 @@
 //   1. a pending leader takes the next key from the leader layer
 //   2. the leader key itself arms the leader
 //   3. global bindings (modifier keys); in a terminal only those marked `term` (rule 11)
-//   4. the surface that owns the keyboard (field, reader, list, terminal)
+//   4. the surface that owns the keyboard (field, reader, list, terminal); an editor can pass a key on untouched
+//      ('native'), so CodeMirror's Vim mode reads it from the DOM event
 //   5. in NORMAL, the app's normal layer, with sequences (g t, ctrl-w v) and the vimrc's maps
 // Anything not handled falls through to the browser (typing, native shortcuts).
 import { keyOf, type KeyLike } from './keys';
@@ -17,8 +18,10 @@ export type SurfaceKind = 'field' | 'reader' | 'terminal' | 'list' | 'layout';
 export interface Surface {
   kind: SurfaceKind;
   mode(): Mode;
-  /** Handle a key. true = consumed (the event's default is prevented). */
-  key(k: string, e: KeyLike): boolean;
+  /** Handle a key. true = consumed (the event's default is prevented). 'native': the key belongs to an editor that
+   *  reads it from the DOM event itself (ui/editor: CodeMirror's Vim mode), so it goes on to the focused element
+   *  untouched and nothing after the surface (the normal layer, the drop of untyped keys) sees it. */
+  key(k: string, e: KeyLike): boolean | 'native';
   /** A temporary popup (a menu, a dialog, the composer's / or @ list) has the keys: it is modal, so the global
    *  bindings and the leader don't run while it is open (ctrl-p moves up a / list instead of opening file search). */
   local?(): boolean;
@@ -60,7 +63,9 @@ export class Dispatcher {
       if (this.leader) this.setLeader(false);
       const g0 = this.keymap.global.get(k), isLeader = k === canon(this.host.leaderKey());
       if (g0 && (g0.command === 'wsnext' || g0.command === 'wsprev')) { this.host.run(g0.command); return true; }
-      if (s.key(k, e)) { this.clearSeq(); return true; }
+      const r0 = s.key(k, e);
+      if (r0 === 'native') { this.clearSeq(); return false; }
+      if (r0) { this.clearSeq(); return true; }
       if (!g0 && !isLeader) return false;   // plain keys type
       // a chord the popup does not use: a menu steps aside and the chord runs below; a dialog keeps it (your input)
       if (!s.dismiss || stepped) return true;
@@ -87,7 +92,9 @@ export class Dispatcher {
       this.lastInsert = { k, at: now };
     }
 
-    if (s && s.key(k, e)) { this.clearSeq(); return true; }
+    const r = s ? s.key(k, e) : false;
+    if (r === 'native') { this.clearSeq(); return false; }
+    if (r) { this.clearSeq(); return true; }
 
     if (mode === 'NORMAL' && this.host.vim()) {
       const full = this.seq ? `${this.seq} ${k}` : k;

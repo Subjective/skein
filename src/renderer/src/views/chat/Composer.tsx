@@ -293,7 +293,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const onKey = (k: string, mode: Mode) => {
     // tab completes like enter in the / and @ lists (the mockup's menu keys)
     if (open && k === 'enter' && !items.length) setPop(null);   // the @ list still loading: nothing to pick, enter sends
-    else if (open && menu.current && ['up', 'down', 'ctrl-n', 'ctrl-p', 'ctrl-j', 'ctrl-k', 'tab', 'shift-tab', 'enter'].includes(k)) return menu.current.key(k === 'tab' || k === 'shift-tab' ? 'enter' : k, { key: '', code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
+    else if (open && menu.current && ['up', 'down', 'ctrl-n', 'ctrl-p', 'ctrl-j', 'ctrl-k', 'tab', 'shift-tab', 'enter'].includes(k)) return menu.current.key(k === 'tab' || k === 'shift-tab' ? 'enter' : k, { key: '', code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }) === true;
     if (open && k === 'esc') { setPop(null); return false; }   // the field goes to NORMAL too
     if (k === 'esc' && mode === 'NORMAL' && escStop()) return true;
     if (!open && (k === 'mod-enter' || k === 'ctrl-enter' || k === 'cmd-enter')) { if (!ourCommand()) props.current.onSend(true); return true; }
