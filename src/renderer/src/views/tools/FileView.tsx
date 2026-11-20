@@ -341,7 +341,6 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
           })}
           <Icon name="chev" className="sep" /><span className="crumb now"><LangBadge path={path} />&nbsp;{parts[parts.length - 1]}</span>
         </nav>
-        <span className="mod dim"><span className="mod-dot" />Modified</span>
         <span className="sp" />
         {dirty && <Button small className="mod" onClick={() => void save()} title={`Save · :w · ${kb('mod-s')}`}>Save</Button>}
         {isMd && <Seg text label="Preview or source" value={preview ? 'preview' : 'source'} onChange={x => { if (v.mode === 'edit') stopEdit(); v.md = x; update(); }}

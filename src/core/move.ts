@@ -137,7 +137,7 @@ export const machineIO: MoveIO = {
   },
   async send(from, src, to, dst, folder) {
     // a transcript is text: core/files reads it on one machine and writes it on the other
-    if (!folder) { await files.write(to, dst, await files.read(from, src)); return; }
+    if (!folder) { await files.write(to, dst, await files.readBytes(from, src)); return; }
     // a folder goes as a tar stream from one machine's tar to the other's
     if (!to.ssh) await mkdir(dst, { recursive: true });
     const a = spawnOn(from, ['tar', '-C', src, '-cf', '-', '.'], { stdio: ['ignore', 'pipe', 'pipe'] });

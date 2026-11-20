@@ -62,7 +62,7 @@ function TabEl({ t, on, pane }: { t: Tab; on: boolean; pane: Pane }) {
       <TabIcon t={t} icon={m.icon} />{m.ssh && <Icon name="host" />}
       <span className="t">{m.title}</span>
       <TabState t={t} />
-      <button className="tx" aria-label="Close tab" title="Close tab · hold alt to pop it out" onClick={e => { e.stopPropagation(); if (e.altKey) A.popOut(t.id); else A.closeTab(t.id); }}><Icon name="x" /><Icon name="popout" /></button>
+      <button className="tx" aria-label={t.kind === 'file' && fileDirty(t) ? 'Close tab (unsaved changes)' : 'Close tab'} title="Close tab · hold alt to pop it out" onClick={e => { e.stopPropagation(); if (e.altKey) A.popOut(t.id); else A.closeTab(t.id); }}><i className="dd" aria-hidden="true" /><Icon name="x" /><Icon name="popout" /></button>
     </div>
   );
 }

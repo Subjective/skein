@@ -81,10 +81,8 @@
 .tool-h .lang { margin-left: 2px; }
 .tool-h .crumbs { flex: 0 1 auto; }
 .tool-h .mod { align-items: center; }
-.tool-h .mod-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-2); margin: 0 4px 0 2px; }
 .file-v .doc { padding-top: 10px; }
 .file-v .bin { color: var(--fg-3); }
-.tab .mod-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-2); flex: none; }
 
 /* commit dialog (the .auth panel) */
 .auth.commit textarea.auth-i { width: 100%; height: 34px; padding: 7px 12px; line-height: 19px; resize: none; overflow: hidden; }

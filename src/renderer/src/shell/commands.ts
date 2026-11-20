@@ -9,7 +9,6 @@ import { armLeader, owner } from './keyboard';
 import { pathTo, resize } from '../state/layout';
 import { here, knownDirs, openCmdline, openKeys, openMachines, openPalette, openPaneSearch, openSettings, openWorkspaces } from './overlays';
 import { scrollback } from '../views/terminal/scrollback';
-import { launcherFocus } from './Launcher';
 import { tabHook } from '../views/tools/hooks';
 import { searchSidebar } from './Sidebar';
 import { openTool, saveFile } from '../views/tools/open';
@@ -39,11 +38,10 @@ const RUN: Record<string, (args: string[]) => void | boolean> = {
   machines: () => openMachines(),
   sidebar: () => update(s => { s.sideOpen = !s.sideOpen; if (!s.sideOpen) s.sideFocus = false; }),
   newthread: () => { const p = A.focusedPane(); update(() => A.addTab(p, A.launcherFor(A.currentTab()))); },
-  // the active tab is already a new-thread launcher: just focus it, don't pile up a second one
+  // every + (and ldr c) opens another new-thread tab, so several can be started side by side (Josh, 2026-11-20;
+  // the mockup refocused a new tab that was already in front instead)
   tabnew: () => {
     const p = A.focusedPane(), cur = A.currentTab();
-    // already on a new tab: back into its composer, in INSERT (the mockup's tabNew)
-    if (cur.kind === 'new' && !ws().pf) { A.focusPane(p.id); requestAnimationFrame(() => launcherFocus.get(cur.id)?.()); return; }
     update(s => { A.addTab(p, A.launcherFor(cur)); ws().pf = null; s.tick++; }); A.save();
   },
   // a new thread to the right; on another machine and folder when named (by id or name)
