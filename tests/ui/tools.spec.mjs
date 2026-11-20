@@ -12,20 +12,20 @@ const THREAD = 'Fix session-restore race';
 async function cmd(p, c) {
   await p.keyboard.press('Control+Space');
   await p.keyboard.press(':');
-  await p.locator('.menu.pal').waitFor();
+  await p.locator('.menu.cmd').waitFor();
   await p.keyboard.type(c);
   await p.keyboard.press('Enter');
   await settle(p, 200);
 }
 async function openChanges(p) {
   await p.locator('#side').getByText(THREAD, { exact: true }).first().click();
-  await settle(p, 200);
+  await settle(p, 450);   // a sidebar click waits 350ms for a possible double-click (rename)
   await cmd(p, 'changes');
   await p.locator('.pane.focus .changes .cfile').first().waitFor();
 }
 async function openFiles(p) {
   await p.locator('#side').getByText(THREAD, { exact: true }).first().click();
-  await settle(p, 200);
+  await settle(p, 450);   // a sidebar click waits 350ms for a possible double-click (rename)
   await cmd(p, 'filesview');
   await p.locator('.pane.focus .files-v .ptree [role=treeitem]').first().waitFor();
 }
@@ -45,6 +45,7 @@ await test('changes: opens beside the thread on Uncommitted with counts, branch 
   assert.match(await C(p).locator('[data-k=branch]').innerText(), /fix\/restore-race/);
   assert.deepEqual((await files(p)).sort(), ['docs/notes.txt', 'sessions/restore.test.ts', 'sessions/store.ts', 'ui/theme.css']);
   assert.equal(await C(p).locator('.split .btn').first().innerText(), 'Commit');
+  assert.equal(await C(p).locator('.split .btn').first().getAttribute('title'), 'Commit · c');
   assert.ok(await C(p).locator('.tag', { hasText: 'New' }).count());
   assert.ok(await C(p).locator('.tag', { hasText: 'Deleted' }).count());
   assert.equal(await mode(p), 'NORMAL');
@@ -62,7 +63,7 @@ await test('changes: scope menu lists every scope with counts; Staged and Unstag
   const m = menu(p);
   await m.waitFor();
   const text = await m.innerText();
-  for (const s of ['Last agent turn', 'Uncommitted', 'Staged', 'Unstaged', 'Commits']) assert.ok(text.includes(s), s);
+  for (const s of ['Last agent turn', 'Uncommitted', 'Staged', 'Unstaged', 'All changes', 'Commits']) assert.ok(text.includes(s), s);
   await m.getByText('Staged', { exact: true }).click();
   await p.waitForFunction(() => document.querySelectorAll('.pane.focus .changes .cfile').length === 1);
   assert.deepEqual(await files(p), ['ui/theme.css']);
@@ -84,10 +85,12 @@ await test('changes: commits menu ticks a commit, grows a range, unticking the l
   // tick the oldest: the run grows to cover all three
   await m.getByText('First version of session restore').click();
   await p.waitForFunction(() => /All commits/.test(document.querySelector('.pane.focus [data-k=scope]')?.textContent || ''));
-  assert.match(await m.innerText(), /3 of 3/);
+  assert.match(await m.locator('.fly-r').innerText(), /3 commits/);   // the range footer
   // untick all: back to Uncommitted
-  await m.getByText('All commits').click();
+  await m.getByText('All commits', { exact: true }).click();
   await p.waitForFunction(() => /Uncommitted/.test(document.querySelector('.pane.focus [data-k=scope]')?.textContent || ''));
+  // the filter opened in INSERT: esc drops it to NORMAL, a second esc closes (VIM-MODEL rule 21)
+  await p.keyboard.press('Escape');
   await p.keyboard.press('Escape');
   await m.waitFor({ state: 'detached' });
 });
@@ -188,8 +191,7 @@ await test('changes: x reverts a file with an Undo toast; u brings it back', asy
   assert.ok(await p.locator('.toast').last().getByRole('button', { name: 'Undo' }).count());
   await keys(p, 'u');
   await p.waitForFunction(() => !!document.querySelector('.pane.focus .cfile[data-p="sessions/store.ts"]'));
-  assert.match(await toastText(p), /Restored store\.ts/);
-  await keys(p, 'u');
+  await keys(p, 'u');   // the file coming back is the answer: no second toast
   assert.match(await toastText(p), /Nothing to undo/);
 });
 
@@ -406,6 +408,7 @@ await test('file: syntax colours, a language badge, line numbers and the cursor 
   await p.keyboard.press('Enter');
   await F(p).locator('.src').waitFor();
   assert.ok(await F(p).locator('.crumb.now .lang, .crumb.now [class*=badge]').count(), 'language badge');
+  assert.equal(await p.locator('.pane.focus .tab.on .lang').innerText(), 'TS', 'the tab shows the language badge in place of its icon');
   assert.ok(await F(p).locator('.src .c span[class]').count(), 'syntax colours');
   assert.equal(await F(p).locator('.curl .n').innerText(), '1');
   await keys(p, 'j j');
@@ -425,6 +428,7 @@ await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', 
   await p.keyboard.press('Escape');
   await settle(p);
   assert.ok(await F(p).getByRole('button', { name: 'Save' }).isVisible());
+  assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 1, 'the tab marks unsaved edits');
   assert.match(await F(p).locator('.src .dl').first().innerText(), /Hello \{/);
   // u hands over to the editor and undoes there; ctrl-r redoes
   const ed = F(p).locator('.ed textarea');
@@ -436,6 +440,7 @@ await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', 
   await p.keyboard.press('Escape');
   await cmd(p, 'w');
   await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .tool-h .btn.mod'));
+  assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 0, 'saved: no dot');
   // the change shows in Changes
   await cmd(p, 'changes');
   await p.locator('.pane.focus .changes .cfile[data-p="package.json"]').waitFor({ state: 'attached' });
@@ -495,4 +500,285 @@ await test('file: the project tree toggles beside the file and opens another fil
   await p.waitForFunction(() => /package\.json/.test(document.querySelector('.pane.focus .file-v .crumbs')?.textContent || ''));
   await F(p).getByRole('button', { name: 'Project files' }).click();
   assert.equal(await F(p).locator('.ctree').count(), 0);
+});
+
+// ---------- scopes, panes and terminals: mockup parity ----------
+
+await test('changes: All changes lists the branch\'s files and offers no revert', async p => {
+  await openChanges(p);
+  await scopeChip(p).click();
+  await menu(p).getByText('All changes', { exact: true }).click();
+  await p.waitForFunction(() => /All changes/.test(document.querySelector('.pane.focus .changes [data-k=scope]')?.textContent || ''));
+  await C(p).locator('.cfile').first().waitFor();
+  assert.ok((await files(p)).length >= 1);
+  assert.equal(await C(p).getByRole('button', { name: 'Revert file' }).count(), 0);
+});
+
+await test('popups: resize from an edge or a corner; holding alt swaps the x for its other action', async p => {
+  await openChanges(p);
+  await cmd(p, 'popout');
+  const pk = p.locator('.peek');
+  await pk.waitFor();
+  assert.equal(await pk.locator('.rz').count(), 8);
+  const before = await pk.boundingBox(), g = await pk.locator('.rz-sw').boundingBox();
+  await p.mouse.move(g.x + 6, g.y + 6); await p.mouse.down();
+  await p.mouse.move(g.x + 6 - 80, g.y + 6 + 60, { steps: 4 }); await p.mouse.up();
+  const after = await pk.boundingBox();
+  assert.ok(Math.abs(after.width - before.width - 80) < 3, `wider by 80 (${before.width} -> ${after.width})`);
+  assert.ok(Math.abs(after.height - before.height - 60) < 3, 'taller by 60');
+  assert.ok(Math.abs(after.x + after.width - (before.x + before.width)) < 3, 'the right edge stays');
+  // the north edge cannot shrink it below the minimum height
+  const n = await pk.locator('.rz-n').boundingBox();
+  await p.mouse.move(n.x + 20, n.y + 3); await p.mouse.down(); await p.mouse.move(n.x + 20, n.y + 2000, { steps: 3 }); await p.mouse.up();
+  assert.ok(Math.abs((await pk.boundingBox()).height - 220) < 3, 'stops at 220px');
+  assert.equal(await pk.locator('.px').getAttribute('title'), 'Close · hold alt to put it back as a tab');
+  assert.equal(await p.locator('.pane .tab .tx').first().getAttribute('title'), 'Close tab · hold alt to pop it out');
+  await p.keyboard.down('Alt');
+  assert.ok(await pk.locator('.px .i-dockin').isVisible());
+  assert.ok(!(await pk.locator('.px .i-x').isVisible()));
+  await p.keyboard.up('Alt');
+  assert.ok(await pk.locator('.px .i-x').isVisible());
+});
+
+await test('tabs: a dragged tab leaves a slot that moves where it will land; dropping there reorders', async p => {
+  await openChanges(p);
+  await cmd(p, 'tabnew');
+  const bar = p.locator('.pane.focus .tabs');
+  const names = () => bar.locator('.tab .t').allInnerTexts();
+  const was = await names();
+  assert.equal(was.length, 2);
+  const a = await bar.locator('.tab').nth(0).boundingBox(), b = await bar.locator('.tab').nth(1).boundingBox();
+  await p.mouse.move(a.x + 20, a.y + 10); await p.mouse.down();
+  await p.mouse.move(a.x + 30, a.y + 10, { steps: 2 });
+  assert.equal(await p.locator('.tab.lift').count(), 1, 'the tab is lifted');
+  assert.equal(await bar.locator('.tab.ghost').count(), 1, 'its bar keeps a slot');
+  await p.mouse.move(b.x + b.width - 4, b.y + 10, { steps: 4 });
+  const order = await bar.locator('.tab:not(.dragging)').evaluateAll(es => es.map(e => (e.classList.contains('ghost') ? 'slot' : 'tab')));
+  assert.deepEqual(order, ['tab', 'slot'], 'the slot moved past the other tab');
+  // over the pane's right edge: a half-pane panel with its own bar and the big icon
+  const pb = await p.locator('.pane.focus').boundingBox();
+  await p.mouse.move(pb.x + pb.width - 10, pb.y + pb.height / 2, { steps: 4 });
+  await settle(p, 250);   // the panel glides into place
+  assert.equal(await p.locator('.drop .tb .tab.ghost').count(), 1);
+  assert.ok(Math.abs((await p.locator('.drop').boundingBox()).width - pb.width / 2) < 3);
+  await p.mouse.move(b.x + b.width - 4, b.y + 10, { steps: 4 });
+  await p.mouse.up();
+  await settle(p);
+  assert.deepEqual(await names(), [was[1], was[0]]);
+  assert.equal(await p.locator('.tab.lift, .tab.ghost, .drop').count(), 0);
+});
+
+await test('shell: claude typed in a shell tab turns it into a thread in the sidebar', async p => {
+  await p.locator('.pane.focus .card', { hasText: 'Shell' }).click();
+  await p.locator('.pane.focus .xterm').waitFor();
+  await settle(p, 300);
+  await p.keyboard.type('claude');
+  await p.keyboard.press('Enter');
+  await p.locator('.toast', { hasText: 'Claude Code detected in this shell · added to the sidebar' }).waitFor();
+  assert.ok(await p.locator('.pane.focus .tab.on .i-claude').count(), 'the tab is a Claude Code thread');
+  assert.ok(await p.locator('.pane.focus .seg').count(), 'with the chat / terminal switch');
+  assert.ok(await p.locator('#side').getByText('New thread', { exact: true }).count(), 'listed in the sidebar');
+});
+
+await test('handoff: chat mid-turn keeps driving; the card waits, esc goes back to chat', async p => {
+  await p.locator('#side').getByText(THREAD, { exact: true }).first().click();
+  await settle(p, 450);
+  await p.evaluate(() => { window.__skein.api.chat.drive = async () => {}; });   // the turn never ends here
+  await p.locator('.pane.focus .seg button').nth(1).click();
+  const h = p.locator('.pane.focus .handoff');
+  await h.waitFor();
+  assert.match(await h.innerText(), /Opens when this turn finishes/);
+  assert.match(await h.innerText(), /Chat keeps driving this thread until then\./);
+  assert.ok(await h.getByRole('button', { name: 'Back to chat' }).isVisible());
+  assert.ok(await h.getByRole('button', { name: 'Interrupt and open' }).isVisible());
+  assert.deepEqual(await p.locator('.pane.focus .seg button').evaluateAll(b => b.map(x => x.title)), ['Chat · driving', 'Terminal · read-only while the other view drives']);
+  assert.equal(await p.locator('.pane.focus .seg').getAttribute('aria-label'), 'Chat or terminal · ldr t');
+  // the row stands in for a field: h / l move along it (VIM-MODEL rule 16)
+  const on = () => p.evaluate(() => document.activeElement?.textContent);
+  await keys(p, 'l');
+  assert.equal(await on(), 'Interrupt and open');
+  await keys(p, 'h');
+  assert.equal(await on(), 'Back to chat');
+  await p.keyboard.press('Escape');
+  await p.locator('.pane.focus .chat, .pane.focus .comp').first().waitFor();
+  assert.equal(await h.count(), 0);
+});
+
+// ---------- any tab pops out and docks back ----------
+
+const pfOf = p => p.evaluate(() => { const S = window.__skein.S; return S.workspaces.find(x => x.id === S.wid).pf; });
+const activeId = p => p.evaluate(() => {
+  const S = window.__skein.S, w = S.workspaces.find(x => x.id === S.wid);
+  const find = n => n.tabs ? (n.id === w.focus ? n : null) : find(n.a) || find(n.b);
+  return find(w.tree)?.active;
+});
+// a field or terminal holds the DOM focus; a list tool in NORMAL leaves it on body and takes the keys by being focused
+const focusIn = (p, sel) => p.evaluate(s => { const a = document.activeElement; return !a || a === document.body || !!a.closest(s); }, sel);
+/** ldr f pops the focused tab out, ldr d docks it: the same body, the same state, and the keys go with it. */
+async function roundTrip(p, kind, body, check = async () => {}) {
+  const id = await activeId(p);
+  await keys(p, 'Control+Space f');
+  await p.locator(`.peek.focus ${body} >> visible=true`).first().waitFor();
+  await settle(p, 250);
+  assert.equal(await pfOf(p), id, `${kind}: the popup has the keys`);
+  assert.ok(await focusIn(p, '.peek.focus'), `${kind}: focus is in the popup`);
+  await check(p.locator('.peek.focus'), `${kind} popped out`);
+  await keys(p, 'Control+Space d');
+  await p.locator(`.pane.focus ${body} >> visible=true`).first().waitFor();
+  await settle(p, 250);
+  assert.equal(await pfOf(p), null, `${kind}: docked`);
+  assert.equal(await activeId(p), id, `${kind}: the same tab is active in the focused pane`);
+  assert.ok(await focusIn(p, '.pane.focus'), `${kind}: focus is in the docked tab`);
+  await check(p.locator('.pane.focus'), `${kind} docked`);
+}
+const draftKept = (sel, text) => async (c, at) => assert.equal(await c.locator(`${sel} >> visible=true`).first().inputValue(), text, `${at}: the draft is kept`);
+
+await test('popups: every kind pops out and docks back with its state and the keys', async p => {
+  // thread chat: a draft in the composer
+  await p.locator('#side').getByText('Add timestamps to chat rows', { exact: true }).first().click();
+  await p.locator('.pane.focus .compw textarea').waitFor();
+  await settle(p, 450);
+  await p.locator('.pane.focus .compw textarea').fill('kept draft');
+  await roundTrip(p, 'chat', '.compw textarea', draftKept('.compw textarea', 'kept draft'));
+  // thread terminal: the same session
+  await p.locator('.pane.focus .seg button').nth(1).click();
+  await p.locator('.pane.focus .xterm >> visible=true').first().waitFor();
+  await settle(p, 300);
+  const tid = await activeId(p), was = await p.evaluate(i => window.__skein.text(i), tid);
+  await roundTrip(p, 'terminal', '.xterm', async (c, at) => assert.equal(await p.evaluate(i => window.__skein.text(i), tid), was, `${at}: same screen`));
+  // shell: a typed line
+  await cmd(p, 'tabnew');
+  await p.locator('.pane.focus .card', { hasText: 'Shell' }).first().click();
+  await p.locator('.pane.focus .xterm >> visible=true').first().waitFor();
+  await settle(p, 300);
+  await p.keyboard.type('echo kept');
+  await settle(p, 200);
+  const sid = await activeId(p);
+  await roundTrip(p, 'shell', '.xterm', async (c, at) => assert.match(await p.evaluate(i => window.__skein.text(i), sid), /echo kept/, `${at}: the typed line`));
+  // changes: the scope
+  await openChanges(p);
+  await keys(p, 'g s');
+  await menu(p).getByText('Staged', { exact: true }).click();
+  await p.waitForFunction(() => document.querySelectorAll('.pane.focus .changes .cfile').length === 1);
+  await roundTrip(p, 'changes', '.changes .cfile', async (c, at) => assert.match(await c.locator('[data-k=scope] >> visible=true').first().innerText(), /Staged/, `${at}: the scope`));
+  // files and a file: the cursor
+  await openFiles(p);
+  await roundTrip(p, 'files', '.files-v .ptree [role=treeitem]');
+  await keys(p, '/');
+  await p.keyboard.type('store.ts');
+  await p.keyboard.press('Enter');
+  await p.locator('.pane.focus .file-v .src').waitFor();
+  await keys(p, 'j j');
+  await roundTrip(p, 'file', '.file-v .src', async (c, at) => assert.equal(await c.locator('.file-v .curl .n >> visible=true').first().innerText(), '3', `${at}: the cursor line`));
+  // browser (it reloads its page when re-parented: a webview cannot move without reloading)
+  await cmd(p, 'browser');
+  await p.locator('.pane.focus .browser-v').waitFor();
+  await roundTrip(p, 'browser', '.browser-v');
+  // vimrc
+  await cmd(p, 'settings');
+  await p.getByText('Vim', { exact: true }).last().click();
+  await p.getByRole('button', { name: 'Edit', exact: true }).first().click();
+  await p.locator('.pane.focus .vimrc-view').waitFor();
+  await settle(p, 200);
+  await roundTrip(p, 'vimrc', '.vimrc-view .rc-ed');
+  // subagent and side chat start as popups: dock, then pop out again
+  await p.locator('#side').getByText(THREAD, { exact: true }).first().click();
+  await settle(p, 450);
+  const seg = p.locator('.pane.focus .tb .seg button[aria-label^="Chat"]');
+  if ((await seg.getAttribute('aria-pressed')) !== 'true') await seg.click();
+  await p.locator('.pane.focus .ag', { hasText: 'Test runner' }).click();
+  await p.locator('.peek.focus textarea').waitFor();
+  await p.locator('.peek.focus textarea').fill('sub draft');
+  await keys(p, 'Control+Space d');
+  await p.locator('.pane.focus .sub-h').waitFor();
+  await roundTrip(p, 'subagent', '.sub-h', draftKept('textarea', 'sub draft'));
+  await p.locator('#side').getByText(THREAD, { exact: true }).first().click();
+  await settle(p, 450);
+  await p.locator('.pane.focus .sc-link', { hasText: 'Why not a mutex here?' }).first().click();
+  await p.locator('.peek.focus .sc-anchor').waitFor();
+  await p.locator('.peek.focus textarea').fill('side draft');
+  await keys(p, 'Control+Space d');
+  await p.locator('.pane.focus .sc-anchor').waitFor();
+  await roundTrip(p, 'side chat', '.sc-anchor', draftKept('textarea', 'side draft'));
+}, { timeout: 15000 });
+
+await test(': opens the command line from Changes, Files and an open file in NORMAL', async p => {
+  const colon = async at => {
+    await p.keyboard.press(':');
+    await p.locator('.menu.cmd').waitFor();
+    await keys(p, 'Escape Escape');   // the : line's own NORMAL, then closed
+    await settle(p, 150);
+    assert.equal(await p.locator('.menu.cmd').count(), 0, `${at}: esc closes it`);
+  };
+  await openChanges(p);
+  assert.equal(await mode(p), 'NORMAL');
+  await colon('changes');
+  await openFiles(p);
+  await colon('files');
+  await keys(p, '/');
+  await p.keyboard.type('store.ts');
+  await p.keyboard.press('Enter');
+  await p.locator('.pane.focus .file-v .src').waitFor();
+  assert.equal(await mode(p), 'NORMAL');
+  await colon('file');
+});
+
+await test('popups: esc closes one and the keys go back to the pane; it reopens at the size it was left', async p => {
+  await openChanges(p);
+  await keys(p, 'Control+Space f');
+  const pk = p.locator('.peek');
+  await pk.waitFor();
+  const g = await pk.locator('.rz-se').boundingBox();
+  await p.mouse.move(g.x + 4, g.y + 4); await p.mouse.down(); await p.mouse.move(g.x + 64, g.y + 44, { steps: 3 }); await p.mouse.up();
+  const size = await pk.boundingBox();
+  await keys(p, 'Control+Space d');
+  const pane = await p.evaluate(() => { const S = window.__skein.S; return S.workspaces.find(x => x.id === S.wid).focus; });
+  await keys(p, 'Control+Space f');
+  await pk.waitFor();
+  const again = await pk.boundingBox();
+  assert.ok(Math.abs(again.width - size.width) < 2 && Math.abs(again.height - size.height) < 2, 'the size it was left at');
+  await keys(p, 'Escape');
+  assert.equal(await pk.count(), 0, 'esc closed it');
+  assert.equal(await pfOf(p), null);
+  assert.equal(await p.evaluate(() => { const S = window.__skein.S; return S.workspaces.find(x => x.id === S.wid).focus; }), pane, 'the pane it came from has the keys');
+});
+
+await test('tools: a tool opens in the pane to the right instead of another split', async p => {
+  await openChanges(p);
+  await keys(p, 'Control+Space h');
+  await cmd(p, 'filesview');
+  await p.locator('.pane.focus .files-v').waitFor();
+  assert.equal(await p.locator('.pane[data-pane]').count(), 2, 'still two panes');
+  assert.equal(await p.locator('.pane.focus .tab').count(), 2, 'Files joined Changes');
+  // tabs that don't fit: the bar scrolls and fades at the edge that has more
+  await keys(p, 'Control+Space h');
+  await cmd(p, 'browser');
+  await p.setViewportSize({ width: 820, height: 900 });
+  await settle(p, 300);
+  const bar = p.locator('.pane.focus .tabs');
+  assert.ok(await bar.evaluate(b => b.scrollWidth > b.clientWidth), 'the tabs overflow');
+  assert.ok(await bar.evaluate(b => b.classList.contains('ovl') || b.classList.contains('ovr')), 'the bar fades');
+});
+
+await test('changes: the commit caret works on a clean tree; a file view quotes with its source', async p => {
+  await openChanges(p);
+  assert.ok(!(await C(p).locator('.split button').nth(1).isDisabled()), 'the caret is never disabled');
+  assert.ok(await C(p).locator('.diff.flat[data-src^="diff:"]').count(), 'diffs carry their source');
+  await openFile(p, 'package.json');
+  assert.equal(await F(p).locator('.src').getAttribute('data-src'), 'file:package.json');
+});
+
+await test('tabs: a sidebar thread dragged into the panes lands as a tab where it is dropped', async p => {
+  await openChanges(p);
+  const row = await p.locator('#side').getByText('Add timestamps to chat rows', { exact: true }).first().boundingBox();
+  const bar = await p.locator('.pane.focus .tabs').boundingBox();
+  await p.mouse.move(row.x + 20, row.y + row.height / 2); await p.mouse.down();
+  await p.mouse.move(row.x + 60, row.y + row.height / 2, { steps: 3 });
+  await p.mouse.move(bar.x + bar.width - 20, bar.y + bar.height / 2, { steps: 6 });
+  await settle(p, 200);
+  assert.equal(await p.locator('.pane.focus .tabs .tab.ghost, .tabs .tab.ghost').count(), 1, 'the bar opens a slot');
+  await p.mouse.up();
+  await settle(p, 250);
+  assert.ok(await p.locator('.pane.focus .tab.on', { hasText: 'Add timestamps' }).count(), 'the thread is the active tab there');
+  assert.equal(await p.locator('.tab.ghost, .drop').count(), 0);
 });
