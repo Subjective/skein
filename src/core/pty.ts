@@ -84,14 +84,14 @@ export class Ptys {
   private n = 0;
   constructor(private machine: (id: string) => Machine) {}
 
-  spawn(spec: PtySpec): string {
+  spawn(spec: PtySpec, env: Record<string, string> = {}): string {
     if (!ptyMod) throw new Error(`Terminals are unavailable: node-pty did not load (${ptyError}). Run pnpm doctor.`);
     const m = this.machine(spec.machine);
     const p = plan(m, spec);
     const id = 'pty' + ++this.n;
     const term = ptyMod.spawn(p.file, p.args, {
       name: 'xterm-256color', cols: spec.cols || 80, rows: spec.rows || 24, cwd: p.cwd || homedir(),
-      env: { ...process.env, ...TERM_ENV } as Record<string, string>,
+      env: { ...process.env, ...TERM_ENV, ...env } as Record<string, string>,
       useConpty: true,
     });
     this.ptys.set(id, term);

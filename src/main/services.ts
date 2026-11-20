@@ -4,6 +4,7 @@ import type { SkeinApi } from '../shared/api';
 import type { Settings } from '../shared/types';
 import { unimplemented, type ChatDriver, type Harnesses } from '../core/chat';
 import { emit } from '../core/events';
+import { log } from '../core/log';
 import * as files from '../core/files';
 import * as git from '../core/git';
 import { toInbox } from '../core/images';
@@ -76,7 +77,13 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
     threads: {
       list: async () => threads.list(),
       discover: async m => threads.discover(m),
-      create: async spec => threads.create(spec),
+      create: async spec => {
+        const t = threads.create(spec);
+        if (!harnesses.start) return t;
+        // Codex: the thread exists on the app-server before either view opens, so both views share one session id
+        try { const s = await harnesses.start(t, host); return s.sessionId && s.sessionId !== t.sessionId ? threads.update(t.id, { sessionId: s.sessionId }) : t; }
+        catch (e) { log('chat', 'start failed', (e as Error).message); return t; }
+      },
       update: async (id, patch) => threads.update(id, patch),
       history: async id => { const t = threads.get(id); return harnesses.history(t, M(t.machine)); },
     },
@@ -90,7 +97,15 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       },
     },
     pty: {
-      spawn: async spec => ptys.spawn(spec),
+      spawn: async spec => {
+        // a Codex thread's terminal attaches to the app-server the chat view drives (one live session, G4)
+        const t = spec.thread ? threads.list().find(x => x.id === spec.thread) : undefined;
+        if (t && spec.run.kind === 'codex' && harnesses.attach) {
+          const a = await harnesses.attach(t).catch(() => null);
+          if (a) return ptys.spawn({ ...spec, run: { kind: 'codex', args: [...a.args, ...(spec.run.args || [])] } }, a.env);
+        }
+        return ptys.spawn(spec);
+      },
       write: (id, data) => ptys.write(id, data),
       resize: (id, c, r) => ptys.resize(id, c, r),
       kill: id => ptys.kill(id),
