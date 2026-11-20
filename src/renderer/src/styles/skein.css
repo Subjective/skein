@@ -838,11 +838,14 @@ textarea.vn.hollow.drawn { caret-color: transparent; }
 
 /* Reveal reply actions in place. Touch users can tap them directly. */
 .reply { display: flex; flex-direction: column; gap: inherit; }
-.reply:not(:hover):not(:focus-within) > .m-acts .dim { opacity: 0; }
+.reply:not(:hover):not(:focus-within) > .m-acts:not(.rowcur) .dim { opacity: 0; }
 @media (hover: hover) {
-  .reply:has(~ .reply > .m-acts):not(:hover):not(:focus-within) > .m-acts { opacity: 0; }
+  .reply:has(~ .reply > .m-acts):not(:hover):not(:focus-within) > .m-acts:not(.rowcur) { opacity: 0; }
 }
 .m-acts.old { margin-top: -10px; margin-bottom: -6px; }
+/* the reader cursor on a reply's actions (VIM-MODEL rule 16): the row shows, unshaded; the button h / l are on is ringed */
+.m-acts.rowcur { background: none; box-shadow: none; }
+.m-acts .ib.kcur { background: var(--active) !important; color: var(--fg) !important; box-shadow: none; outline: 2px solid var(--fg-3); outline-offset: 1px; }
 
 /* a file being edited: gutter + field, same type as the read-only source */
 .ed { flex: none; display: flex; margin: 0 -14px; min-height: 100%; }
@@ -1037,8 +1040,18 @@ button.cb.on { background: var(--fg); color: var(--bg); }
 .fst.m::after { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: currentColor; }
 .fst.a::before, .fst.a::after { content: ""; position: absolute; left: 50%; top: 50%; background: currentColor; transform: translate(-50%, -50%); }
 .fst.a::before { width: 5px; height: 1.300px; } .fst.a::after { width: 1.300px; height: 5px; }
-.lang { flex: none; min-width: 16px; font: 600 9.500px/1 var(--sans); letter-spacing: .02em; color: var(--fg-3); }
-.lang.ts { color: var(--blue); } .lang.json { color: var(--amber); } .lang.css { color: #a77ee6; } .lang.sql { color: var(--green); }
+/* File-type icons (ui/FileIcon, Catppuccin's set): 14px like other row icons, stroked in --ci-* tokens. Mocha under
+   the dark theme, Latte under the light one; Catppuccin's text and overlay greys use Skein's neutral --fg greys. */
+svg.fi { width: 14px; height: 14px; flex: none; display: block; overflow: visible; }
+:root {
+  --ci-text: var(--fg-2); --ci-overlay: var(--fg-3);
+  --ci-rosewater: #f5e0dc; --ci-flamingo: #f2cdcd; --ci-pink: #f5c2e7; --ci-mauve: #cba6f7; --ci-red: #f38ba8; --ci-maroon: #eba0ac;
+  --ci-peach: #fab387; --ci-yellow: #f9e2af; --ci-green: #a6e3a1; --ci-teal: #94e2d5; --ci-sky: #89dceb; --ci-sapphire: #74c7ec; --ci-blue: #89b4fa; --ci-lavender: #b4befe;
+}
+[data-theme="light"] {
+  --ci-rosewater: #dc8a78; --ci-flamingo: #dd7878; --ci-pink: #ea76cb; --ci-mauve: #8839ef; --ci-red: #d20f39; --ci-maroon: #e64553;
+  --ci-peach: #fe640b; --ci-yellow: #df8e1d; --ci-green: #40a02b; --ci-teal: #179299; --ci-sky: #04a5e5; --ci-sapphire: #209fb5; --ci-blue: #1e66f5; --ci-lavender: #7287fd;
+}
 .cfile > summary .nums { font-size: 12px; }
 .cfile > summary .ib, .cfile > summary .cb { opacity: .55; }
 .cfile > summary:hover .ib, .cfile > summary:hover .cb, .cfile > summary .cb.on, .cfile > summary.rowcur .ib, .cfile > summary.rowcur .cb { opacity: 1; }
@@ -1075,7 +1088,6 @@ button.cb.on { background: var(--fg); color: var(--bg); }
 .ig i { font-style: normal; box-shadow: inset 1px 0 0 var(--line); }
 .sx-k { color: #c678dd; } .sx-s { color: #98c379; } .sx-n { color: #d19a66; } .sx-c { color: var(--fg-4); font-style: italic; } .sx-t { color: #61afef; } .sx-f { color: #e5c07b; }
 [data-theme="light"] .sx-k { color: #a626a4; } [data-theme="light"] .sx-s { color: #50a14f; } [data-theme="light"] .sx-n { color: #986801; } [data-theme="light"] .sx-t { color: #4078f2; } [data-theme="light"] .sx-f { color: #c18401; }
-.tab .lang { min-width: 0; font-size: 9px; }
 
 /* Sidebar hover actions: one column at the right edge. A machine's + adds a project, a project's compose starts a
    thread there, a thread's pin and archive take the place of its status (spinner, request, age, unread) on hover. */

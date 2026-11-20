@@ -6,7 +6,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Harness, ThreadMeta } from '@shared/types';
-import { MODELS } from '@shared/models';
 import type { Mode, Surface } from '../../input/dispatcher';
 import { registerTab } from '../../input/surfaces';
 import { tokAt } from '../../input/vimtext';
@@ -16,12 +15,14 @@ import * as A from '../../state/actions';
 import { openMenu } from '../../shell/overlays';
 import { harnessName } from '../../shell/meta';
 import { Menu, type MenuItem } from '../../ui/Menu';
+import { animate, MOTION } from '../../ui/motion';
 import { Chip, cx, Icon, IconButton, SendButton } from '../../ui/primitives';
+import { FileIcon } from '../../ui/FileIcon';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
 import { openLightbox } from '../../ui/Lightbox';
 import { useDialogSurface } from '../../ui/Dialog';
-import { effortId, effortLabel, HARNESS_SLASH, INSTALL, modelDef, modelId, modelLabel, OURS, permChoices, permLabel, SKILLS, THREAD_SLASH, type Slash } from './options';
-import { hoverQuote, paintQuotes, revealQuote, saveDraft, setUltra, syncQuotes, TOK, ultraOf, type Draft, type Quote } from './state';
+import { effortId, effortLabel, harnessOptions, INSTALL, modelDef, modelId, modelLabel, OURS, permChoices, permLabel, permOf, slashHit, THREAD_SLASH, useHarnessCommands, type Slash } from './options';
+import { hoverQuote, paintQuotes, revealQuote, saveDraft, setUltra, syncQuotes, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
 
 export interface ComposerHandle { focus(insert?: boolean): void; caret(): number; field(): VimFieldHandle | null }
 
@@ -112,20 +113,22 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     return () => { live = false; };
   }, [pop?.kind, atDir]);
 
+  // the harness's commands and skills in the thread's folder (bundled until it answers)
+  const slashes = useHarnessCommands(h, p.thread.machine, p.thread.dir);
   const items = useMemo((): MenuItem<string>[] => {
     if (!pop) return [];
     if (pop.kind === 'slash') {
       // the harness's commands, then the thread's own (side chats, subagents), then its skills under a heading
-      const hit = (c: Slash) => c.cmd.startsWith(pop.q) && !(p.bare && c.cmd === '/model');
+      const hit = (c: Slash) => slashHit(c, pop.q) && !(p.bare && c.cmd === '/model');
       const row = (c: Slash): MenuItem<string> => ({ label: c.cmd, display: c.display, hint: c.hint, icon: <Icon name={c.icon} />, data: c.cmd });
-      const cmds = [...HARNESS_SLASH[h], ...(!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : [])].filter(hit), skills = SKILLS[h].filter(hit);
+      const cmds = [...slashes.commands, ...(!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : [])].filter(hit), skills = slashes.skills.filter(hit);
       return [...cmds.map(row), ...(skills.length ? [{ head: true, label: 'Skills' }, ...skills.map(row)] : [])];
     }
     const base = pop.q.slice(atDir.length).toLowerCase();
     if (files.dir !== atDir) return [];
     return files.list.filter(e => e.name.toLowerCase().startsWith(base)).sort((a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name)).slice(0, 50)
-      .map(e => ({ label: e.name + (e.dir ? '/' : ''), icon: <Icon name={e.dir ? 'folder' : 'file'} />, data: atDir + e.name + (e.dir ? '/' : '') }));
-  }, [pop, files, atDir, h]);
+      .map(e => ({ label: e.name + (e.dir ? '/' : ''), icon: <FileIcon path={e.name} dir={e.dir} />, data: atDir + e.name + (e.dir ? '/' : '') }));
+  }, [pop, files, atDir, h, slashes]);
   // a word like /usr/bin that matches no command opens nothing
   const open = !!pop && (items.length > 0 || (pop.kind === 'at' && files.dir !== atDir));
 
@@ -166,14 +169,17 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     const th = props.current.thread;
     openModelPicker(anchor, {
       groups: props.current.fresh ? ['claude', 'codex'] : [th.harness], machine: th.machine,
-      value: () => { const t = props.current.thread; return { h: t.harness, model: modelId(t.harness, t.model) || MODELS[t.harness][0].id, effort: effortId(t.effort) || 'medium', ultra: ultraOf(t.id) }; },
+      value: () => {
+        const t = props.current.thread, d = modelDef(t.harness, t.model, t.machine);
+        return { h: t.harness, model: modelId(t.harness, t.model, t.machine) || d.id, effort: effortId(t.effort) || d.effort || 'medium', ultra: ultraOf(t.id) };
+      },
       set: v => { choose({ ...(v.h !== props.current.thread.harness ? { harness: v.h } : {}), model: v.model, effort: v.effort }); setUltra(th.id, v.ultra); },
     });
   };
-  // the mockup's act.pickPerm: plain labels, a check on the current one
+  // the mockup's act.pickPerm: plain labels, a check on the current one; every mode the harness offers on the machine
   const pickPerm = (anchor: DOMRect) => openMenu<string>({
     anchor, place: 'top-start', width: 200,
-    items: permChoices(h).map(o => ({ label: o.label, on: permLabel(h, props.current.thread.perm) === o.label, data: o.id })),
+    items: permChoices(h, props.current.thread.machine).map(o => ({ label: o.label, on: permOf(h, props.current.thread.perm) === o.id, data: o.id })),
     onPick: it => choose({ perm: it.data }),
   });
 
@@ -243,12 +249,34 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   };
   useEffect(() => () => ctl.current.un?.(), []);
 
+  // ---- esc esc stops a running turn ----
+  // While the turn runs, the first esc in NORMAL arms the stop button for 1.5 s and stays; a second esc in that time
+  // stops the turn (as the stop button does). When the window ends nothing stops, and the next esc leaves as usual.
+  const [armed, setArmed] = useState(false);
+  const arm = useRef<{ timer?: ReturnType<typeof setTimeout>; lapsed: boolean; on?: boolean }>({ lapsed: false });
+  const disarm = (lapsed: boolean) => { clearTimeout(arm.current.timer); arm.current = { lapsed }; setArmed(false); };
+  const escStop = (): boolean => {
+    if (!props.current.running || !props.current.onStop) return false;
+    if (arm.current.on) { disarm(false); props.current.onStop(); return true; }
+    if (arm.current.lapsed) { arm.current.lapsed = false; return false; }   // the window ended: this esc leaves
+    arm.current = { lapsed: false, on: true, timer: setTimeout(() => disarm(true), 1500) };
+    setArmed(true);
+    return true;
+  };
+  useEffect(() => { if (!p.running) disarm(false); }, [p.running]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => clearTimeout(arm.current.timer), []);
+  useEffect(() => {
+    const b = cf.current?.querySelector('.send');
+    animate(b, armed ? [{ transform: 'scale(.82)', opacity: .5 }, { transform: 'scale(1)', opacity: 1 }] : [{ opacity: .6 }, { opacity: 1 }], MOTION.fast);
+  }, [armed]);
+
   // ---- keys the field gives us first ----
   const onKey = (k: string, mode: Mode) => {
     // tab completes like enter in the / and @ lists (the mockup's menu keys)
     if (open && k === 'enter' && !items.length) setPop(null);   // the @ list still loading: nothing to pick, enter sends
     else if (open && menu.current && ['up', 'down', 'ctrl-n', 'ctrl-p', 'ctrl-j', 'ctrl-k', 'tab', 'shift-tab', 'enter'].includes(k)) return menu.current.key(k === 'tab' || k === 'shift-tab' ? 'enter' : k, { key: '', code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
     if (open && k === 'esc') { setPop(null); return false; }   // the field goes to NORMAL too
+    if (k === 'esc' && mode === 'NORMAL' && escStop()) return true;
     if (mode === 'NORMAL' && props.current.onNormalKey?.(k)) return true;
     // NORMAL has no paste event (the keys don't type): ctrl-v / cmd-v still attach an image on the clipboard
     if (mode === 'NORMAL' && (k === 'ctrl-v' || k === 'cmd-v')) { void pasteFromClipboard(); return true; }
@@ -357,7 +385,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <span className="ring" style={{ ['--p' as string]: ctx }} />
           </button>
         )}
-        <SendButton stop={p.running && !hasText} disabled={!p.running && !hasText} onClick={() => (p.running && !hasText ? p.onStop?.() : p.onSend())} />
+        <SendButton stop={p.running && !hasText} armed={armed} disabled={!p.running && !hasText} onClick={() => { if (armed) { disarm(false); p.onStop?.(); return; } if (p.running && !hasText) p.onStop?.(); else p.onSend(); }} />
       </div>
       {hot && createPortal(<button ref={tokx} type="button" className="tokx" title="Remove" aria-label="Remove quote" style={{ left: hot.right - 4, top: hot.top - 9 }}
         onMouseDown={e => { e.preventDefault(); e.stopPropagation(); dropQuote(hot.i); }}><Icon name="x" /></button>, document.body)}
@@ -393,11 +421,12 @@ function ContextUsage({ button, ctx, model, onClose }: { button: HTMLElement; ct
 // ---------- the model picker (mockup modelMenu) ----------
 // One list: each row carries its harness mark, harnesses set apart by a small gap. A search field (opens in
 // INSERT; esc for NORMAL, where j / k pick and h / l step the effort), the stepped effort track (click or drag,
-// left / right in either mode), and Ultracode where the model has it. A machine without the harness dims its
+// left / right in either mode; a row of its own: j past the last model or k from the top lands on it, enter there
+// keeps the current model), and Ultracode where the model has it. A machine without the harness dims its
 // models and offers to copy the install command.
 export interface ModelChoice { h: Harness; model: string; effort: string; ultra: boolean }
 export interface ModelTarget { groups: Harness[]; machine?: string; value(): ModelChoice; set(v: ModelChoice): void }
-type Row = { k: 'model'; h: Harness; id: string } | { k: 'install'; h: Harness } | { k: 'ultra' };
+type Row = { k: 'model'; h: Harness; id: string } | { k: 'install'; h: Harness } | { k: 'ultra' } | { k: 'effort' };
 
 export function openModelPicker(anchor: DOMRect, target: ModelTarget) {
   openLayer(close => <ModelPicker anchor={anchor} target={target} close={close} />);
@@ -407,34 +436,40 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
   const [v, setV] = useState(target.value);
   const cur = useRef(v); cur.current = v;
   const put = (n: ModelChoice) => { cur.current = n; setV(n); target.set(n); };
-  const stops = () => modelDef(cur.current.h, cur.current.model).efforts;
+  useChat(); // the harness's list arrives as a chat bump
+  const opts = target.groups.map(h => harnessOptions(h, target.machine));
+  const stops = () => modelDef(cur.current.h, cur.current.model, target.machine).efforts;
   const effortTo = (j: number) => { const es = stops(), e = es[Math.max(0, Math.min(es.length - 1, j))]; if (e !== cur.current.effort) put({ ...cur.current, effort: e }); };
   const effortBy = (d: number) => effortTo(Math.max(0, stops().indexOf(cur.current.effort)) + d);
   const m = machine(target.machine), has = (h: Harness) => !m || m.has.includes(h);
-  const def = modelDef(v.h, v.model), es = def.efforts, ei = Math.max(0, es.indexOf(v.effort));
+  const def = modelDef(v.h, v.model, target.machine), es = def.efforts, ei = Math.max(0, es.indexOf(v.effort));
   // one function per state, so the menu re-lists only when the choice changes (not on every app render)
   const items = useMemo(() => (q: string): MenuItem<Row>[] => {
     const match = (s: string) => !q || s.toLowerCase().includes(q.toLowerCase());
     const out: MenuItem<Row>[] = [];
     target.groups.forEach((h, gi) => {
       if (gi) out.push({ head: true, label: '', block: <i className="mgap" /> });
-      for (const x of MODELS[h]) if (match(x.label)) out.push({ label: x.label, icon: <Icon name={h} />, on: v.h === h && v.model === x.id, dis: !has(h), hint: has(h) ? undefined : `not on ${m!.name}`, data: { k: 'model', h, id: x.id } });
+      for (const x of opts[gi].models) if (match(x.label)) out.push({ label: x.label, icon: <Icon name={h} />, on: v.h === h && (v.model === x.id || v.model === x.resolved && !x.isDefault), dis: !has(h), hint: has(h) ? undefined : `not on ${m!.name}`, data: { k: 'model', h, id: x.id } });
       if (!has(h)) out.push({ label: `Install ${harnessName(h)} on ${m!.name}`, icon: <Icon name="copy" />, hint: 'copies the command', data: { k: 'install', h } });
     });
-    out.push({ head: true, label: '', block: <EffortTrack stops={es.map(e => effortLabel(e))} i={ei} onTo={effortTo} /> });
+    // a search that matches no model lists nothing (the menu says so): the effort row and Ultracode are never what
+    // the cursor lands on, so enter picks nothing
+    if (q && !out.some(it => it.data?.k === 'model')) return [];
+    if (es.length) out.push({ label: 'Effort', block: <EffortTrack stops={es.map(e => effortLabel(e))} i={ei} onTo={effortTo} />, data: { k: 'effort' } });
     if (def.ultra) out.push({ label: 'Ultracode', right: <span className={cx('sw', v.ultra && 'on')} />, data: { k: 'ultra' } });
     return out;
-  }, [v]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [v, ...opts]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Menu<Row> items={items} ranked anchor={anchor} place="top-end" width={300} className="model" search={{ placeholder: 'Search models' }}
-      keep={it => it.data?.k !== 'model'} arrows onClose={close}
+    <Menu<Row> items={items} ranked anchor={anchor} place="top-end" width={300} className="model" search={{ placeholder: 'Search models' }} empty="No matching models"
+      keep={it => it.data?.k !== 'model' && it.data?.k !== 'effort'} arrows onClose={close} wrap={{ last: it => it.data?.k === 'effort' }}
       keys={k => { const d = k === 'h' || k === 'left' ? -1 : k === 'l' || k === 'right' ? 1 : 0; if (!d) return false; effortBy(d); return true; }}
       onPick={it => {
         const r = it.data; if (!r) return;
         if (r.k === 'install') { void navigator.clipboard?.writeText(INSTALL[r.h]).catch(() => {}); toast(`Copied ${INSTALL[r.h]}`, { icon: 'copy' }); return; }
         if (r.k === 'ultra') { put({ ...cur.current, ultra: !cur.current.ultra }); return; }
-        const d = MODELS[r.h].find(x => x.id === r.id)!;
-        put({ h: r.h, model: r.id, effort: d.efforts.includes(cur.current.effort) ? cur.current.effort : d.efforts[d.efforts.length - 1], ultra: d.ultra ? cur.current.ultra : false });
+        if (r.k === 'effort') return;   // enter on the effort row: the current model and effort stand (h / l already set it)
+        const d = modelDef(r.h, r.id, target.machine);
+        put({ h: r.h, model: r.id, effort: d.efforts.includes(cur.current.effort) ? cur.current.effort : d.effort && d.efforts.includes(d.effort) ? d.effort : d.efforts[d.efforts.length - 1] ?? '', ultra: d.ultra ? cur.current.ultra : false });
       }} />
   );
 }

@@ -145,10 +145,22 @@ const threadOf = (p: unknown): string | undefined => {
 export function codexPerm(id: string | undefined) {
   switch (id) {
     case 'read-only': return { approvalPolicy: 'on-request', sandbox: 'read-only', sandboxPolicy: { type: 'readOnly', networkAccess: false } };
-    case 'full': return { approvalPolicy: 'never', sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' } };
+    case 'full-access': return { approvalPolicy: 'never', sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' } };
     case 'auto': return { approvalPolicy: 'on-request', sandbox: 'workspace-write', sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false } };
     default: return null;
   }
+}
+
+/** `$name` in the text names a skill (as the composer's / menu inserts it, and as Codex's own composer does):
+ *  each one the folder has goes with the text as a skill input, so Codex loads it. */
+export async function skillInputs(rpc: Pick<Rpc, 'request'>, text: string, cwd: string): Promise<UserInput[]> {
+  const names = new Set([...text.matchAll(/(?:^|\s)\$([A-Za-z0-9][\w.:-]*)/g)].map(m => m[1]));
+  if (!names.size) return [];
+  try {
+    const r = await rpc.request<{ data: { skills: { name: string; path: string; enabled?: boolean }[] }[] }>('skills/list', { cwds: [cwd] });
+    return (r.data ?? []).flatMap(e => e.skills ?? []).filter(k => names.has(k.name) && k.enabled !== false && k.path)
+      .map((k): UserInput => ({ type: 'skill', name: k.name, path: k.path }));
+  } catch (e) { log('codex', 'skills/list', (e as Error).message); return []; }
 }
 
 const expand = (m: Machine, dir: string) => (m.ssh ? (dir.startsWith('~') ? (m.home ? m.home + dir.slice(1) : dir) : dir) : dir === '~' ? homedir() : dir.startsWith('~/') || dir.startsWith('~\\') ? join(homedir(), dir.slice(2)) : dir);
@@ -203,6 +215,7 @@ export class CodexDriver implements ChatDriver {
       ...(images ?? []).map((src): UserInput => (/^(data:|https?:)/.test(src) || this.m.ssh ? { type: 'image', url: src.startsWith('data:') || /^https?:/.test(src) ? src : toDataUrl(src) } : { type: 'localImage', path: src })),
       ...(text ? [{ type: 'text' as const, text, text_elements: [] }] : []),
     ];
+    input.push(...(await skillInputs(rpc, text, expand(this.m, this.t.dir))));
     this.sent.add(clientId);
     this.lastUser = { id: clientId, text, images };
     this.ev({ t: 'user', id: clientId, text, ...(images?.length ? { images } : {}), at: Date.now() });

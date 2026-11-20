@@ -79,7 +79,7 @@ describe('approval cards', () => {
 
 /** A scripted stand-in for the Agent SDK: each user message runs `turn`, which yields SDK messages. */
 function fakeSdk(turn: (msg: SDKUserMessage, opts: Options, n: number) => AsyncGenerator<SDKMessage>) {
-  const calls: Options[] = [];
+  const calls: Options[] = [], flags: Record<string, unknown>[] = [];
   let interrupted = false;
   const query: QueryFn = ({ prompt, options }) => {
     calls.push(options!);
@@ -91,17 +91,37 @@ function fakeSdk(turn: (msg: SDKUserMessage, opts: Options, n: number) => AsyncG
     const gen = run() as unknown as Query;
     Object.assign(gen, {
       interrupt: async () => { interrupted = true; },
-      setModel: async () => {}, setPermissionMode: async () => {}, applyFlagSettings: async () => {},
+      setModel: async () => {}, setPermissionMode: async () => {}, applyFlagSettings: async (f: Record<string, unknown>) => { flags.push(f); },
       close: () => {},
     });
     return gen;
   };
-  return { query, calls, get interrupted() { return interrupted; } };
+  return { query, calls, flags, get interrupted() { return interrupted; } };
 }
 
 const result = (ms = 1500): SDKMessage => ({ type: 'result', subtype: 'success', duration_ms: ms, is_error: false, result: 'ok' } as never);
 
 describe('Claude driver', () => {
+  it('sends Ultracode: at start as a session setting, then with the effort, since an effort alone turns it off', async () => {
+    const sdk = fakeSdk(async function* () { yield result(); });
+    const h = fakeHost([{ id: 't1', sessionId: '11111111-1111-1111-1111-111111111111' }]);
+    const d = new ClaudeDriver('t1', h.host, async () => sdk.query);
+    await d.send({ text: 'one', effort: 'Ultra', ultra: true });   // Codex's ultra effort is not Claude's: left out
+    await until(() => h.thread('t1').status === 'idle');
+    expect(sdk.calls[0].settings).toEqual({ ultracode: true });
+    expect(sdk.calls[0].effort).toBeUndefined();
+    await d.send({ text: 'two', effort: 'high', ultra: true });
+    await until(() => sdk.flags.length === 1);
+    expect(sdk.flags[0]).toEqual({ effortLevel: 'high', ultracode: true });
+    await d.send({ text: 'three', ultra: false });
+    await until(() => sdk.flags.length === 2);
+    expect(sdk.flags[1]).toEqual({ ultracode: false });
+    await d.send({ text: 'four' });   // no ultra key: what the driver has stays, nothing to send
+    await tick(30);
+    expect(sdk.flags).toHaveLength(2);
+    await d.release();
+  });
+
   it('runs a turn: user echo, streaming text, final text, worked, idle', async () => {
     const sdk = fakeSdk(async function* () {
       yield { type: 'stream_event', event: { type: 'message_start', message: { id: 'm1' } }, parent_tool_use_id: null } as never;

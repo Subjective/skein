@@ -21,7 +21,7 @@ Skein is a desktop interface for Claude Code and Codex, locally and over SSH. Th
 
 - Follow [the Vim interaction model](docs/VIM-MODEL.md). Give each new surface a role as a field, reader, list, layout, or terminal. Reuse its navigation and selection rules. Update the document when an interaction rule changes.
 - One surface owns the keyboard and visible cursor. Clicking a field places the caret and enters Insert. Escape backs out one level at a time. Closing a popup restores the originating pane and cursor position.
-- Mouse and keyboard actions should reach the same result. Keep visual selection within its starting block and let Normal mode move across blocks in both directions. Keep actions reachable with Vim disabled and editable bindings in sync with the vimrc.
+- Mouse and keyboard actions should reach the same result. Keep visual selection within its starting message (one reply or one of your messages; a file keeps its own bounds) and let Normal mode move across blocks in both directions. Keep actions reachable with Vim disabled and editable bindings in sync with the vimrc.
 
 ## Verifying changes
 

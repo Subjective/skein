@@ -2,7 +2,6 @@
 // enter starts the thread with the prompt; an empty enter just opens the harness.
 import { useEffect, useRef, useState } from 'react';
 import type { Harness, ThreadMeta } from '@shared/types';
-import { MODELS } from '@shared/models';
 import { api } from '../api';
 import * as A from '../state/actions';
 import { mkTab, type Tab } from '../state/layout';
@@ -13,10 +12,12 @@ import { harnessName, tildify } from './meta';
 import { Chip, Dot, Icon } from '../ui/primitives';
 import { Composer, type ComposerHandle } from '../views/chat/Composer';
 import { blank, outgoing, setUltra, ultraOf, type Draft } from '../views/chat/state';
+import { defaultModel } from '../views/chat/options';
 
 export const harnessOf = (t: Tab): Harness => (t.model?.startsWith('codex') ? 'codex' : t.model?.startsWith('claude') ? 'claude' : (S.settings as unknown as { lastHarness?: Harness }).lastHarness || 'claude');
 /** The tab's model id: what was picked, else the harness's first (the shared list, @shared/models, which chat uses too). */
-const modelOf = (t: Tab) => { const h = harnessOf(t), id = t.model?.split(':')[1] || ''; return MODELS[h].some(m => m.id === id) ? id : MODELS[h][0].id; };
+// any model the harness lists (live lists are longer than the bundled one); none set: the harness's default
+const modelOf = (t: Tab) => { const h = harnessOf(t), id = t.model?.split(':')[1] || ''; return id || defaultModel(h, t.machine).id; };
 
 export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   const s = useApp();
@@ -43,7 +44,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
     if (ultra) setUltra(th.id, true);
     if (prompt) void api.threads.update(th.id, { title: prompt.replace(/\s+/g, ' ').slice(0, 60) });
     if (view === 'chat') {
-      if (prompt || images.length) void api.chat.send(th.id, { text: prompt, images, model, effort: t.effort, perm: t.perm }).catch(e => toast(`Couldn't start: ${(e as Error).message}`, { icon: 'alert' }, 6000));
+      if (prompt || images.length) void api.chat.send(th.id, { text: prompt, images, model, effort: t.effort, perm: t.perm, ...(h === 'claude' ? { ultra } : {}) }).catch(e => toast(`Couldn't start: ${(e as Error).message}`, { icon: 'alert' }, 6000));
     } else {
       // the first prompt rides on the command line, so the TUI starts working on it straight away; images go to the
       // machine's inbox first and their paths into the prompt (G14)
@@ -85,7 +86,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
       update(() => { t.machine = nm.id; t.dir = known.includes(dir) ? dir : known[0] || '~'; });
       // G6: picking a machine without this harness switches to one it has, and says so
       if (nm.has.length && !nm.has.includes(harnessOf(t))) {
-        const other = nm.has[0], md = MODELS[other][0];
+        const other = nm.has[0], md = defaultModel(other, nm.id);
         update(() => { t.model = `${other}:${md.id}`; t.perm = undefined; });
         toast(<span>{nm.name} has only {harnessName(other)}. Switched to <b>{md.label}</b></span>, { icon: other });
       }

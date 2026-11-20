@@ -51,6 +51,9 @@ export interface MenuProps<D = unknown> {
   keys?: (k: string, it: MenuItem<D> | undefined) => boolean;
   /** `keys` also hears left / right while the search field is typing (the model picker's effort). */
   arrows?: boolean;
+  /** Moving past the last row goes to the first, and up past the first goes to the last row `last` accepts (the
+   *  model picker: its effort row). */
+  wrap?: { last?: (it: MenuItem<D>) => boolean };
   /** A folder list: tab goes into the folder (the owner's `keys`), and on a row with nothing to go into moves on
    *  instead of picking (the mockup's Dirs). */
   tabMoves?: boolean;
@@ -126,8 +129,15 @@ export function Menu<D>(p: MenuProps<D>) {
   };
 
   const move = (d: number) => setI(cur => {
-    const u = Math.sign(d);
-    for (let left = Math.abs(d); left > 0; left--) { let n = cur + u; while (items[n] && (items[n].head || items[n].dis)) n += u; if (!items[n]) break; cur = n; }
+    const u = Math.sign(d), ok = (n: number) => !!items[n] && !items[n].head && !items[n].dis;
+    for (let left = Math.abs(d); left > 0; left--) {
+      let n = cur + u; while (items[n] && !ok(n)) n += u;
+      if (!items[n] && p.wrap) {
+        if (u > 0) n = items.findIndex((_, x) => ok(x));
+        else { n = items.length - 1; while (n >= 0 && !(ok(n) && (!p.wrap.last || p.wrap.last(items[n])))) n--; }
+      }
+      if (!items[n] || n === cur) break; cur = n;
+    }
     return cur;
   });
   /** Pick the row under the cursor; `stay` (space) picks without closing. */
@@ -192,13 +202,15 @@ export function Menu<D>(p: MenuProps<D>) {
   useEffect(() => update(s => { s.tick++; }), [ins]);
 
   useEffect(() => { if (ins) { inp.current?.focus(); paintField(); } else if (p.search) (document.activeElement as HTMLElement | null)?.blur?.(); }, [ins, p.search]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { ref.current?.querySelector('.mi.sel')?.scrollIntoView({ block: 'nearest' }); }, [i]);
+  useEffect(() => { ref.current?.querySelector('.mi.sel, .mx.sel')?.scrollIntoView({ block: 'nearest' }); }, [i]);
 
   // a menu opened from a composer's controls or the new-thread row has the composer look, and its selection
   // follows the pointer; other menus keep the keyboard's selection under a hover (as in the mockup)
   const [composer] = useState(() => !!p.className?.split(' ').includes('composer-menu') || !!(!p.modal && triggerOf(p.anchor)?.closest('.comp, .under.pick')));
+  const trigger = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const b = p.modal ? null : triggerOf(p.anchor);
+    trigger.current = b;
     if (!b) return;
     b.setAttribute('aria-expanded', 'true');
     return () => b.setAttribute('aria-expanded', 'false');
@@ -219,7 +231,17 @@ export function Menu<D>(p: MenuProps<D>) {
   // a click outside closes
   useEffect(() => {
     if (p.modal) return;
-    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) p.onClose(); };
+    const h = (e: MouseEvent) => {
+      if (!ref.current || ref.current.contains(e.target as Node)) return;
+      // a press on the button that opened it closes it, and the click that follows must not open it again
+      const b = trigger.current;
+      if (b && b.contains(e.target as Node)) {
+        const eat = (c: MouseEvent) => { if (b.contains(c.target as Node)) { c.stopPropagation(); c.preventDefault(); } };
+        document.addEventListener('click', eat, { capture: true, once: true });
+        setTimeout(() => document.removeEventListener('click', eat, { capture: true }), 1000);
+      }
+      p.onClose();
+    };
     const t = setTimeout(() => document.addEventListener('mousedown', h), 0);
     return () => { clearTimeout(t); document.removeEventListener('mousedown', h); };
   }, [p]);
@@ -246,7 +268,10 @@ export function Menu<D>(p: MenuProps<D>) {
         </div>
       )}
       <div className="m-l" role="listbox">
-        {items.map((it, n) => it.block != null ? <div key={'x' + n} className="mx" role="presentation">{it.block}</div> : it.head
+        {items.map((it, n) => it.block != null ? (it.head
+          ? <div key={'x' + n} className="mx" role="presentation">{it.block}</div>
+          // a block that is a row (the model picker's effort): the keyboard lands on it; the pointer works its contents
+          : <div key={'x' + n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-label={it.label} className={cx('mx', n === i && 'sel')}>{it.block}</div>) : it.head
           ? <div key={'h' + n} className="mi head" role="presentation">{it.icon}{it.label}</div>
           : <div key={n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-disabled={it.dis || undefined} className={cx('mi', n === i && 'sel', it.dis && 'off')}
               onPointerMove={e => { if (composer && e.pointerType !== 'touch' && n !== i && !it.dis) setI(n); }}

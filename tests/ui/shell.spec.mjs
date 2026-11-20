@@ -40,6 +40,15 @@ test('file search ranks by file name and opens a file tab', async p => {
   assert.ok(kinds.includes('file'), kinds.join(','));
 });
 
+test('file search shows each result\'s file-type icon', async p => {
+  await keys(p, `${mod}+p`);
+  await p.keyboard.type('readme');
+  const row = p.locator('.menu.files .mi', { hasText: /README\.md/i }).first();
+  await row.waitFor();
+  assert.equal(await row.locator('svg.fi').getAttribute('data-icon'), 'readme', 'README.md gets the readme icon, not a text badge');
+  assert.ok(await row.locator('svg.fi path').count(), 'the icon is drawn inline');
+});
+
 test('file search opens at once while a slow folder is still being listed, then fills in', async p => {
   // a big repo, a slow disk or SSH: the walk takes seconds; the popup must not wait for it
   await p.evaluate(() => { const fs = window.__skein.api.fs, f = fs.find; fs.find = (m, d) => new Promise(r => setTimeout(() => r(f(m, d)), 1500)); });
@@ -367,7 +376,8 @@ test('leader: o focuses each popup then the panes, d docks it', async p => {
 });
 
 test('app NORMAL: g v switches chat and terminal', async p => {
-  await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
+  // an idle thread: while a turn runs, the composer's second esc arms stop instead (esc esc)
+  await p.locator('#side').getByText('Tidy PowerShell profile', { exact: true }).first().click();
   await p.locator('.pane .chat').first().waitFor();
   await keys(p, 'Escape Escape');   // composer NORMAL, then app NORMAL
   const view = () => p.evaluate(() => { const S = window.__skein.S, w = S.workspaces.find(x => x.id === S.wid); return w.tree.tabs.find(t => t.id === w.tree.active).view; });

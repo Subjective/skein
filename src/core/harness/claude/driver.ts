@@ -49,7 +49,7 @@ export function imageBlocks(images: string[] = []) {
 }
 
 /** The SDK's bundled CLI for this computer, if its platform package is installed. Otherwise the CLI on PATH. */
-function localExecutable(): string | undefined {
+export function localExecutable(): string | undefined {
   try {
     const base = typeof __filename === 'string' ? __filename : join(process.cwd(), 'index.js');
     const sdk = createRequire(base).resolve('@anthropic-ai/claude-agent-sdk');
@@ -83,6 +83,10 @@ export function sshSpawner(m: Machine, dir: string, onStderr: (s: string) => voi
   };
 }
 
+/** An effort Claude Code takes (its EffortLevel); anything else (Codex's 'ultra', 'minimal') is left to its default. */
+const CLAUDE_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+const claudeEffort = (v?: string) => { const e = effortId(v); return e && CLAUDE_EFFORTS.has(e) ? e : undefined; };
+
 export class ClaudeDriver implements ChatDriver {
   private q: Query | null = null;
   private inbox: Inbox<SDKUserMessage> | null = null;
@@ -94,7 +98,9 @@ export class ClaudeDriver implements ChatDriver {
   private turnId = '';
   private approvals = new Map<string, Pending>();
   private stderr = '';
-  private live: { model?: string; effort?: string; perm?: string } = {};
+  private live: { model?: string; effort?: string; perm?: string; ultra?: boolean } = {};
+  /** The Ultracode switch as the chat last sent it (session-scoped, as the SDK's setting is). */
+  private ultra = false;
   private stream = new Map<number, { kind: 'text' | 'thinking'; text: string }>();
   private streamMsg = '';
   private partial = throttle<() => void>(60, f => f());
@@ -122,6 +128,7 @@ export class ClaudeDriver implements ChatDriver {
     if (msg.model && msg.model !== t.model) patch.model = msg.model;
     if (msg.effort && msg.effort !== t.effort) patch.effort = msg.effort;
     if (msg.perm && msg.perm !== t.perm) patch.perm = msg.perm;
+    if (msg.ultra !== undefined) this.ultra = msg.ultra;
     if ((!t.title || t.title === 'New thread') && text.trim()) patch.title = tidy(text, 60);
     if (Object.keys(patch).length) this.host.update(this.id, patch);
 
@@ -198,11 +205,12 @@ export class ClaudeDriver implements ChatDriver {
       env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'sdk-ts' },
       stderr: d => this.tail(d),
     };
-    const model = modelId('claude', t.model), effort = effortId(t.effort), perm = permId('claude', t.perm) as PermissionMode | undefined;
+    const model = modelId('claude', t.model), effort = claudeEffort(t.effort), perm = permId('claude', t.perm) as PermissionMode | undefined;
     if (model) opts.model = model;
     if (effort) opts.effort = effort as Options['effort'];
     if (perm) { opts.permissionMode = perm; if (perm === 'bypassPermissions') opts.allowDangerouslySkipPermissions = true; }
-    this.live = { model, effort, perm };
+    if (this.ultra) opts.settings = { ultracode: true };
+    this.live = { model, effort, perm, ultra: this.ultra };
 
     if (!m.ssh && !existsSync(expand(t.dir))) throw this.fail('other', `The folder ${t.dir} does not exist on this computer.`);
     if (m.ssh) opts.spawnClaudeCodeProcess = sshSpawner(m, t.dir, d => this.tail(d));
@@ -340,10 +348,17 @@ export class ClaudeDriver implements ChatDriver {
   private async applySettings() {
     const t = this.t, q = this.q;
     if (!q) return;
-    const model = modelId('claude', t.model), effort = effortId(t.effort), perm = permId('claude', t.perm) as PermissionMode | undefined;
+    const model = modelId('claude', t.model), effort = claudeEffort(t.effort), perm = permId('claude', t.perm) as PermissionMode | undefined;
     if (model && model !== this.live.model) { await q.setModel(model).catch(e => log('claude', 'model', e)); this.live.model = model; this.ev({ t: 'notice', id: 'n-' + randomUUID(), text: `Model: ${t.model}` }); }
     if (perm && perm !== this.live.perm) { await q.setPermissionMode(perm).catch(e => log('claude', 'perm', e)); this.live.perm = perm; }
-    if (effort && effort !== this.live.effort) { await q.applyFlagSettings({ effortLevel: effort as never }).catch(e => log('claude', 'effort', e)); this.live.effort = effort; }
+    // an effortLevel sent without an ultracode key turns Ultracode off (SDK applyFlagSettings), so a change of either
+    // sends both; Ultracode works at any effort
+    const effortMoved = !!effort && effort !== this.live.effort, ultraMoved = this.ultra !== !!this.live.ultra;
+    if (effortMoved || ultraMoved) {
+      await q.applyFlagSettings({ ...(effortMoved ? { effortLevel: effort as never } : {}), ultracode: this.ultra }).catch(e => log('claude', 'effort / ultracode', e));
+      if (effortMoved) this.live.effort = effort;
+      this.live.ultra = this.ultra;
+    }
   }
 
   // ---- rewind (edit and resend, retry) ----

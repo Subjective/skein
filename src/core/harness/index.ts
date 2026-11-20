@@ -5,6 +5,9 @@ import { ClaudeDriver, type QueryFn } from './claude/driver';
 import { claudeHistory } from './claude/history';
 import { CodexDriver, CodexServers, type Launch } from './codex/driver';
 import { codexHistory } from './codex/history';
+import { harnessCommands } from './commands';
+import { harnessOptions } from './options';
+import { homedir } from 'node:os';
 
 export interface HarnessDeps {
   /** The Agent SDK's query(). Tests pass a fake. */
@@ -17,6 +20,8 @@ const sdkQuery = async (): Promise<QueryFn> => (await import('@anthropic-ai/clau
 
 export function createHarnesses(deps: HarnessDeps = {}): Harnesses {
   const servers = new CodexServers(deps.codexLaunch);
+  const options = harnessOptions(deps.claudeQuery ?? sdkQuery, servers);
+  const commands = harnessCommands(deps.claudeQuery ?? sdkQuery, servers, homedir());
   const codexDrivers = new Map<string, CodexDriver>();
   let lastHost: ChatHost | null = null;
   const codexDriver = (t: ThreadMeta, host: ChatHost) => {
@@ -47,6 +52,8 @@ export function createHarnesses(deps: HarnessDeps = {}): Harnesses {
       const d = codexDrivers.get(id);
       if (d) { codexDrivers.delete(id); d.dispose(); }
     },
+    options: (m, h) => options.get(m, h),
+    commands: (m, h, dir) => commands.get(m, h, dir),
     dispose() { servers.dispose(); },
   };
 }

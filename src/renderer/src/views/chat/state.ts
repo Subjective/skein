@@ -184,8 +184,10 @@ export function revealQuote(q: Quote): boolean {
 }
 
 // ---------- Ultracode ----------
-// ThreadMeta has no field for it and the harnesses take no flag yet, so it is kept here, per thread (or per
-// new-thread tab until it starts), for the session.
+// ThreadMeta has no field for it, so it is kept here, per thread (or per new-thread tab until it starts), for the
+// session; each chat send carries it to Claude Code (ChatSend.ultra, the SDK's session setting `ultracode`).
 const ultras = new Map<string, boolean>();
 export const ultraOf = (id: string) => !!ultras.get(id);
 export function setUltra(id: string, on: boolean) { if (on) ultras.set(id, true); else ultras.delete(id); bump(); }
+/** What a chat send carries for Ultracode: Claude Code takes it (session settings), Codex has no such switch. */
+export const ultraFor = (t: { id: string; harness: string }) => (t.harness === 'claude' ? { ultra: ultraOf(t.id) } : {});
