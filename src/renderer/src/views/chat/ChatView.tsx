@@ -13,7 +13,7 @@ import * as A from '../../state/actions';
 import { Button, cx, Dot, Icon, Spinner } from '../../ui/primitives';
 import { harnessName, setSubNames } from '../../shell/meta';
 import { clipImages, Composer, type ComposerHandle } from './Composer';
-import { Reader, SEL_BLOCK } from './reader';
+import { onText, Reader, SEL_BLOCK } from './reader';
 import { Ticks } from './Ticks';
 import { fixError, Transcript, type TranscriptCtx } from './Transcript';
 import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, startChat, tabChat, useChat, type Draft } from './state';
@@ -21,6 +21,7 @@ import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, registerChat
 import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
 import { shownToRaw } from './markdown';
+import { recentMouse } from '../../ui/VimField';
 import './chat.css';
 
 type Sub = Extract<ThreadEvent, { t: 'sub' }>;
@@ -34,6 +35,7 @@ export function ChatView({ t, focused }: { t: Tab; focused: boolean }) {
 }
 
 function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) {
+  useEffect(() => { if (focused && !t.sub) A.markRead(th.id); }, [focused, th.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const lg = log(th.id);
   const sub = t.kind === 'sub' ? lg.events.find((e): e is Sub => e.t === 'sub' && e.id === t.sub) : undefined;
   const events = t.kind === 'sub' ? sub?.events || [] : lg.events;
@@ -44,7 +46,9 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const scroller = useRef<HTMLDivElement>(null);
   const read = useRef<HTMLDivElement>(null);
   const running = t.kind === 'sub' ? sub?.status === 'running' : th.status === 'running';
-  const mirror = t.kind !== 'sub' && th.harness === 'claude' && th.drive === 'term';
+  // read-only: Skein's own terminal drives it (G4), or the harness runs it in a terminal outside Skein (one writer per session)
+  const outside = t.kind !== 'sub' && !!th.external && !(th.harness === 'claude' && th.drive === 'term');
+  const mirror = t.kind !== 'sub' && ((th.harness === 'claude' && th.drive === 'term') || outside);
   const [taking, setTaking] = useState(false);
   // an image pasted anywhere in the focused tab (reader, nothing focused) lands in its composer (app.js paste → curTab)
   useEffect(() => {
@@ -81,10 +85,13 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const wasMirror = useRef(mirror);
   useEffect(() => { if (wasMirror.current && !mirror) toast('Chat has the thread again', { icon: 'chat' }); wasMirror.current = mirror; }, [mirror]);
   const mirrorRef = useRef<(() => void) | null>(null), mirrorRow = useRef<HTMLDivElement>(null);
-  mirrorRef.current = mirror && !taking ? () => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); } : null;
+  const takeOver = () => void api.threads.update(th.id, { external: 0 });
+  mirrorRef.current = outside ? takeOver : mirror && !taking ? () => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); } : null;
   const [sel, setSel] = useState<string | null>(null);
   const since = useRef(Date.now());
   useEffect(() => { if (running) since.current = Date.now(); }, [running]);
+  // the transcript is followed live while the chat shows it, whoever writes it (another terminal, Skein's own)
+  useEffect(() => { api.chat.follow(th.id, true); return () => api.chat.follow(th.id, false); }, [th.id]);
   useEffect(() => registerChatTab(t.id, { thread: th.id, draft: key, composer, reader: () => reader, enter: () => !!read.current && reader.enter(read.current) }), [t.id, th.id]); // eslint-disable-line react-hooks/exhaustive-deps
   // rule 15: a popup over this pane notes where the keyboard was (the reader's cursor, or the composer's mode and
   // position) and puts it back when it closes
@@ -128,11 +135,17 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   };
 
   // ---- with nothing focused in the tab: NORMAL, i / a type, k reads, y / n answer ----
+  const idleKey = useRef({ k: '', at: 0 });
   const idleSurface: Surface = {
     kind: 'layout', mode: () => 'NORMAL',
     key: k => {
       if ((k === 'y' || k === 'n') && answerKey(k === 'y')) return true;
-      if ((k === 'i' || k === 'a' || k === 'enter') && composer.current) { composer.current.focus(true); return true; }
+      if ((k === 'i' || k === 'a' || k === 'enter') && composer.current) {   // back into the text at its END (mockup keys.js)
+        const f = composer.current.field(); if (f) f.set(f.state().text); composer.current.focus(true); return true;
+      }
+      // the reader from here too (the mirror bar has no field): [ [ your last message, { the block above
+      if (k === '[' && read.current) { const prev = idleKey.current; idleKey.current = { k, at: Date.now() }; if (prev.k === '[' && Date.now() - prev.at < 800) { idleKey.current = { k: '', at: 0 }; if (reader.enter(read.current)) { reader.key('['); reader.key('['); } } return true; }
+      if (k === '{' && read.current) { reader.enter(read.current, 'block'); return true; }
       if ((k === 'i' || k === 'a') && mirrorRef.current) { mirrorRef.current(); return true; }   // the mirror bar: i / a take the thread back
       // the mirror bar is a row of buttons (rule 16): h / l along it, enter / space press, esc presses Cancel
       const row = mirrorRow.current;
@@ -155,7 +168,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   // focus follows the pane: a newly focused chat types into its composer (side chats and subagents open in INSERT)
   const wasFocused = useRef(false);
   useLayoutEffect(() => {
-    if (focused && !wasFocused.current && !reader.on) { if (composer.current) composer.current.focus(); else idle(); }
+    // back to the thread from a side chat's anchor line comes up in NORMAL (the mockup's D3); a thread opened from
+    // the sidebar still opens ready to type (VIM-MODEL: the composer is a Field, INSERT)
+    const by = recentMouse(), listed = !!by?.closest?.('.sc-anchor');
+    if (focused && !wasFocused.current && !reader.on) { if (composer.current) composer.current.focus(listed ? false : undefined); else idle(); }
     if (!focused && wasFocused.current) {
       const el = document.activeElement as HTMLElement | null;
       if (el && scroller.current?.parentElement?.contains(el)) el.blur();
@@ -200,6 +216,39 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
       if (key) tabSurface(t.id)?.key(key, { key, code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
     });
   };
+  // a double-click on your own message: the first click opened the edit box; the second (and a third) select the
+  // word (the line) there in VISUAL instead of landing on whatever the box put under the pointer (the model chip)
+  const bubble = useRef<{ x: number; y: number; off: number; t: number } | null>(null);
+  const tcRef = useRef(tc); tcRef.current = tc;
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      const own = e.detail === 1 && (e.target as Element | null)?.closest?.('.m-user.can-edit .mt');
+      if (own) {   // note where a click on your own message was: it opens the edit box under the pointer
+        const c = document.caretRangeFromPoint?.(e.clientX, e.clientY); let off = 0;
+        if (c && own.contains(c.startContainer)) { const r = document.createRange(); r.setStart(own, 0); r.setEnd(c.startContainer, c.startOffset); off = r.toString().length; }
+        bubble.current = { x: e.clientX, y: e.clientY, off, t: Date.now() }; return;
+      }
+      const b = bubble.current;
+      if (!b || !tcRef.current.edit || e.detail < 2 || Date.now() - b.t > 900 || Math.hypot(e.clientX - b.x, e.clientY - b.y) > 8) return;
+      e.preventDefault(); e.stopPropagation();
+      const eat = (x: Event) => { x.preventDefault(); x.stopPropagation(); };
+      document.addEventListener('click', eat, { capture: true, once: true });
+      b.t = Date.now();
+      const detail = e.detail;
+      requestAnimationFrame(() => requestAnimationFrame(() => pick(b, detail)));   // after startEdit's own focus
+    };
+    const pick = (b: { off: number }, detail: number) => {
+      const f = editor.current?.field(); if (!f) return;
+      const raw = f.state().text, map = shownToRaw(raw), at = Math.min(map[Math.min(b.off, map.length - 1)] ?? raw.length, Math.max(0, raw.length - 1));
+      let a = at, z = at;
+      if (detail >= 3) { a = raw.lastIndexOf('\n', at - 1) + 1; z = raw.indexOf('\n', at); if (z < 0) z = raw.length; z = Math.max(a, z - 1); }
+      else { const w = /[\p{L}\p{N}_]/u; if (w.test(raw[at] || '')) { while (a > 0 && w.test(raw[a - 1])) a--; while (z < raw.length - 1 && w.test(raw[z + 1])) z++; } }
+      f.focus(false); f.at(z, { anchor: a, mode: detail >= 3 ? 'V-LINE' : 'VISUAL' });
+      update(s => { s.tick++; });
+    };
+    document.addEventListener('mousedown', onDown, true);
+    return () => document.removeEventListener('mousedown', onDown, true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // k on the edit box's first line reads the conversation above it, with the box left open (the mockup's 'up')
   const readAboveEdit = () => {
     const root = read.current, box = root?.querySelector('.m-edit'); if (!root || !box) return;
@@ -284,10 +333,13 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const onMouseUp = (e: React.MouseEvent) => {
     const root = read.current; if (!root || e.button !== 0) return;
     const ev = e.nativeEvent, target = ev.target as Element;
-    if (target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, summary, [role=dialog], img[data-zoom], .flink')) return;
+    if (target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, [role=dialog], img[data-zoom], .flink')) return;
+    if (target.closest('summary') && ev.detail < 2) return;   // a click folds; a double-click selects its words (VISUAL)
     if (target.closest('.m-user.can-edit') && !getSelection()?.toString()) return;   // that click opens the edit box
     setTimeout(() => {
       const s = getSelection();
+      // a double-click on blank space (beside a line, the margin, next to a bubble) does nothing: no stray VISUAL
+      if (ev.detail >= 2 && !target.closest('.diff .dl > .n') && !onText(ev.clientX, ev.clientY)) { s?.removeAllRanges(); setSel(null); if (reader.on && reader.mode !== 'n') reader.clear(); return; }
       if (s && !s.isCollapsed && root.contains(s.anchorNode)) setSel(s.toString());
       reader.fromMouse(ev, root);   // first, while the text under the pointer is where it was clicked
       if (tc.edit && (!s || s.isCollapsed)) { tc.edit = undefined; bump(); }
@@ -349,7 +401,12 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
           <div className="link-note" role="status"><Dot color={m.link === 'down' ? 'red' : 'amber'} pulse={m.link !== 'down'} />
             <span>{m.link === 'reconnecting' ? `Reconnecting to ${m.name}. The turn keeps running there.` : m.link === 'down' ? `${m.name} is offline${m.note ? ': ' + m.note : ''}` : m.link === 'auth' ? `${m.name} needs you to sign in` : `Connecting to ${m.name}`}</span></div>
         )}
-        {mirror ? (
+        {outside ? (
+          <div className="mirror kbrow" role="status" ref={mirrorRow}><Icon name="terminal" />
+            <span>{`${harnessName(th.harness)} is running this thread in another terminal`}</span><span className="sp" />
+            <Button small variant="primary" title="Send from here. Close the other terminal first, so only one writes to this thread" onClick={takeOver}>Take over</Button>
+          </div>
+        ) : mirror ? (
           <div className="mirror kbrow" role="status" ref={mirrorRow}><Icon name="terminal" />
             <span>{taking ? 'Chat takes over when this turn finishes' : `${harnessName(th.harness)} is driving this thread in its terminal`}</span><span className="sp" />
             {taking
@@ -360,7 +417,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
         ) : (
           <Composer ref={composer} tabId={t.id} persist={key} thread={th} draft={tc.draft} onDraft={setDraft} running={!!running} onSend={send} onStop={stop}
             placeholder={t.kind === 'sub' ? `Message ${sub?.name || 'subagent'}` : th.side ? 'Ask in this side chat' : undefined}
-            showContext={!th.side && t.kind !== 'sub'} bare={t.kind === 'sub'} onCommand={onCommand} onLeave={() => { if (ws().pf === t.id) A.closeFocusedPopup(); else idle(); }}
+            showContext={!th.side && t.kind !== 'sub'} bare={t.kind === 'sub'} onCommand={onCommand} onLeave={() => { if (ws().pf === t.id) A.closeFocusedPopup(); else { (document.activeElement as HTMLElement | null)?.blur(); idle(); } }}
             onLeaveUp={() => { if (read.current && !reader.enter(read.current)) composer.current?.focus(false); }} onNormalKey={onNormalKey} />
         )}
         {t.kind === 'sub' && sub && (

@@ -30,6 +30,7 @@ function onTitle(id: string, raw: string) {
   const status = running ? 'running' : th.status === 'running' ? 'idle' : undefined;
   if (status && status !== th.status) patch.status = status;
   if (Object.keys(patch).length) { update(() => Object.assign(th, patch)); void api.threads.update(id, patch); }
+  if (status === 'idle') A.turnEnded(id);
 }
 /** The TUI rang the bell or sent a notification: it is waiting on you (G13). */
 function attention(id: string, text: string) {
