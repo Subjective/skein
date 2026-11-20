@@ -28,3 +28,6 @@
 .ticks { cursor: default; }
 body.scrubbing, body.scrubbing * { cursor: ns-resize !important; user-select: none; }
 @media (prefers-reduced-motion: reduce) { .ticks button i { transition: none; } }
+
+/* esc esc: the first esc arms stop, the button says so (the scale / opacity in comes from ui/motion) */
+.send.armed .esc { font: 600 9.5px/1 var(--sans); letter-spacing: .02em; }
