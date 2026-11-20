@@ -335,6 +335,9 @@ await test('quote toolbar: a mouse drag shows Add to Chat', async p => {
   await p.mouse.move(b.x + 4, b.y + 8); await p.mouse.down(); await p.mouse.move(b.x + 160, b.y + 8, { steps: 6 }); await p.mouse.up();
   await p.locator('.seltb').waitFor();
   assert.equal(await mode(p), 'VISUAL');
+  const gaps = await p.evaluate(() => { const bar = document.querySelector('.seltb').getBoundingClientRect(), [a, c] = [...document.querySelectorAll('.seltb .btn')].map(e => e.getBoundingClientRect()), i = document.querySelector('.seltb i').getBoundingClientRect();
+    return [a.left - bar.left - 1, i.left - a.right, c.left - i.right, bar.right - 1 - c.right].map(Math.round); });
+  assert.deepEqual(gaps, [3, 3, 3, 3], 'both buttons sit the same distance from the edges and the divider');
   await p.locator('.seltb').getByRole('button', { name: 'Add to Chat' }).click();
   assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 1);
 });
