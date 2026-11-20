@@ -3,12 +3,12 @@ import { api } from '../api';
 import { Dispatcher, type Mode, type Surface } from '../input/dispatcher';
 import type { KeyLike } from '../input/keys';
 import { canon } from '../input/platform';
-import { layoutSurface, tabSurface } from '../input/surfaces';
+import { tabSurface } from '../input/surfaces';
 import * as A from '../state/actions';
 import { S, topLayer, update, ws } from '../state/store';
 import { run } from './commands';
 import { keymap } from './overlays';
-import { sidebarSurface } from './Sidebar';
+import { cursorKey, sidebarSurface } from './Sidebar';
 
 // Every overlay (menu, palette, dialog, picker, viewer) is a popup, so it is modal (VIM-MODEL rule 20) whether or
 // not its own surface says so: ctrl-k / ctrl-p move its list or do nothing, they never open a second search on top.
@@ -20,16 +20,28 @@ export const modal = (s: Surface): Surface => {
 };
 function asPopupOf(s: Surface): Surface {
   let m = asPopup.get(s);
-  if (!m) { m = { kind: s.kind, mode: () => s.mode(), key: (k, e) => s.key(k, e), local: () => true, ...(s.imap ? { imap: (f: string) => s.imap!(f) } : {}) }; asPopup.set(s, m); }
+  if (!m) { m = { kind: s.kind, mode: () => s.mode(), key: (k, e) => s.key(k, e), local: () => true, ...(s.imap ? { imap: (f: string) => s.imap!(f) } : {}), ...(s.dismiss ? { dismiss: () => s.dismiss!() } : {}) }; asPopup.set(s, m); }
   return m;
 }
+
+/** The layout itself (a pane with nothing that takes keys): App NORMAL, where j / k / enter / o drive the
+ *  sidebar cursor as in the mockup; everything else goes to the normal layer. */
+const appLayout: Surface = { kind: 'layout', mode: () => 'NORMAL', key: k => cursorKey(k) };
+/** A tab's own app-NORMAL surface (a chat with nothing focused) keeps its keys; what it leaves goes to the cursor. */
+const withCursor = new WeakMap<Surface, Surface>();
+const layoutOf = (s: Surface): Surface => {
+  let m = withCursor.get(s);
+  if (!m) { m = { ...s, kind: s.kind, mode: () => s.mode(), key: (k, e) => s.key(k, e) || (s.mode() === 'NORMAL' && cursorKey(k)) }; withCursor.set(s, m); }
+  return m;
+};
 
 export function owner() {
   const top = topLayer();
   if (top) return top.surface ? modal(top.surface) : popupLayout;
   if (S.sideFocus) return sidebarSurface;
   const w = ws();
-  return tabSurface(A.currentTab(w).id) || layoutSurface;
+  const ts = tabSurface(A.currentTab(w).id);
+  return !ts ? appLayout : ts.kind === 'layout' ? layoutOf(ts) : ts;
 }
 export const currentMode = (): Mode => owner().mode();
 

@@ -184,7 +184,7 @@ export function step(s0: TextState, k: string): Result {
   const from = tk0 ? (['l', 'right', 'w', 'W', 'e', 'E', '$', 'end'].includes(key) ? tk0[1] - 1 : tk0[0]) : s.pos;
   const mv = motion({ ...s, pending: pend, pos: from }, key, count, explicit);
   if (mv === 'up' || mv === 'down') {
-    if (op) return R({ ...s, pending: '' });
+    if (op || visual) return R({ ...s, pending: '' });   // VISUAL stays in its field (rule 8)
     return R({ ...s, pending: '' }, mv === 'up' ? 'leave-up' : 'leave-down');
   }
   if (mv) {

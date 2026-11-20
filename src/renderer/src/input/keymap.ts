@@ -46,6 +46,7 @@ export const COMMANDS: Record<string, string> = {
   theme: 'Toggle theme',
   novim: 'Turn Vim keys off',
   palette: 'Search threads and actions',
+  search: 'Search here (text, or filter the list)',
   find: 'Search files in the project',
   panesearch: 'Search this pane and its thread',
   cmdline: 'Command line',
@@ -141,7 +142,7 @@ export const DEFAULTS: Binding[] = [
   // nothing left to step out of in a popup: esc closes it (rule 2), the keys go back where they were (rule 15)
   { layer: 'normal', keys: 'esc', command: 'popclose' },
   { layer: 'normal', keys: 'g v', command: 'view' },
-  { layer: 'normal', keys: '/', command: 'palette' },
+  { layer: 'normal', keys: '/', command: 'search' },
   // Vim's window prefix arms the whole leader layer: ctrl-w v, ctrl-w q, ctrl-w h ... are the leader's keys
   { layer: 'normal', keys: 'ctrl-w', command: 'leader' },
 ];

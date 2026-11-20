@@ -22,6 +22,9 @@ export interface Surface {
   /** A temporary popup (a menu, a dialog, the composer's / or @ list) has the keys: it is modal, so the global
    *  bindings and the leader don't run while it is open (ctrl-p moves up a / list instead of opening file search). */
   local?(): boolean;
+  /** A popup that can step aside (a menu, not a dialog holding your input): a global chord or the leader it does not
+   *  use itself closes it, then runs as if it had not been open (VIM-MODEL rule 20). */
+  dismiss?(): void;
   /** An insert map like `inoremap jk <Esc>` fired: remove the first key's character and leave INSERT. */
   imap?(first: string): void;
 }
@@ -44,7 +47,7 @@ export class Dispatcher {
   constructor(public keymap: Keymap, private host: DispatchHost) {}
 
   /** Returns true when the key was handled and the event's default should be prevented. */
-  handle(e: KeyLike): boolean {
+  handle(e: KeyLike, stepped = false): boolean {
     const k = keyOf(e);
     if (!k) return false;
     const s = this.host.surface();
@@ -55,10 +58,14 @@ export class Dispatcher {
     // and the global bindings and the leader wait until it closes. Only the workspace switcher's ctrl-tab passes.
     if (s?.local?.()) {
       if (this.leader) this.setLeader(false);
-      const g0 = this.keymap.global.get(k);
+      const g0 = this.keymap.global.get(k), isLeader = k === canon(this.host.leaderKey());
       if (g0 && (g0.command === 'wsnext' || g0.command === 'wsprev')) { this.host.run(g0.command); return true; }
       if (s.key(k, e)) { this.clearSeq(); return true; }
-      return k === canon(this.host.leaderKey()) || !!g0;   // swallow the leader and global chords; plain keys type
+      if (!g0 && !isLeader) return false;   // plain keys type
+      // a chord the popup does not use: a menu steps aside and the chord runs below; a dialog keeps it (your input)
+      if (!s.dismiss || stepped) return true;
+      s.dismiss();
+      return this.handle(e, true);
     }
 
     if (this.leader) {
