@@ -9,6 +9,7 @@ import { loadLoginEnv } from '../core/env';
 import { setSink } from '../core/events';
 import { log } from '../core/log';
 import { Store } from '../core/store';
+import { createHarnesses } from '../core/harness';
 import { buildMenu } from './menu';
 import { createServices } from './services';
 
@@ -17,6 +18,7 @@ const store = new Store(join(app.getPath('userData'), 'skein.db'));
 let win: BrowserWindow | null = null;
 const send = (e: SkeinEvent) => { if (win && !win.isDestroyed()) win.webContents.send('skein.event', e); };
 
+const harnesses = createHarnesses();
 const { api, dispose } = createServices(store, {
   version: app.getVersion(),
   home: homedir(),
@@ -27,7 +29,7 @@ const { api, dispose } = createServices(store, {
     n.on('click', () => { win?.show(); win?.focus(); if (thread) send({ type: 'menu', command: 'open:' + thread }); });
     n.show();
   },
-});
+}, harnesses);
 
 // IPC: `ns.method` handlers from API_SHAPE.
 for (const [ns, methods] of Object.entries(API_SHAPE)) {
@@ -78,4 +80,4 @@ app.whenReady().then(() => {
   app.on('activate', () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { dispose(); store.close(); });
+app.on('before-quit', () => { dispose(); harnesses.dispose?.(); store.close(); });

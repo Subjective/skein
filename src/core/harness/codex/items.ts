@@ -1,0 +1,106 @@
+// Codex ThreadItems (app-server v2) to ThreadEvents. The live driver and the rollout reader both go
+// through itemEvents, so an event's id is the item's id from either source.
+import type { ThreadEvent } from '../../../shared/types';
+import { clip, countDiff, errorKind, textOf, tidy } from '../common';
+import type { ThreadItem } from './protocol/v2/ThreadItem';
+import type { TurnError } from './protocol/v2/TurnError';
+
+type Status = 'running' | 'done' | 'failed';
+const st = (s: string | null | undefined, ok = true): Status => (s === 'inProgress' ? 'running' : s === 'completed' && ok ? 'done' : s === 'completed' ? 'failed' : s == null ? 'done' : 'failed');
+const dur = (ms: number | null | undefined) => (ms == null ? undefined : ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
+
+/** Text a harness puts in the user's turn (environment context, instructions), not typed by the user. */
+const injected = (s: string) => /^\s*<(environment_context|user_instructions|turn_aborted|permissions|skills_instructions|INSTRUCTIONS)/.test(s) || /^# AGENTS\.md instructions/.test(s);
+
+export function itemEvents(item: ThreadItem): ThreadEvent[] {
+  switch (item.type) {
+    case 'userMessage': {
+      const text = item.content.filter(c => c.type === 'text').map(c => (c as { text: string }).text).join('\n');
+      if (injected(text)) return [];
+      const images = item.content.flatMap(c => (c.type === 'image' && 'url' in c ? [c.url] : c.type === 'localImage' ? [c.path] : []));
+      const mentions = item.content.flatMap(c => (c.type === 'mention' || c.type === 'skill' ? [`@${c.name}`] : []));
+      return [{ t: 'user', id: item.id, text: [text, ...mentions].filter(Boolean).join(' '), ...(images.length ? { images } : {}) }];
+    }
+    case 'agentMessage': return item.text.trim() ? [{ t: 'text', id: item.id, text: item.text }] : [];
+    case 'plan': return item.text.trim() ? [{ t: 'text', id: item.id, text: item.text }] : [];
+    case 'reasoning': {
+      const text = (item.summary.length ? item.summary : item.content).join('\n\n').trim();
+      return text ? [{ t: 'thinking', id: item.id, text }] : [];
+    }
+    case 'commandExecution': {
+      const ok = item.exitCode == null || item.exitCode === 0;
+      const meta = [item.exitCode != null && item.exitCode !== 0 ? `exit ${item.exitCode}` : '', dur(item.durationMs) ?? ''].filter(Boolean).join(' · ');
+      return [{ t: 'tool', id: item.id, name: 'Shell', arg: item.command, ...(item.aggregatedOutput ? { out: clip(item.aggregatedOutput) } : {}), status: item.status === 'declined' ? 'failed' : st(item.status, ok), ...(meta ? { meta } : {}) }];
+    }
+    case 'fileChange': {
+      const status = item.status === 'declined' ? 'failed' : st(item.status);
+      return item.changes.map((c, i) => {
+        const diff = c.kind.type === 'add' && !/^[-+@]/m.test(c.diff) ? c.diff.split('\n').map(l => '+' + l).join('\n') : c.diff;
+        return { t: 'edit' as const, id: item.changes.length > 1 ? `${item.id}:${i}` : item.id, path: c.kind.type === 'update' && c.kind.move_path ? c.kind.move_path : c.path, ...countDiff(diff), diff: clip(diff, 20000), status };
+      });
+    }
+    case 'mcpToolCall': {
+      const out = item.error?.message ?? (item.result ? textOf(item.result.content) : '');
+      return [{ t: 'tool', id: item.id, name: `${item.server}: ${item.tool}`, arg: argText(item.arguments), ...(out ? { out: clip(out) } : {}), status: item.error ? 'failed' : st(item.status), ...(dur(item.durationMs) ? { meta: dur(item.durationMs) } : {}) }];
+    }
+    case 'dynamicToolCall': {
+      const out = item.contentItems ? textOf(item.contentItems) : '';
+      return [{ t: 'tool', id: item.id, name: item.tool, arg: argText(item.arguments), ...(out ? { out: clip(out) } : {}), status: item.success === false ? 'failed' : st(item.status) }];
+    }
+    case 'webSearch': {
+      const a = item.action;
+      const arg = a?.type === 'openPage' ? a.url ?? '' : a?.type === 'findInPage' ? `${a.pattern ?? ''}  ${a.url ?? ''}` : item.query || a?.type === 'search' && (a.query ?? a.queries?.join(', ')) || '';
+      return [{ t: 'tool', id: item.id, name: a?.type === 'openPage' ? 'Open page' : 'Web search', arg: arg || '', status: 'done' }];
+    }
+    case 'collabAgentToolCall': {
+      if (item.tool !== 'spawnAgent') return [];
+      const status: Status = item.status === 'inProgress' ? 'running' : item.status === 'completed' ? 'done' : 'failed';
+      return [{ t: 'sub', id: item.id, name: item.model ? `Agent (${item.model})` : 'Agent', task: tidy(item.prompt ?? '', 160), status }];
+    }
+    case 'imageView': return [{ t: 'tool', id: item.id, name: 'View image', arg: item.path, status: 'done' }];
+    case 'contextCompaction': return [{ t: 'notice', id: item.id, text: 'Context compacted' }];
+    case 'enteredReviewMode': return [{ t: 'notice', id: item.id, text: 'Reviewing' }];
+    case 'exitedReviewMode': return item.review.trim() ? [{ t: 'text', id: item.id, text: item.review }] : [];
+    default: return [];
+  }
+}
+
+const argText = (v: unknown) => {
+  if (v == null) return '';
+  if (typeof v === 'string') return tidy(v, 200);
+  if (typeof v === 'object') { const s = Object.values(v as object).find(x => typeof x === 'string'); return tidy(s ?? JSON.stringify(v), 200); }
+  return String(v);
+};
+
+/** A turn's failure as an error row (G9). */
+export function turnError(id: string, e: TurnError): ThreadEvent {
+  const info = typeof e.codexErrorInfo === 'string' ? e.codexErrorInfo : e.codexErrorInfo ? JSON.stringify(e.codexErrorInfo) : '';
+  const text = [e.message, e.additionalDetails].filter(Boolean).join('\n');
+  let kind = errorKind(`${info} ${text}`);
+  if (/usageLimitExceeded|rateLimitExceeded|serverOverloaded/.test(info)) kind = 'rate';
+  else if (/unauthorized|"httpStatusCode":401/.test(info)) kind = 'auth';
+  return { t: 'error', id, kind, text: tidy(text || 'The turn failed.', 600) };
+}
+
+/** Rollouts store items with snake_case keys and PascalCase types; the app-server sends camelCase. */
+export function camelItem(raw: Record<string, unknown>): ThreadItem {
+  const camel = (v: unknown, depth: number): unknown => {
+    if (Array.isArray(v)) return v.map(x => camel(x, depth + 1));
+    if (!v || typeof v !== 'object' || depth > 6) return v;
+    const o: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v)) {
+      const key = k === 'move_path' ? k : k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+      o[key] = key === 'arguments' || key === 'structuredContent' ? x : camel(x, depth + 1);
+    }
+    return o;
+  };
+  const o = camel(raw, 0) as Record<string, unknown>;
+  const low = (x: unknown) => (typeof x === 'string' ? x.charAt(0).toLowerCase() + x.slice(1) : x);
+  o.type = low(o.type);
+  if (typeof o.status === 'string') o.status = low(o.status);
+  if (Array.isArray(o.changes)) for (const c of o.changes as { kind?: { type?: unknown } | string }[]) {
+    if (typeof c.kind === 'string') c.kind = { type: low(c.kind) as string };
+    else if (c.kind) c.kind.type = low(c.kind.type);
+  }
+  return o as unknown as ThreadItem;
+}
