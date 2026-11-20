@@ -5,6 +5,7 @@ import { openCmdline, openKeys, openPalette, openPaneSearch, openSettings, openW
 import { scrollback } from '../views/terminal/scrollback';
 import { tabHook } from '../views/tools/hooks';
 import { openTool, saveFile } from '../views/tools/open';
+import { quoteSelection } from '../views/chat/threads';
 
 const RUN: Record<string, () => void> = {
   palette: () => openPalette(),
@@ -36,8 +37,8 @@ const RUN: Record<string, () => void> = {
   back: () => { if (tabHook(A.currentTab().id, 'back')) return; const w = ws(); if (w.pf) update(s => { const p = w.pops.find(x => x.tab.id === w.pf); s.tick++; w.pf = null; if (p?.from) w.focus = p.from; }); },
   forward: () => { if (tabHook(A.currentTab().id, 'forward')) return; const w = ws(); const p = w.pops[w.pops.length - 1]; if (p && !w.pf) update(s => { w.pf = p.tab.id; s.tick++; }); },
   popout: () => A.popOut(),
-  quote: () => toast('Select text in a thread first'),
-  quoteside: () => toast('Select text in a thread first'),
+  quote: () => { if (!quoteSelection(false)) toast('Select text in a thread first'); },
+  quoteside: () => { if (!quoteSelection(true)) toast('Select text in a thread first'); },
   changes: () => openTool('changes'),
   filesview: () => openTool('files'),
   w: () => saveFile(),

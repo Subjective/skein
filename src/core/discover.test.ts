@@ -30,7 +30,7 @@ describe('remote commands', () => {
   it('runs a Claude thread over ssh as resume-or-create', () => {
     const m = { id: 'l', name: 'l', ssh: { host: 'dev' }, link: 'up' as const, has: [] };
     const p = plan(m, { machine: 'l', cwd: '~/repo', run: { kind: 'claude', session: 'S1' }, cols: 80, rows: 24 });
-    expect(p.file).toBe('ssh');
+    expect(p.file).toMatch(/ssh(\.exe)?$/i); // ssh.exe from System32\OpenSSH on Windows
     expect(p.args).toContain('-tt');
     expect(p.args.at(-1)).toContain('--resume S1');
     expect(p.args.at(-1)).toContain('--session-id S1');

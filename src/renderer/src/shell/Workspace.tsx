@@ -21,6 +21,7 @@ export function TabBody({ t, focused }: { t: Tab; focused: boolean }) {
     case 'shell': return <TerminalView t={t} focused={focused} spec={{ machine: t.machine || 'local', cwd: t.dir || '~', run: { kind: 'shell' }, cols: 80, rows: 24 }} />;
     case 'thread': return t.view === 'chat' ? <ChatView t={t} focused={focused} /> : <ThreadTerminal t={t} focused={focused} />;
     case 'vimrc': return <VimrcView t={t} focused={focused} />;
+    case 'sub': return <ChatView t={t} focused={focused} />;
     default: return <ToolView t={t} focused={focused} />;
   }
 }

@@ -16,9 +16,15 @@ export function tabMeta(t: Tab): { icon: string; title: string; ssh?: boolean } 
     case 'changes': return { icon: 'diff', title: 'Changes' };
     case 'files': return { icon: 'folder', title: 'Files' };
     case 'file': return { icon: 'file', title: base(t.path) };
+    case 'sub': return { icon: 'agent', title: subName(t) };
     case 'vimrc': return { icon: 'sliders', title: 'vimrc' };
     case 'browser': return { icon: 'globe', title: 'Browser' };
     default: return { icon: 'compose', title: 'New thread' };
   }
 }
 export { base };
+
+/** A subagent tab's name, from its thread's chat log. */
+let subNames: (t: Tab) => string = () => 'Subagent';
+export const setSubNames = (f: (t: Tab) => string) => { subNames = f; };
+const subName = (t: Tab) => subNames(t);

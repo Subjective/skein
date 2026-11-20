@@ -83,3 +83,10 @@ export function SplitButton({ label, onClick, onMenu, menuLabel, disabled, keys 
     </span>
   );
 }
+
+/** The round send button at the end of a composer; a square stops a running turn. */
+export const SendButton = ({ stop, label, ...rest }: BtnProps & { stop?: boolean; label?: string }) => (
+  <button type="button" className={cx('send', stop && 'stop')} aria-label={label || (stop ? 'Stop' : 'Send')} title={label || (stop ? 'Stop' : 'Send')} {...rest}>
+    {stop ? <span className="sq" /> : <Icon name="up" />}
+  </button>
+);

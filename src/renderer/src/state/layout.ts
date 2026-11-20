@@ -2,7 +2,7 @@
 // Pure functions over plain objects, so layouts persist as JSON and are tested without a DOM.
 import type { ViewKind } from '@shared/types';
 
-export type TabKind = 'thread' | 'shell' | 'new' | 'changes' | 'files' | 'file' | 'vimrc' | 'browser';
+export type TabKind = 'thread' | 'shell' | 'new' | 'changes' | 'files' | 'file' | 'vimrc' | 'browser' | 'sub';
 
 export interface Tab {
   id: string;
@@ -10,6 +10,8 @@ export interface Tab {
   /** thread tabs (and tools scoped to a thread) */
   thread?: string;
   view?: ViewKind;
+  /** subagent tabs: the id of the thread's 'sub' event (the thread is `thread`) */
+  sub?: string;
   /** shells, new-thread launchers and tools: where they run */
   machine?: string;
   dir?: string;

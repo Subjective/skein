@@ -1,0 +1,26 @@
+/* Chat view: only what the mockup stylesheet (skein.css) does not already cover. */
+.send:disabled { opacity: .3; cursor: default; }
+.send:disabled:hover { opacity: .3; }
+.cf .ctx { cursor: default; }
+.cf .ctx:hover { background: none; }
+.comp .bk .tok { color: transparent; }
+.prose h3, .prose h4, .prose h5 { margin: .8em 0 .4em; font-size: 14px; font-weight: 600; }
+.prose ul, .prose ol { margin: 0 0 .6em; padding-left: 1.4em; }
+.prose li + li { margin-top: .2em; }
+.prose blockquote { margin: 0 0 .6em; padding-left: 12px; border-left: 2px solid var(--line-2); color: var(--fg-2); }
+.prose pre.code { margin: 0 0 .6em; white-space: pre; overflow-x: auto; }
+.prose a { color: var(--blue); text-decoration: none; }
+.prose a:hover { text-decoration: underline; }
+.m-asst.streaming > :last-child::after { content: ''; display: inline-block; width: 7px; height: 14px; margin-left: 2px; vertical-align: -2px; border-radius: 1px; background: var(--fg-3); animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.think-b { color: var(--fg-3); font-size: 13px; padding: 2px 0 6px 22px; white-space: pre-wrap; }
+.appr .plan-body { max-height: 320px; overflow: auto; padding: 8px 12px; border-radius: 10px; background: var(--bg-2); }
+.appr, .err-row, .mirror, .link-note, .m-edit, .reply > * { animation: fadeUp .16s ease both; }
+.reply > .m-acts { animation: none; }
+.chat .empty .spin { width: 16px; height: 16px; }
+.seltb .btn { height: 24px; border: 0; background: none; }
+.seltb .btn:hover { background: var(--hover); }
+.edit-note { display: flex; align-items: center; gap: 7px; padding: 6px 4px 0 14px; color: var(--fg-3); font-size: 12.5px; }
+.edit-note svg.i { width: 13px; height: 13px; }
+.under .btn.ghost { height: 22px; padding: 0 6px; font-size: 12.5px; color: var(--fg-3); }
+.under .btn.ghost:hover { color: var(--fg); }
