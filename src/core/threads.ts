@@ -52,10 +52,18 @@ export class Threads {
         if (Object.keys(patch).length) this.update(known.id, patch);
         continue;
       }
-      const t: ThreadMeta = { id: 't-' + f.sessionId.slice(0, 8), harness: f.harness, sessionId: f.sessionId, machine, dir: f.dir, title: f.title, branch: f.branch, createdAt: f.createdAt, updatedAt: f.updatedAt, status: 'idle', discovered: true, drive: f.harness === 'claude' ? 'chat' : undefined };
+      const t: ThreadMeta = { id: discoveredId(f.sessionId, id => this.map.has(id)), harness: f.harness, sessionId: f.sessionId, machine, dir: f.dir, title: f.title, branch: f.branch, createdAt: f.createdAt, updatedAt: f.updatedAt, status: 'idle', discovered: true, drive: f.harness === 'claude' ? 'chat' : undefined };
       this.map.set(t.id, t); this.store.put('threads', t.id, t); added.push(t);
       if (remote) emit({ type: 'thread', thread: t });
     }
     return added;
   }
+}
+
+/** A found session's thread id. Its tail, not its head: Codex ids are UUIDv7, whose first 8 hex digits are a
+ *  timestamp shared by every session started in the same ~65 seconds, so a head prefix let a second session
+ *  overwrite the first. */
+export function discoveredId(sessionId: string, taken: (id: string) => boolean): string {
+  const id = 't-' + sessionId.replace(/-/g, '').slice(-12);
+  return taken(id) ? 't-' + randomUUID().slice(0, 8) : id;
 }

@@ -181,22 +181,39 @@ describe('Follower', () => {
     } finally { f.stop(); }
   });
 
-  it('follows a Codex rollout (fixture) the same way', async () => {
+  // Codex: the rollout is only watched; what it holds is read back through the app-server (host.read).
+  it('follows a Codex rollout: re-reads through the host on each write', async () => {
     const sid = '0b5e2a8c-1111-2222-3333-444455556666', dir = join(root, 'codex', 'sessions', '2026', '11', '20');
     mkdirSync(dir, { recursive: true });
     const file = join(dir, `rollout-2026-11-20T10-00-00-${sid}.jsonl`);
     const ev = (payload: object) => J({ type: 'event_msg', payload });
-    writeFileSync(file, [J({ type: 'session_meta', payload: { id: sid, cwd: '/p' } }), ev({ type: 'task_started', turn_id: 'turn1' }),
-      ev({ type: 'item_completed', turn_id: 'turn1', item: { type: 'UserMessage', id: 'i1', content: [{ type: 'text', text: 'list files', text_elements: [] }] } })].join('\n') + '\n');
+    writeFileSync(file, [J({ type: 'session_meta', payload: { id: sid, cwd: '/p' } }), ev({ type: 'task_started', turn_id: 'turn1' })].join('\n') + '\n');
     const t: ThreadMeta = { ...claudeThread(sid), harness: 'codex' }, h = host(t);
+    let held: ThreadEvent[] = [{ t: 'user', id: 'i1', text: 'list files' }];
+    let reads = 0;
+    h.api.read = async () => { reads++; return held; };
     const f = new Follower(t.id, h.api, { throttle: 10, tail: (p, off, sink) => new LocalTail(p, off, sink, { poll: 20, watch: false }) });
     expect((await f.load())!.map(e => e.id)).toEqual(['i1']);
     f.start();
     try {
-      appendFileSync(file, [ev({ type: 'item_completed', turn_id: 'turn1', item: { type: 'AgentMessage', id: 'i2', text: 'Two files.' } }), ev({ type: 'task_complete', turn_id: 'turn1', duration_ms: 2500 })].join('\n') + '\n');
+      // mid-turn, the app-server calls the unfinished turn interrupted: not shown while the rollout says running
+      held = [...held, { t: 'text', id: 'i0', text: 'Working…' }, { t: 'interrupted', id: 'i-turn1' }];
+      appendFileSync(file, ev({ type: 'agent_message', message: 'Working…' }) + '\n');
+      await until(() => h.pushed.some(p => p.e.id === 'i0'));
+      expect(h.pushed.map(p => p.e.id)).not.toContain('i-turn1');
+      held = [held[0], held[1], { t: 'text', id: 'i2', text: 'Two files.' }, { t: 'worked', id: 'w-turn1', ms: 2500 }];
+      appendFileSync(file, ev({ type: 'task_complete', turn_id: 'turn1', duration_ms: 2500 }) + '\n');
       await until(() => h.acts.some(a => a.state === 'idle'));
-      expect(h.pushed.map(p => p.e.id)).toEqual(['i2', 'w-turn1']);
+      expect(h.pushed.map(p => p.e.id)).toEqual(['i0', 'i2', 'w-turn1']);
       expect(h.acts.at(-1)).toEqual({ state: 'idle', ended: true });
+      expect(reads).toBe(3);
+      // a read that fails is logged, not thrown from the timer, and the next write reads again
+      h.api.read = async () => { throw new Error('app-server gone'); };
+      appendFileSync(file, ev({ type: 'task_started', turn_id: 'turn2' }) + '\n');
+      await new Promise(r => setTimeout(r, 120));
+      h.api.read = async () => held;
+      appendFileSync(file, ev({ type: 'task_complete', turn_id: 'turn2' }) + '\n');
+      await until(() => h.acts.filter(a => a.state === 'idle').length === 2);
     } finally { f.stop(); }
   });
 

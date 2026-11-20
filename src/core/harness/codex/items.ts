@@ -19,7 +19,8 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
       if (injected(text)) return [];
       const images = item.content.flatMap(c => (c.type === 'image' && 'url' in c ? [c.url] : c.type === 'localImage' ? [c.path] : []));
       const mentions = item.content.flatMap(c => (c.type === 'mention' || c.type === 'skill' ? [`@${c.name}`] : []));
-      return [{ t: 'user', id: item.id, text: [text, ...mentions].filter(Boolean).join(' '), ...(images.length ? { images } : {}) }];
+      // the client's id when it sent one: Skein shows its own message under that id as it sends it
+      return [{ t: 'user', id: item.clientId ?? item.id, text: [text, ...mentions].filter(Boolean).join(' '), ...(images.length ? { images } : {}) }];
     }
     case 'agentMessage': return item.text.trim() ? [{ t: 'text', id: item.id, text: item.text }] : [];
     case 'plan': return item.text.trim() ? [{ t: 'text', id: item.id, text: item.text }] : [];
@@ -35,7 +36,8 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
     case 'fileChange': {
       const status = item.status === 'declined' ? 'failed' : st(item.status);
       return item.changes.map((c, i) => {
-        const diff = c.kind.type === 'add' && !/^[-+@]/m.test(c.diff) ? c.diff.split('\n').map(l => '+' + l).join('\n') : c.diff;
+        // a new file arrives as its content: one + per line, the final newline is not a line
+        const diff = c.kind.type === 'add' && !/^[-+@]/m.test(c.diff) ? c.diff.replace(/\n$/, '').split('\n').map(l => '+' + l).join('\n') : c.diff;
         return { t: 'edit' as const, id: item.changes.length > 1 ? `${item.id}:${i}` : item.id, path: c.kind.type === 'update' && c.kind.move_path ? c.kind.move_path : c.path, ...countDiff(diff), diff: clip(diff, 20000), status };
       });
     }
@@ -80,27 +82,4 @@ export function turnError(id: string, e: TurnError): ThreadEvent {
   if (/usageLimitExceeded|rateLimitExceeded|serverOverloaded/.test(info)) kind = 'rate';
   else if (/unauthorized|"httpStatusCode":401/.test(info)) kind = 'auth';
   return { t: 'error', id, kind, text: tidy(text || 'The turn failed.', 600) };
-}
-
-/** Rollouts store items with snake_case keys and PascalCase types; the app-server sends camelCase. */
-export function camelItem(raw: Record<string, unknown>): ThreadItem {
-  const camel = (v: unknown, depth: number): unknown => {
-    if (Array.isArray(v)) return v.map(x => camel(x, depth + 1));
-    if (!v || typeof v !== 'object' || depth > 6) return v;
-    const o: Record<string, unknown> = {};
-    for (const [k, x] of Object.entries(v)) {
-      const key = k === 'move_path' ? k : k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-      o[key] = key === 'arguments' || key === 'structuredContent' ? x : camel(x, depth + 1);
-    }
-    return o;
-  };
-  const o = camel(raw, 0) as Record<string, unknown>;
-  const low = (x: unknown) => (typeof x === 'string' ? x.charAt(0).toLowerCase() + x.slice(1) : x);
-  o.type = low(o.type);
-  if (typeof o.status === 'string') o.status = low(o.status);
-  if (Array.isArray(o.changes)) for (const c of o.changes as { kind?: { type?: unknown } | string }[]) {
-    if (typeof c.kind === 'string') c.kind = { type: low(c.kind) as string };
-    else if (c.kind) c.kind.type = low(c.kind.type);
-  }
-  return o as unknown as ThreadItem;
 }
