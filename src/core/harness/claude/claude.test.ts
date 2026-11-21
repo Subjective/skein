@@ -96,6 +96,7 @@ function fakeSdk(turn: (msg: SDKUserMessage, opts: Options, n: number) => AsyncG
     Object.assign(gen, {
       interrupt: async () => { interrupted = true; },
       setModel: async () => {}, setPermissionMode: async () => {}, applyFlagSettings: async (f: Record<string, unknown>) => { flags.push(f); },
+      getContextUsage: async () => ({ totalTokens: 24_000, maxTokens: 180_000, rawMaxTokens: 200_000, percentage: 12, isAutoCompactEnabled: true, autoCompactThreshold: 167_000 }),
       close: () => {},
     });
     return gen;
@@ -146,6 +147,9 @@ describe('Claude driver', () => {
     expect(h.events.some(x => x.e.t === 'text' && x.e.streaming && x.e.text === 'Hel')).toBe(true);
     expect(sdk.calls[0]).toMatchObject({ model: 'sonnet', permissionMode: 'acceptEdits', sessionId: '11111111-1111-1111-1111-111111111111', includePartialMessages: true });
     expect(h.thread('t1').title).toBe('Say hello');
+    // after the turn, Claude Code's own context count: used of the full window, and where it auto-compacts
+    await until(() => h.thread('t1').ctxTokens != null);
+    expect(h.thread('t1')).toMatchObject({ ctx: 12, ctxTokens: { used: 24_000, max: 200_000, compactAt: 167_000 } });
     await d.release();
   });
 
@@ -180,7 +184,7 @@ describe('Claude driver', () => {
           yield result();
         }
       }
-      return Object.assign(run(), { interrupt: async () => {}, close: () => {}, setModel: async () => {}, setPermissionMode: async () => {}, applyFlagSettings: async () => {} }) as unknown as Query;
+      return Object.assign(run(), { interrupt: async () => {}, close: () => {}, setModel: async () => {}, setPermissionMode: async () => {}, applyFlagSettings: async () => {}, getContextUsage: async () => ({ totalTokens: 0, rawMaxTokens: 200_000, isAutoCompactEnabled: false }) }) as unknown as Query;
     };
     const h = fakeHost([{ id: 't1', sessionId: '33333333-3333-3333-3333-333333333333' }]);
     const d = new ClaudeDriver('t1', h.host, async () => query);
