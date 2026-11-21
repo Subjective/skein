@@ -2,9 +2,10 @@
 // tool rows, diffs, plans and requests. Rows the reader treats as one line carry the classes in reader.ts ROWS.
 import { openLightbox } from '../../ui/Lightbox';
 import { useEffect, useState, type ReactNode } from 'react';
-import type { Harness, ThreadEvent, ThreadMeta } from '@shared/types';
+import type { Density, Harness, StepKind, ThreadEvent, ThreadMeta } from '@shared/types';
 import { api } from '../../api';
 import { machine, S, toast } from '../../state/store';
+import type { IconName } from '../../ui/icons';
 import { Button, cx, Icon, IconButton, Spinner } from '../../ui/primitives';
 import { harnessName } from '../../shell/meta';
 import { Markdown } from './markdown';
@@ -27,13 +28,20 @@ export interface TranscriptCtx {
   onOpenSub?(subId: string): void;
   onOpenSide?(threadId: string): void;
   onFix?(e: Ev<'error'>): void;
+  /** How much of the agent's steps a turn shows (Settings, or zr / zm in this view). */
+  density: Density;
 }
 
-const VERB: Record<string, [string, string]> = {
-  Read: ['Read', 'file'], Edit: ['Edited', 'diff'], MultiEdit: ['Edited', 'diff'], Write: ['Wrote', 'file'], Bash: ['Ran', 'terminal'],
-  Grep: ['Searched', 'search'], Glob: ['Listed', 'search'], WebFetch: ['Fetched', 'globe'], WebSearch: ['Searched the web', 'globe'],
-  Task: ['Started', 'agent'], TodoWrite: ['Planned', 'check'], shell: ['Ran', 'terminal'], exec: ['Ran', 'terminal'],
+// A step's verb and icon: by its tool's name where the name says more than its kind, else by its kind.
+const VERB: Record<string, [string, IconName]> = {
+  Write: ['Wrote', 'file'], Glob: ['Listed', 'search'], WebSearch: ['Searched the web', 'globe'], 'Web search': ['Searched the web', 'globe'],
+  'Open page': ['Opened', 'globe'], 'View image': ['Viewed', 'image'], Task: ['Started', 'agent'], TodoWrite: ['Planned', 'check'],
 };
+const KIND: Record<StepKind, [string, IconName]> = {
+  read: ['Read', 'file'], search: ['Searched', 'search'], list: ['Listed', 'folder'], command: ['Ran', 'terminal'], web: ['Fetched', 'globe'], mcp: ['', 'plug'], other: ['', 'wrench'],
+};
+/** Events from before steps had kinds (and the browser samples) name the tool only. */
+const kindOf = (e: Ev<'tool'>): StepKind => e.kind ?? ({ Read: 'read', Grep: 'search', Glob: 'search', Bash: 'command', Shell: 'command', WebFetch: 'web', WebSearch: 'web' } as Record<string, StepKind>)[e.name] ?? (/^[^:]+: /.test(e.name) ? 'mcp' : 'other');
 export const dur = (ms: number) => { const s = Math.round(ms / 1000); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`; };
 export const ago = (t: number) => { const m = (Date.now() - t) / 60000; return m < 1 ? 'now' : m < 60 ? `${Math.round(m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
 
@@ -52,10 +60,32 @@ function Diff({ text }: { text: string }) {
   return <div className="diff">{rows.map((r, i) => <div key={i} className={cx('dl', r.k === '+' && 'add', r.k === '-' && 'del')}><span className="n">{r.n}</span><span className="c">{r.c}</span></div>)}</div>;
 }
 
-function Row({ icon, verb, arg, meta, body, open, src, status }: { icon: string; verb: string; arg?: ReactNode; meta?: ReactNode; body?: ReactNode; open?: boolean; src: string; status: 'running' | 'done' | 'failed' }) {
+/** Which folds are open: each has a default (from the density, and whether its work is still going) that the
+ *  person can override by opening or closing it. A changed density starts over from its defaults. */
+interface Folds { open(key: string, def: boolean): boolean; toggled(key: string, def: boolean, open: boolean): void }
+function useFolds(density: Density): Folds {
+  const [ov, setOv] = useState<Record<string, boolean>>({});
+  useEffect(() => setOv({}), [density]);
+  return {
+    open: (k, d) => ov[k] ?? d,
+    // React's own changes to `open` fire toggle too: those match the default, and leave nothing to remember
+    toggled: (k, d, o) => setOv(m => { if ((m[k] ?? d) === o) return m; const n = { ...m }; if (o === d) delete n[k]; else n[k] = o; return n; }),
+  };
+}
+
+/** A fold: a row whose summary opens what is under it. */
+function Fold({ f, k, def, className, src, head, children }: { f: Folds; k: string; def: boolean; className?: string; src?: string; head: ReactNode; children: ReactNode }) {
+  return (
+    <details className={cx('tool', className)} data-src={src} open={f.open(k, def)} onToggle={e => f.toggled(k, def, e.currentTarget.open)}>
+      <summary>{head}<Icon name="chev" className="ch" /></summary>{children}
+    </details>
+  );
+}
+
+function Row({ icon, verb, arg, meta, body, open = false, src, status, f, k }: { icon: IconName; verb: string; arg?: ReactNode; meta?: ReactNode; body?: ReactNode; open?: boolean; src: string; status: 'running' | 'done' | 'failed'; f: Folds; k: string }) {
   const head = <>{status === 'running' ? <Spinner /> : <Icon name={icon} />}<span className="v">{verb}</span>{arg}{meta != null && <span className={cx('meta', status === 'failed' && 'c-del')}>{meta}</span>}</>;
   if (!body) return <div className="tool" data-src={src}><div className="sum">{head}</div></div>;
-  return <details className="tool" data-src={src} open={open}><summary>{head}<Icon name="chev" className="ch" /></summary>{body}</details>;
+  return <Fold f={f} k={k} def={open} src={src} head={head}>{body}</Fold>;
 }
 
 function Approval({ e, thread, count }: { e: Ev<'approval'>; thread: ThreadMeta; count: number }) {
@@ -96,8 +126,62 @@ function Live({ since, text }: { since: number; text?: string }) {
   return <div className="live" role="status"><Spinner /><span>{text || 'Working'}</span><span className="dim">{dur(Date.now() - since)}</span></div>;
 }
 
+type Step = Ev<'thinking'> | Ev<'tool'> | Ev<'edit'>;
+const isStep = (e: ThreadEvent): e is Step => e.t === 'thinking' || e.t === 'tool' || e.t === 'edit';
+
+/** One step: a thought, a tool call or an edit. An edit's diff starts open only in Detailed. */
+function StepRow({ e, c, f }: { e: Step; c: TranscriptCtx; f: Folds }) {
+  const src = `${c.src}:${e.id}`, k = e.id;
+  if (e.t === 'thinking') return <Row src={src} f={f} k={k} icon="brain" verb="Thought" status="done" body={<div className="prose think-b">{e.text}</div>} />;
+  if (e.t === 'edit') return <Row src={src} f={f} k={k} icon="diff" verb="Edited" status={e.status} open={!!e.diff && c.density === 'detailed'}
+    arg={<code className="flink" data-p={e.path} title={`Open ${e.path} · g f`}>{e.path}</code>} meta={<><span className="c-add">+{e.add}</span> <span className="c-del">−{e.del}</span></>} body={e.diff ? <Diff text={e.diff} /> : undefined} />;
+  const kind = kindOf(e), [verb, icon] = VERB[e.name] || [KIND[kind][0] || e.name, KIND[kind][1]];
+  const file = kind === 'read' && !!e.arg;   // a read names a file: its path opens it
+  return <Row src={src} f={f} k={k} icon={icon} verb={verb} status={e.status} arg={file ? <code className="flink" data-p={e.arg} title={`Open ${e.arg} · g f`}>{e.arg}</code> : e.arg ? <code>{e.arg}</code> : undefined} meta={e.meta} body={e.out ? <pre className="out">{e.out}</pre> : undefined} />;
+}
+
+/** What a run of steps did, weightiest first ("Edited 2 files, read 3 files, ran a command"), and the icon of the first. */
+function summary(run: Step[]): { text: string; icon: IconName } {
+  const n = { edit: new Set<string>(), read: 0, search: 0, list: 0, command: 0, web: 0, tool: 0, think: 0 };
+  for (const e of run) {
+    if (e.t === 'edit') n.edit.add(e.path);
+    else if (e.t === 'thinking') n.think++;
+    else { const k = kindOf(e); if (k === 'mcp' || k === 'other') n.tool++; else n[k]++; }
+  }
+  const files = (x: number) => `${x} file${x > 1 ? 's' : ''}`, times = (x: number) => (x === 1 ? 'once' : x === 2 ? 'twice' : `${x} times`);
+  const parts: [number, string, IconName][] = [
+    [n.edit.size, `edited ${files(n.edit.size)}`, 'diff'], [n.read, `read ${files(n.read)}`, 'file'], [n.search, `searched ${times(n.search)}`, 'search'],
+    [n.list, `listed ${n.list} folder${n.list > 1 ? 's' : ''}`, 'folder'], [n.command, `ran ${n.command === 1 ? 'a command' : n.command + ' commands'}`, 'terminal'],
+    [n.web, `fetched ${n.web === 1 ? 'a page' : n.web + ' pages'}`, 'globe'], [n.tool, `used ${n.tool === 1 ? 'a tool' : n.tool + ' tools'}`, 'wrench'], [n.think, 'thought', 'brain'],
+  ];
+  const on = parts.filter(p => p[0] > 0), t = on.map(p => p[1]).join(', ');
+  return { text: t[0].toUpperCase() + t.slice(1), icon: on[0][2] };
+}
+
+/** Steps between two of the agent's notes: one row each when it is a single step, else one row that opens to them. */
+function Run({ run, c, f, open }: { run: Step[]; c: TranscriptCtx; f: Folds; open: boolean }) {
+  if (run.length === 1) return <StepRow e={run[0]} c={c} f={f} />;
+  const sm = summary(run), live = run.some(e => 'status' in e && e.status === 'running');
+  return (
+    <Fold f={f} k={'run:' + run[0].id} def={open} className="run" src={`${c.src}:${run[0].id}:run`} head={<>{live ? <Spinner /> : <Icon name={sm.icon} />}<span className="v">{sm.text}</span></>}>
+      <div className="fold-b">{run.map(e => <StepRow key={e.id} e={e} c={c} f={f} />)}</div>
+    </Fold>
+  );
+}
+
+/** The files a folded turn edited, under its answer, so a shut fold still says what changed. */
+function Edited({ edits }: { edits: Ev<'edit'>[] }) {
+  const by = new Map<string, { add: number; del: number }>();
+  for (const e of edits) { const x = by.get(e.path) || { add: 0, del: 0 }; x.add += e.add; x.del += e.del; by.set(e.path, x); }
+  return (
+    <div className="tool edited"><div className="sum"><Icon name="diff" /><span className="v">Edited</span>
+      {[...by].map(([p, x]) => <span key={p} className="ef"><code className="flink" data-p={p} title={`Open ${p} · g f`}>{p.split(/[\\/]/).pop()}</code><span className="meta"><span className="c-add">+{x.add}</span> <span className="c-del">−{x.del}</span></span></span>)}
+    </div></div>
+  );
+}
+
 /** One event. */
-function Event({ e, c, all }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEvent[] }): ReactNode {
+function Event({ e, c, all, f, folded }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEvent[]; f: Folds; folded?: boolean }): ReactNode {
   const src = `${c.src}:${e.id}`;
   switch (e.t) {
     case 'user':
@@ -111,22 +195,12 @@ function Event({ e, c, all }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEve
         </div>
       );
     case 'text': {
-      const sides = c.main ? S.threads.filter(t => t.side && t.parent?.id === c.thread.id && t.parent.at === e.id) : [];
       return <>
         <div className={cx('m-asst prose', e.streaming && 'streaming')} data-src={src} data-md={e.text}><Markdown text={e.text} /></div>
-        {sides.length > 0 && <div className="sc-links">{sides.map(x => <button key={x.id} type="button" className="sc-link" onClick={() => c.onOpenSide?.(x.id)}><Icon name="chat" /><span>{x.title}</span></button>)}</div>}
+        {!folded && <SideLinks at={e.id} c={c} />}
       </>;
     }
-    case 'thinking': return <Row src={src} icon="bolt" verb="Thought" status="done" body={<div className="prose think-b">{e.text}</div>} />;
-    case 'tool': {
-      const [verb, icon] = VERB[e.name] || [e.name, 'bolt'];
-      const body = e.out ? <pre className="out">{e.out}</pre> : undefined;
-      const file = e.name === 'Read' && !!e.arg;   // a Read names a file: its path opens it
-      return <Row src={src} icon={icon} verb={verb} status={e.status} arg={file ? <code className="flink" data-p={e.arg} title={`Open ${e.arg} · g f`}>{e.arg}</code> : <code>{e.arg}</code>} meta={e.meta} body={body} />;
-    }
-    case 'edit':
-      return <Row src={src} icon="diff" verb="Edited" status={e.status} open={!!e.diff}
-        arg={<code className="flink" data-p={e.path} title={`Open ${e.path} · g f`}>{e.path}</code>} meta={<><span className="c-add">+{e.add}</span> <span className="c-del">−{e.del}</span></>} body={e.diff ? <Diff text={e.diff} /> : undefined} />;
+    case 'thinking': case 'tool': case 'edit': return <StepRow e={e} c={c} f={f} />;
     case 'todo':
       return <div className="todo" data-src={src}>{e.items.map((it, i) => {
         const now = !it.done && e.items.findIndex(x => !x.done) === i;
@@ -147,7 +221,7 @@ function Event({ e, c, all }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEve
     }
     case 'notice': return <div className="err-row info" data-src={src} role="status"><Icon name="layers" /><span>{e.text}</span></div>;
     case 'interrupted': return <div className="note-row" data-src={src}><Icon name="stop" /><span>Interrupted</span></div>;
-    case 'worked': return <div className="worked" data-src={src}>Worked for {dur(e.ms)} <Icon name="chev" /></div>;
+    case 'worked': return null;   // the duration heads the turn's work: see Turn
     case 'sub': return null;   // grouped: see Subagents
   }
 }
@@ -179,8 +253,68 @@ function Acts({ c, at, text, last, when }: { c: TranscriptCtx; at: string; text:
   );
 }
 
+/** A run of events as they come, with consecutive subagents as one block. */
+function inOrder(list: ThreadEvent[], c: TranscriptCtx, f: Folds, all: ThreadEvent[]): ReactNode[] {
+  const out: ReactNode[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const e = list[i];
+    if (e.t === 'sub') {
+      const run: Ev<'sub'>[] = [];
+      while (list[i]?.t === 'sub') run.push(list[i++] as Ev<'sub'>);
+      i--;
+      out.push(<Subagents key={run[0].id} subs={run} c={c} />);
+      continue;
+    }
+    out.push(<Event key={e.id} e={e} c={c} all={all} f={f} />);
+  }
+  return out;
+}
+
+/** One reply. Its work (the agent's notes and steps) sits under "Worked for", a fold at the top; the notes after the
+ *  last step are the answer, below it. What needs you or went wrong (requests, errors, subagents, the latest to-do
+ *  list, images) stays out of the fold. While the turn runs, the fold is open with its newest run of steps open too;
+ *  a run folds when the agent writes its next note, and in Compact the whole turn folds when it ends. */
+/** Links to the side chats started from a note. A note in the turn's work shows them below the fold, so they stay in view when it is shut. */
+function SideLinks({ at, c }: { at: string; c: TranscriptCtx }) {
+  const sides = c.main ? S.threads.filter(t => t.side && t.parent?.id === c.thread.id && t.parent.at === at) : [];
+  if (!sides.length) return null;
+  return <div className="sc-links">{sides.map(x => <button key={x.id} type="button" className="sc-link" onClick={() => c.onOpenSide?.(x.id)}><Icon name="chat" /><span>{x.title}</span></button>)}</div>;
+}
+
+function Turn({ reply, c, f, live, all }: { reply: ThreadEvent[]; c: TranscriptCtx; f: Folds; live: boolean; all: ThreadEvent[] }): ReactNode[] {
+  const worked = reply.find((e): e is Ev<'worked'> => e.t === 'worked');
+  const evs = reply.filter(e => e.t !== 'worked');
+  let last = -1; evs.forEach((e, i) => { if (isStep(e)) last = i; });
+  if (last < 0) return inOrder(evs, c, f, all);   // nothing but words: a plain answer
+  const lastTodo = evs.filter(e => e.t === 'todo').pop();
+  const pinned = (e: ThreadEvent) => e.t === 'sub' || e.t === 'approval' || e.t === 'error' || e.t === 'interrupted' || e.t === 'image' || e === lastTodo;
+  const end = live ? evs.length : last + 1;
+  const work = evs.slice(0, end).filter(e => !pinned(e) && e.t !== 'todo');
+  const nodes: ReactNode[] = [];
+  for (let i = 0; i < work.length; i++) {
+    const e = work[i];
+    if (!isStep(e)) { nodes.push(<Event key={e.id} e={e} c={c} all={all} f={f} folded />); continue; }
+    const run: Step[] = [];
+    while (work[i] && isStep(work[i])) run.push(work[i++] as Step);
+    i--;
+    nodes.push(<Run key={'run:' + run[0].id} run={run} c={c} f={f} open={c.density === 'detailed' || (live && i === work.length - 1)} />);
+  }
+  const k = 'turn:' + evs[0].id, def = live || c.density !== 'compact', open = f.open(k, def);
+  const edits = work.filter((e): e is Ev<'edit'> => e.t === 'edit');
+  return [
+    <Fold key={k} f={f} k={k} def={def} className="turn" src={`${c.src}:${evs[0].id}:turn`} head={<span className="v">{live ? 'Working' : worked ? `Worked for ${dur(worked.ms)}` : 'Worked'}</span>}>
+      <div className="fold-b">{nodes}</div>
+    </Fold>,
+    ...(work.filter(e => e.t === 'text').map(e => <SideLinks key={'sides:' + e.id} at={e.id} c={c} />)),
+    ...inOrder(evs.filter(pinned), c, f, all),
+    ...inOrder(evs.slice(end).filter(e => !pinned(e)), c, f, all),
+    ...(!live && !open && edits.length ? [<Edited key="edited" edits={edits} />] : []),
+  ];
+}
+
 /** The whole transcript, grouped into your messages and replies. */
 export function Transcript({ events, c, running, since }: { events: ThreadEvent[]; c: TranscriptCtx; running: boolean; since: number }) {
+  const f = useFolds(c.density);
   // group: a user message, then everything until the next one is its reply
   const groups: { user?: Ev<'user'>; reply: ThreadEvent[] }[] = [];
   for (const e of events) {
@@ -189,25 +323,13 @@ export function Transcript({ events, c, running, since }: { events: ThreadEvent[
   }
   const out: ReactNode[] = [];
   groups.forEach((g, gi) => {
-    if (g.user) out.push(<Event key={g.user.id} e={g.user} c={c} all={events} />);
-    const lastGroup = gi === groups.length - 1;
-    const body: ReactNode[] = [];
-    for (let i = 0; i < g.reply.length; i++) {
-      const e = g.reply[i];
-      if (e.t === 'sub') {
-        const run: Ev<'sub'>[] = [];
-        while (g.reply[i]?.t === 'sub') run.push(g.reply[i++] as Ev<'sub'>);
-        i--;
-        body.push(<Subagents key={run[0].id} subs={run} c={c} />);
-        continue;
-      }
-      body.push(<Event key={e.id} e={e} c={c} all={events} />);
-    }
+    if (g.user) out.push(<Event key={g.user.id} e={g.user} c={c} all={events} f={f} />);
+    const lastGroup = gi === groups.length - 1, live = lastGroup && running, waiting = lastGroup && pending(c.thread.id).length > 0;
+    const body = Turn({ reply: g.reply, c, f, live: live || waiting, all: events });   // a turn waiting on your answer is still open
     const streaming = g.reply.some(e => e.t === 'text' && e.streaming);
-    if (lastGroup && running && !streaming) body.push(<Live key="live" since={since} />);
+    if (live && !streaming) body.push(<Live key="live" since={since} />);
     const texts = g.reply.filter((e): e is Ev<'text'> => e.t === 'text');
-    const done = !lastGroup || !running;
-    if (done && texts.length && c.main) body.push(<Acts key="acts" c={c} at={texts[texts.length - 1].id} text={texts.map(x => x.text).join('\n\n')} last={lastGroup} when={groups[gi + 1]?.user?.at} />);
+    if (!live && texts.length && c.main) body.push(<Acts key="acts" c={c} at={texts[texts.length - 1].id} text={texts.map(x => x.text).join('\n\n')} last={lastGroup} when={groups[gi + 1]?.user?.at} />);
     if (body.length) out.push(<div key={'r' + gi} className="reply">{body}</div>);
   });
   return <>{out}</>;

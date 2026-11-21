@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Options, Query, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 import { fakeHost, tick, until } from '../test/fakes';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Machine, ThreadEvent } from '../../../shared/types';
 import { approvalFor, ClaudeDriver, type QueryFn } from './driver';
 import { userText } from './fold';
-import { currentChain, parseClaudeTranscript } from './history';
+import { claudeSubHistory, currentChain, parseClaudeTranscript } from './history';
 
 const J = (o: object) => JSON.stringify(o);
 const asst = (uuid: string, parent: string, msgId: string, block: object, ts = '2026-11-20T10:00:05Z') =>
@@ -47,7 +51,7 @@ describe('Claude history', () => {
     expect(events[0]).toMatchObject({ t: 'user', id: 'u1', text: 'Fix the failing test' });
     expect(events[1]).toMatchObject({ id: 'm1:0', text: 'Look at the test first.' });
     expect(events[2]).toMatchObject({ id: 'm1:1', text: 'Running the tests.' });
-    expect(events[3]).toMatchObject({ t: 'tool', id: 'tu1', name: 'Bash', arg: 'npm test', out: '1 failing', status: 'done' });
+    expect(events[3]).toMatchObject({ t: 'tool', id: 'tu1', name: 'Bash', kind: 'command', arg: 'npm test', out: '1 failing', status: 'done' });
     expect(events[4]).toMatchObject({ t: 'edit', id: 'tu2', path: '/p/a.ts', add: 2, del: 1, status: 'done' });
     expect(events[6]).toMatchObject({ t: 'worked', ms: 9000 });
     expect(events[7]).toMatchObject({ t: 'user', text: '/compact keep tests' });
@@ -219,5 +223,89 @@ describe('Claude driver', () => {
     finish();
     await r;
     expect(released).toBe(true);
+  });
+});
+
+// Shapes from a real run (Claude Code 2026-11): the Agent tool launches the subagent in the background, its own
+// transcript is <session>/subagents/agent-<agentId>.jsonl (a sidechain) beside a .meta.json naming the tool call,
+// and a <task-notification> message in the session says when it ended.
+describe('Claude subagents', () => {
+  const agentCall = { type: 'tool_use', id: 'tuA', name: 'Agent', input: { description: 'Count files', subagent_type: 'general-purpose', prompt: 'Run ls /etc and report the names.' } };
+  const launched = { isAsync: true, status: 'async_launched', agentId: 'a08', description: 'Count files' };
+  const note = '<task-notification>\n<task-id>a08</task-id>\n<tool-use-id>tuA</tool-use-id>\n<status>completed</status>\n<summary>Agent "Count files" finished</summary>\n<usage><subagent_tokens>21890</subagent_tokens><tool_uses>1</tool_uses><duration_ms>1426</duration_ms></usage>\n</task-notification>';
+  const session = [
+    user('u1', null, 'Count the files with a subagent'),
+    asst('a1', 'u1', 'm1', agentCall),
+    user('r1', 'a1', [{ type: 'tool_result', tool_use_id: 'tuA', content: 'Async agent launched successfully.' }], { toolUseResult: launched }),
+    asst('a2', 'r1', 'm2', { type: 'text', text: 'It is running.' }),
+    user('n1', 'a2', note, { origin: { kind: 'task-notification' } }),
+    asst('a3', 'n1', 'm3', { type: 'text', text: 'Done.' }),
+  ].join('\n');
+  const side = (o: string) => ({ ...JSON.parse(o), isSidechain: true, agentId: 'a08' });
+  const subTranscript = [
+    side(user('s1', null, 'Run ls /etc and report the names.')),
+    side(asst('s2', 's1', 'sm1', { type: 'tool_use', id: 'tuB', name: 'Bash', input: { command: 'ls /etc | head -3' } })),
+    side(user('s3', 's2', [{ type: 'tool_result', tool_use_id: 'tuB', content: 'X11', is_error: false }])),
+    side(asst('s4', 's3', 'sm2', { type: 'text', text: 'It printed X11.' })),
+  ];
+
+  it('history: a background subagent runs until its task notification, which the transcript does not show', () => {
+    const { events } = parseClaudeTranscript(session);
+    const sub = events.find(e => e.t === 'sub');
+    expect(sub).toMatchObject({ id: 'tuA', name: 'general-purpose', task: 'Count files', status: 'done', dur: '1s', agent: 'a08' });
+    expect(events.filter(e => e.t === 'user').map(e => (e as { text: string }).text)).toEqual(['Count the files with a subagent']);
+    const running = parseClaudeTranscript(session.split('\n').slice(0, 4).join('\n')).events.find(e => e.t === 'sub');
+    expect(running).toMatchObject({ status: 'running', agent: 'a08' });
+  });
+
+  it("history: a subagent's own transcript folds into its turns, its prompt under the id the live stream gives it", () => {
+    const { events } = parseClaudeTranscript(subTranscript, 'tuA');
+    expect(events.map(e => [e.t, e.id])).toEqual([['user', 'p-tuA'], ['tool', 'tuB'], ['text', 'sm2:0']]);
+    expect(events[1]).toMatchObject({ name: 'Bash', out: 'X11', status: 'done' });
+  });
+
+  it('reads the transcript by agentId, or finds it through the .meta.json that names the tool call', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'skein-sub-'));
+    const dir = join(home, '.claude', 'projects', '-p', 'sess', 'subagents');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'agent-a08.jsonl'), subTranscript.map(o => JSON.stringify(o)).join('\n'));
+    writeFileSync(join(dir, 'agent-a08.meta.json'), JSON.stringify({ agentType: 'general-purpose', toolUseId: 'tuA' }));
+    writeFileSync(join(dir, 'agent-zz.meta.json'), JSON.stringify({ agentType: 'Explore', toolUseId: 'tuOther' }));
+    const was = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, CFG: process.env.CLAUDE_CONFIG_DIR };
+    process.env.HOME = process.env.USERPROFILE = home; delete process.env.CLAUDE_CONFIG_DIR;
+    try {
+      const local = { id: 'local', name: 'This computer' } as Machine;
+      expect((await claudeSubHistory(local, 'sess', 'tuA', 'a08')).map(e => e.id)).toEqual(['p-tuA', 'tuB', 'sm2:0']);
+      expect((await claudeSubHistory(local, 'sess', 'tuA')).map(e => e.id)).toEqual(['p-tuA', 'tuB', 'sm2:0']);
+      expect(await claudeSubHistory(local, 'sess', 'tuNone')).toEqual([]);
+    } finally {
+      for (const [k, v] of [['HOME', was.HOME], ['USERPROFILE', was.USERPROFILE], ['CLAUDE_CONFIG_DIR', was.CFG]] as const) if (v == null) delete process.env[k]; else process.env[k] = v;
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('live: subagent messages (parent_tool_use_id) stream into its event; the task notification ends it', async () => {
+    const msgs = [
+      { type: 'system', subtype: 'init', session_id: 's' },
+      { type: 'assistant', uuid: 'a1', message: { id: 'm1', content: [agentCall] }, parent_tool_use_id: null },
+      { type: 'user', uuid: 'r1', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tuA', content: 'launched' }] }, tool_use_result: launched, parent_tool_use_id: null },
+      { type: 'assistant', uuid: 's2', message: { id: 'sm1', content: [{ type: 'tool_use', id: 'tuB', name: 'Bash', input: { command: 'ls' } }] }, parent_tool_use_id: 'tuA', agent_id: 'a08' },
+      { type: 'user', uuid: 's3', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tuB', content: 'X11' }] }, parent_tool_use_id: 'tuA', agent_id: 'a08' },
+      { type: 'assistant', uuid: 's4', message: { id: 'sm2', content: [{ type: 'text', text: 'It printed X11.' }] }, parent_tool_use_id: 'tuA', agent_id: 'a08' },
+      { type: 'system', subtype: 'task_notification', task_id: 'a08', tool_use_id: 'tuA', status: 'completed', output_file: '', summary: '', usage: { total_tokens: 1, tool_uses: 1, duration_ms: 65_000 } },
+      { type: 'result', subtype: 'success', duration_ms: 10, is_error: false },
+    ];
+    let opts: Options | undefined;
+    const q: QueryFn = (({ options }: { options: Options }) => { opts = options; return (async function* () { for (const m of msgs) yield m as unknown as SDKMessage; })() as unknown as Query; }) as unknown as QueryFn;
+    const h = fakeHost([{ id: 't1', harness: 'claude', sessionId: 's', dir: process.cwd() }]);
+    const d = new ClaudeDriver('t1', h.host, async () => q);
+    await d.send({ text: 'Count the files with a subagent' });
+    await until(() => h.view().some(e => e.t === 'sub' && e.status === 'done'));
+    expect(opts?.forwardSubagentText).toBe(true);
+    const sub = h.view().find(e => e.t === 'sub') as Extract<ThreadEvent, { t: 'sub' }>;
+    expect(sub).toMatchObject({ agent: 'a08', dur: '1m 5s' });
+    // the same ids history gives, so the popup merges the two without doubles
+    expect(sub.events?.map(e => [e.t, e.id])).toEqual([['user', 'p-tuA'], ['tool', 'tuB'], ['text', 'sm2:0']]);
+    await expect(d.send({ text: 'hi', sub: 'tuA' })).rejects.toThrow(/Follow-ups aren't available/);
   });
 });

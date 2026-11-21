@@ -22,6 +22,7 @@ import { captureKeys } from './keyboard';
 import { log } from '../views/chat/state';
 import { openSide, openSub } from '../views/chat/threads';
 import { openTool } from '../views/tools/open';
+import { DENSITY, DENSITY_NAME } from '../views/chat/options';
 
 /** Open any menu as an overlay. */
 export function openMenu<D>(p: Omit<MenuProps<D>, 'onClose'> & { onClose?: () => void }) {
@@ -103,6 +104,7 @@ const ACTIONS: [string, string, string][] = [
   ['Open changes beside', 'diff', 'changes'], ['Open files beside', 'file', 'files'], ['Open browser beside', 'globe', 'browser'],
   ['Zoom pane', 'zoom', 'zoom'], ['Close tab', 'x', 'q'],
   ['Workspaces', 'layers', 'workspace'], ['Machines', 'host', 'machines'], ['Settings', 'sliders', 'settings'], ['Keyboard shortcuts', 'keyboard', 'keys'],
+  ['Agent work: Compact', 'layers', 'compact'], ['Agent work: Balanced', 'layers', 'balanced'], ['Agent work: Detailed', 'layers', 'detailed'],
 ];
 /** A thread's state on the right of a row, as in the sidebar: spinner, shield, dot, else its age. */
 const threadRight = (id: string) => { const t = thread(id); if (!t) return undefined; return t.status === 'idle' ? <span className="age">{ago(t.updatedAt)}</span> : <ThreadStatus t={t} />; };
@@ -506,6 +508,7 @@ function Settings({ close, section, row: row0 }: { close: () => void; section?: 
     ]],
     ['Appearance', 'sun', [
       { label: 'Theme', seg: [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], get: () => s.settings.theme, set: v => setSetting({ theme: v as never }) },
+      { label: 'Agent work', desc: 'How much of a turn\'s steps stay open. zr and zm change it for one thread', seg: DENSITY.map(d => [d, DENSITY_NAME[d]]), get: () => s.settings.density || 'compact', set: v => setSetting({ density: v as never }) },
     ]],
     ['Vim', 'keyboard', [
       { label: 'Vim keys', desc: 'Modal editing in composers, menus and read-only text', sw: () => s.settings.vim, toggle: () => setSetting({ vim: !s.settings.vim }) },

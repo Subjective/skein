@@ -18,7 +18,7 @@ How it was audited (2026-11-20):
 
 Status: **Fixed** (the app now does what the mockup does; the pointer is where), **In progress** (being fixed
 now, lands in the next batch), **Proposed deviation** (the app would differ on purpose, with the reason; none is
-final until Josh approves it).
+final until Josh approves it), **Approved deviation** (Josh approved the difference).
 Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Deviation, 33 Open (T12 counts as both Fixed and Deviation). Paths are under `src/renderer/src/`. KNOWN-n is the first-pass gap list.
 
 ## Keys and modes
@@ -104,7 +104,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | chat C18 | Drafts keep their quotes across a relaunch | Fixed | `views/chat/state.ts:80`. |
 | chat C19 | A yanked and put token gets its own quote | Fixed | syncQuotes makes a twin. |
 | chat S1 | The selection bar is clamped by its own width | Fixed | `views/chat/SelBar.tsx:13`. |
-| chat S2 | The selection bar shows in every view | Proposed deviation | Files and diffs have their own selection handling; quoting from them works (CT-61, CT-70). |
+| chat S2 | The selection bar shows in every view | Fixed | `views/tools/mousesel.tsx` shows the chat's SelBar in the file view and in Changes diffs (clicks F1, F3, C1, DR2, DR3). |
 | chat S4 | The bar hides when the selection collapses | Fixed | selectionchange in ChatView. |
 | chat S5 | A drag is clamped live to its block | Fixed | `views/chat/ChatView.tsx:62-77`. |
 | chat S7 | mod-l with no selection does nothing | Proposed deviation | See keys G12. |
@@ -129,6 +129,8 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | chat M9 | /model at the start of an empty draft clears it | Proposed deviation | Only the word is removed, so a draft is never lost (HANDOFF). |
 | chat M11 | /model, /side, /sidechats, /subagents typed alone run on enter | Fixed | `views/chat/Composer.tsx:150-156`. |
 | chat M12 | /model in a subagent | Proposed deviation | A subagent uses its thread's model. |
+| chat SUB1 | A subagent popup shows the subagent's turns, live and from history | Fixed | Claude: the SDK's `forwardSubagentText` streams them (`core/harness/claude/driver.ts`); history reads `<session>/subagents/agent-<id>.jsonl` (`claude/history.ts` claudeSubHistory). Codex: a sub-agent is a thread of its own, read with `thread/read` and listened to live (`codex/driver.ts`). API `threads.sub`; the popup re-reads every 2.5 s while the subagent runs (`views/chat/ChatView.tsx` useSubTurns). |
+| chat SUB2 | A subagent the harness takes no messages for (Claude Code) | Deviation (decided by Josh) | The composer is grayed out and reads "Follow-ups aren't available for this subagent"; the popup opens in NORMAL on its transcript (`views/chat/Composer.tsx` LockedComposer). Codex sub-agents take follow-ups: a turn on the sub-agent's thread (steered while it runs). |
 | chat M13, M14 | @ lists every project file by substring; no empty state | Proposed deviation | Real filesystem browsing, folder by folder, with a Loading state. |
 | chat D1 | Reply actions show the age on every turn; tooltip names /side | Fixed | Transcript Acts. /side is back (Josh, 2026-11-20): it starts a side chat at once, about the composer's quote (which moves into it) or the last reply; /sidechats lists them. |
 | chat D2 | No reply actions in side chats | Fixed | Transcript `c.main`. |
@@ -141,11 +143,12 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | KNOWN-54 | VISUAL / V-LINE (and a mouse drag) is bounded by the message: a whole reply, prose, code and tool rows together, or one of your bubbles; in VISUAL `gg` / `G` go to its start and end and `j` / `k` stop at its edges | Fixed (Josh's request) | `views/chat/reader.ts` SEL_BLOCK, `edge`; `views/chat/ChatView.tsx` drag clamp; UI tests "VISUAL gg / G stay inside one reply", "a mouse drag past a reply". Supersedes chat S5's per-block clamp. |
 | KNOWN-56 | `V` then `y` in a reply copies the Markdown behind the lines (bullets, numbers, emphasis, links, code fences); `v` then `y` copies the text as shown | Fixed (Josh's request) | `views/chat/markdown.tsx` `data-ml` and rawLines, `views/chat/reader.ts` markdown(); UI tests "reader yank". |
 | KNOWN-58 | `esc` `esc` stops a running turn: the first `esc` in the composer's NORMAL arms the stop button ("Esc", 1.5 s, scale / opacity in from `ui/motion`, aria-label "Press Esc again to stop"), the second stops as the stop button does; when the window ends nothing stops and the next `esc` leaves; a side chat stops its own turn | Fixed (Josh's request) | `views/chat/Composer.tsx` escStop, `ui/primitives.tsx` SendButton `armed`, `views/chat/chat.css` `.send.armed`; VIM-MODEL rule 2; UI tests "esc esc stops a running turn", "esc esc: after the 1.5 s window". |
+| chat TL1 | A long thread's timeline rail stays inside the pane: capped to its height, scrolled by the wheel, following the message you read, its clipped ends faded (as in Codex) | Proposed deviation (Josh's request; the mockup's rail grows with the thread) | `views/chat/Ticks.tsx`, `styles/skein.css` `.ticks`; UI test "timeline ticks: a long thread caps the rail"; before/after `skein-timeline/`. |
 | chat D11 | No timeline ticks in side chats | Fixed | `views/chat/ChatView.tsx:346`. |
 | chat T1 | User bubbles show quote chips; images zoom | Fixed | Transcript `.qtok`, lightbox. |
-| chat T3 | Every Edit diff starts open | Fixed | `views/chat/Transcript.tsx:127`. |
+| chat T3 | Every Edit diff starts open | Deviation (approved by Josh) | Diffs start open only in the Detailed density; in Compact and Balanced an edit is one row that `l` or a click opens (`views/chat/Transcript.tsx` StepRow). |
 | chat T5 | Read / Edit paths are links that open the file | Fixed | `views/chat/Transcript.tsx:124-128`, reader `g f`. |
-| chat T8 | "Worked for" has a chevron | Fixed | `views/chat/Transcript.tsx:149`. |
+| chat T8 | "Worked for" has a chevron | Deviation (approved by Josh) | The chevron now does something: "Worked for 2m 13s" heads the turn ("Working" while it runs) and folds its notes and steps, Codex style. Steps between two notes are one run row named by kind ("Edited 2 files, ran 2 commands, thought"). Density Compact (default) / Balanced / Detailed sets how much stays open; the answer, requests, errors, subagents and the latest to-do list always show. No counts or failed totals in the header; a failed step is red on its own row. `views/chat/Transcript.tsx` Turn, Run; UI tests "folds:". |
 | chat T10 | Plan card with a file, Open and Approve | Proposed deviation | The harness sends the plan as request text, not a file. |
 | chat A3 | Error rows use the alert icon and are button rows | Fixed | `views/chat/Transcript.tsx:78-79, 143`; no "Resets at" (no data). |
 | chat A4 | Fix buttons: Resuming / Retrying, auth opens /login, missing copies the install | Fixed | `views/chat/Transcript.tsx:89`; auth opens the real terminal. |
@@ -306,7 +309,7 @@ during this review; rows say what was seen in the browser build at the time.
 | clicks F2 | A click on a file's line number puts the cursor at the line start | Fixed | `views/tools/FileView.tsx:288`; a double click there no longer edits. |
 | clicks T17, C3 | A double click on a tool summary or a Changes file header selects the word in VISUAL | Fixed | Tool summaries: `views/chat/ChatView.tsx:337` lets a double click through to VISUAL with the bar. Changes: `views/tools/ChangesView.tsx:389`. |
 | clicks T27 | The attach + button keeps the caret in the composer | Fixed | `views/chat/Composer.tsx` prevents the mousedown (uncommitted). |
-| clicks L1, L2, E5, D3 | Opening a thread from a sidebar row or a side chat's anchor lands in NORMAL | Proposed deviation | D3 Fixed (`views/chat/ChatView.tsx:173`: back from a side chat's anchor in NORMAL). L1, L2, E5: a thread opened from a sidebar row still opens in INSERT, as VIM-MODEL's table says (Composer: INSERT) and the "opens in INSERT" test pins; a click on the open thread's row drops to NORMAL (GAP-A). |
+| clicks L1, L2, E5, D3 | Opening a thread from a sidebar row or a side chat's anchor lands in NORMAL | Approved deviation (Josh, 2026-11-21) | D3 Fixed (`views/chat/ChatView.tsx:173`: back from a side chat's anchor in NORMAL). L1, L2, E5: a thread opened from a sidebar row still opens in INSERT, as VIM-MODEL's table says (Composer: INSERT) and the "opens in INSERT" test pins; a click on the open thread's row drops to NORMAL (GAP-A). |
 | clicks F1, F3 | A double click in the file view selects the word in VISUAL with the quote bar | Fixed | `views/tools/FileView.tsx:312` with `views/tools/mousesel.tsx` (the chat's SelBar); a triple click is V-LINE, a double click on a blank line does nothing, editing stays on i / a. |
 | clicks C1 | A double or triple click in a Changes diff selects the word or line | Fixed | `views/tools/ChangesView.tsx:389`; a click draws the character cursor (:382); enter or g f opens the file (the mockup has no mouse gesture for it). |
 | clicks DR2, DR3, Z18 | A drag in the file view or a Changes diff gives VISUAL and the quote bar | Fixed | `views/tools/FileView.tsx:312`, `views/tools/ChangesView.tsx:389`, `views/tools/mousesel.tsx`; a click on the toolbar clears the selection and the bar. |

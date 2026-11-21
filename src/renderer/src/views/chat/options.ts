@@ -2,13 +2,17 @@
 // (api.harness.options, asked once per machine and harness and kept here), and shared/models.ts's lists
 // until it answers or when it can't be asked. The backend takes ids or labels; we store ids.
 import { useEffect, useState } from 'react';
-import type { Harness } from '@shared/types';
+import type { Density, Harness } from '@shared/types';
 import { bundledOptions, EFFORTS, PERMS, effortId, findModel, modelId as sharedModelId, permId, type HarnessOptions, type ModelDef } from '@shared/models';
 import { bundledCommands, type HarnessCommand, type HarnessCommands } from '@shared/commands';
 import { api } from '../../api';
 import { bump } from './state';
 
 export interface Opt { id: string; label: string; hint?: string }
+
+/** How much of an agent's steps a turn shows, least first (zm and zr step through them). */
+export const DENSITY: Density[] = ['compact', 'balanced', 'detailed'];
+export const DENSITY_NAME: Record<Density, string> = { compact: 'Compact', balanced: 'Balanced', detailed: 'Detailed' };
 
 const RENEW = 10 * 60_000;
 const kept = new Map<string, { at: number; o: HarnessOptions }>();

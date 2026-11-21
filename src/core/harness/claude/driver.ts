@@ -115,7 +115,8 @@ export class ClaudeDriver implements ChatDriver {
   private status(s: ThreadMeta['status']) { if (this.t.status !== s) this.host.update(this.id, { status: s }); }
 
   async send(msg: ChatSend): Promise<void> {
-    if (msg.sub) { this.ev({ t: 'notice', id: 'n-' + randomUUID(), text: 'Claude Code cannot message a subagent directly. Send it to the thread instead.' }); return; }
+    // Claude Code takes no messages for a subagent from outside it (its popup's composer says so)
+    if (msg.sub) throw new Error("Follow-ups aren't available for this subagent");
     let text = msg.text, images = msg.images;
     let rewind = msg.rewind;
     if (msg.retry) {
@@ -199,6 +200,8 @@ export class ClaudeDriver implements ChatDriver {
     const opts: Options = {
       cwd: m.ssh ? undefined : expand(t.dir),
       includePartialMessages: true,
+      // a subagent's whole conversation, not only its tool calls: its popup shows its turns as they happen
+      forwardSubagentText: true,
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       settingSources: ['user', 'project', 'local'],
       canUseTool: this.canUseTool,
@@ -267,6 +270,7 @@ export class ClaudeDriver implements ChatDriver {
         if (m.subtype === 'init') {
           if (m.session_id && m.session_id !== this.t.sessionId) this.host.update(this.id, { sessionId: m.session_id });
         } else if (m.subtype === 'compact_boundary') this.fold.notice('c-' + m.uuid, 'Context compacted');
+        else if (m.subtype === 'task_notification' && m.tool_use_id) this.fold.subEnded(m.tool_use_id, m.status, m.usage?.duration_ms);
         return;
       case 'stream_event': return this.onStream(m.event as unknown as StreamEv, m.parent_tool_use_id);
       case 'assistant':

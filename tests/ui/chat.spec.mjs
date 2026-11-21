@@ -9,6 +9,8 @@ async function openChat(p, title) {
   await p.waitForSelector('.pane.focus .chat .col[data-read] > *');
 }
 const composer = p => p.locator('.pane.focus .compw textarea');
+/** Into the reader (esc, k) and open every fold (zR), for tests about the whole transcript's text. */
+async function openAll(p) { await composer(p).press('Escape'); await keys(p, 'k z Shift+R'); await settle(p); }
 
 await test('opens in INSERT with the composer focused', async p => {
   await openChat(p, 'Add timestamps to chat rows');
@@ -26,7 +28,6 @@ await test('send: message, streamed reply, worked row; empty send is disabled', 
   assert.equal(await composer(p).inputValue(), '');
   await p.locator('.pane.focus .live').waitFor();
   await p.locator('.pane.focus .m-asst', { hasText: 'browser preview' }).waitFor();
-  await p.locator('.pane.focus .worked').last().waitFor();
   await p.waitForFunction(() => !document.querySelector('.pane.focus .live'));
 });
 
@@ -120,7 +121,7 @@ await test('reader: k from the composer never scrolls; leader [ goes back to whe
   await openChat(p, 'Fix session-restore race');
   const th = p.locator('.pane.focus .thread');
   const cur = () => p.evaluate(() => { const h = [...(CSS.highlights.get('vcur') || [])][0]; const s = document.querySelector('.pane.focus .thread').getBoundingClientRect(); const r = h ? h.getBoundingClientRect() : document.querySelector('.pane.focus .rowcur')?.getBoundingClientRect(); return r && { top: r.top - s.top, bottom: s.bottom - r.bottom }; });
-  await composer(p).press('Escape');
+  await openAll(p);
   await p.keyboard.press('g'); await p.keyboard.press('g'); await settle(p);
   await p.keyboard.press('q'); await settle(p);
   // the cursor it left (the top line) is still on screen: k goes back to it
@@ -152,9 +153,9 @@ await test('requests: 1 of 3, y allows the oldest, n denies the next, buttons an
   await composer(p).press('Escape');
   await p.keyboard.press('y');
   await p.locator('.pane.focus .appr .count', { hasText: '1 of 2' }).waitFor();
-  await p.locator('.pane.focus .tool', { hasText: 'pnpm build && pnpm shot composer' }).waitFor();
+  await p.locator('.pane.focus .tool:not(.turn):not(.run)', { hasText: 'pnpm build && pnpm shot composer' }).last().waitFor();
   await p.keyboard.press('n');
-  await p.locator('.pane.focus .tool', { hasText: 'pnpm test ui/composer' }).waitFor();
+  await p.locator('.pane.focus .tool:not(.turn):not(.run)', { hasText: 'pnpm test ui/composer' }).last().waitFor();
   assert.equal(await p.locator('.pane.focus .appr .count').count(), 0, 'the last request shows no count');
   await p.locator('.pane.focus .appr .af .btn.primary', { hasText: 'Allow' }).click();
   await p.waitForFunction(() => !document.querySelector('.pane.focus .appr'));
@@ -251,6 +252,20 @@ await test('subagent: a row opens its popup in INSERT, ready to message it', asy
   await pop.locator('textarea').press('Enter');
   await pop.locator('.m-user', { hasText: 'anything else?' }).waitFor();
   await pop.locator('.m-asst', { hasText: 'Nothing else failed' }).waitFor();
+});
+
+await test('subagent without follow-ups: its turns show, the composer is grayed out and says why', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await p.locator('.pane.focus .ag', { hasText: 'Explore' }).click();
+  const pop = p.locator('.peek.focus');
+  await pop.locator('.m-asst', { hasText: 'Three callers' }).waitFor();
+  const box = pop.locator('.comp.locked');
+  await box.waitFor();
+  assert.equal(await box.locator('textarea').getAttribute('placeholder'), "Follow-ups aren't available for this subagent");
+  assert.ok(await box.locator('textarea').isDisabled(), 'nothing to type into');
+  assert.ok(await box.locator('.send').isDisabled(), 'nothing to send');
+  await settle(p);
+  assert.equal(await mode(p), 'NORMAL', 'the popup reads instead of typing');
 });
 
 await test('/subagents lists them; picking opens the popup', async p => {
@@ -400,6 +415,42 @@ await test('quote toolbar: a mouse drag shows Add to Chat', async p => {
   assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 1);
 });
 
+await test('folds: Compact shuts a finished turn under Worked for; zr Balanced, zr Detailed, zm back; zR / zM open and shut all', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const st = () => p.evaluate(() => {
+    const d = [...document.querySelectorAll('.pane.focus .reply')][0];
+    const turn = d.querySelector('details.tool.turn'), runs = [...d.querySelectorAll('details.tool.run')];
+    return { head: turn.querySelector(':scope > summary').innerText.trim(), turn: turn.open, runs: runs.map(r => r.open), edited: !!d.querySelector(':scope > .tool.edited'), steps: [...d.querySelectorAll('.run .fold-b > details.tool')].map(x => x.open) };
+  });
+  let s = await st();
+  assert.match(s.head, /^Worked for \d/, 'the header is the duration');
+  assert.ok(!s.turn && s.edited, 'Compact: shut, with the edited files below');
+  assert.ok(!(await p.locator('.pane.focus .reply').first().innerText()).match(/tool calls|failed/), 'no counts in the header');
+  await openAll(p); await keys(p, 'z Shift+M'); await settle(p);
+  await keys(p, 'z r'); s = await st();
+  assert.ok(s.turn && s.runs.every(o => !o) && !s.edited, `Balanced: open, runs shut (${JSON.stringify(s)})`);
+  await keys(p, 'z r'); s = await st();
+  assert.ok(s.turn && s.runs.every(o => o), 'Detailed: every run open');
+  await keys(p, 'z m z m'); s = await st();
+  assert.ok(!s.turn, 'zm zm: back to Compact');
+  await keys(p, 'z Shift+R'); s = await st();
+  assert.ok(s.turn && s.runs.every(o => o) && s.steps.every(o => o), 'zR opens every fold');
+  await keys(p, 'z Shift+M'); s = await st();
+  assert.ok(!s.turn, 'zM shuts them');
+});
+
+await test('folds: the Agent work setting sets the density for every thread', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).press('Escape');
+  await p.keyboard.press(`${mod}+k`);
+  await p.keyboard.type('Detailed');
+  await p.keyboard.press('Enter');
+  await settle(p);
+  assert.ok(await p.locator('.pane.focus details.tool.turn').first().evaluate(d => d.open), 'Detailed: the finished turn is open');
+  await p.keyboard.press(`${mod}+k`); await p.keyboard.type('Compact'); await p.keyboard.press('Enter'); await settle(p);
+  assert.ok(!(await p.locator('.pane.focus details.tool.turn').first().evaluate(d => d.open)), 'Compact: shut again');
+});
+
 await test('timeline ticks: one per message, hover previews, click scrolls', async p => {
   await openChat(p, 'Fix session-restore race');
   const ticks = p.locator('.pane.focus .ticks button');
@@ -411,6 +462,33 @@ await test('timeline ticks: one per message, hover previews, click scrolls', asy
   assert.ok(t.includes('stale') && t.includes('restore path'), 'shows the message and the reply start');
   await ticks.first().click();
   await p.waitForFunction(() => document.querySelector('.pane.focus .thread').scrollTop < 60);
+});
+
+await test('timeline ticks: a long thread caps the rail to the pane; it scrolls, follows the message you read and fades its clipped ends', async p => {
+  await openChat(p, 'Walk through the backlog');
+  const rail = p.locator('.pane.focus .ticks');
+  const m = () => rail.evaluate(el => {
+    const r = el.getBoundingClientRect(), pane = el.closest('.pane').getBoundingClientRect(), on = el.querySelector('button.on').getBoundingClientRect();
+    return { top: r.top - pane.top, bottom: pane.bottom - r.bottom, sh: el.scrollHeight, ch: el.clientHeight, st: el.scrollTop, cls: el.className, onIn: on.top >= r.top && on.bottom <= r.bottom };
+  });
+  await settle(p, 300);
+  let s = await m();
+  assert.ok(s.sh > s.ch, 'the rail scrolls');
+  assert.ok(s.top > 30 && s.bottom > 30, `the rail stays inside the pane (${s.top}, ${s.bottom})`);
+  assert.ok(s.onIn, 'the tick of the message you read is in view');
+  assert.match(s.cls, /fade-up/);
+  // the wheel scrolls the rail
+  const box = await rail.boundingBox();
+  await p.mouse.move(box.x + 6, box.y + box.height / 2);
+  await p.mouse.wheel(0, -2000); await settle(p, 300);
+  s = await m();
+  assert.equal(s.st, 0, 'wheeled to the top'); assert.doesNotMatch(s.cls, /fade-up/); assert.match(s.cls, /fade-down/);
+  await p.mouse.move(box.x + 400, box.y);
+  // reading at the end of the thread (G) brings the current tick back into view
+  await composer(p).press('Escape');
+  await p.keyboard.press('g'); await p.keyboard.press('g'); await p.keyboard.press('Shift+G'); await settle(p, 400);
+  s = await m();
+  assert.ok(s.onIn && s.st > 0, 'the rail followed the reader to the end');
 });
 
 await test('timeline ticks: the tick under the pointer is darkest and longest, its neighbours less; press and drag scrubs', async p => {
@@ -1041,14 +1119,14 @@ await test('reader: G goes to the last action row, gg to the top', async p => {
 
 await test('reader: VISUAL gg / G stay inside one reply and select across prose and code', async p => {
   await openChat(p, 'Profile slow orders query');
-  await composer(p).press('Escape');
+  await openAll(p);
   // the cursor into the first reply's prose, after the code block
   await p.locator('.pane.focus .m-asst', { hasText: 'Then run the plan again' }).getByText('Then run the plan again').click();
   await settle(p);
   await keys(p, 'v g g');
   assert.equal(await mode(p), 'VISUAL');
   let sel = await p.evaluate(() => getSelection().toString());
-  assert.match(sel, /^Ran|^psql/, `starts at the reply's first line: ${sel.slice(0, 40)}`);
+  assert.match(sel, /^Worked/, `starts at the reply's first line: ${sel.slice(0, 40)}`);
   assert.match(sel, /CREATE INDEX orders_account_created/, 'prose and code together');
   assert.ok(!sel.includes('orders-by-account'), 'not the message above');
   await keys(p, 'Shift+G');
@@ -1191,7 +1269,7 @@ await test('send refused (the terminal is mid-turn): the message comes back to t
 
 await test('reader: gg scrolls the transcript all the way to the top, G all the way to the bottom', async p => {
   await openChat(p, 'Fix session-restore race');
-  await composer(p).press('Escape');
+  await openAll(p);
   const sc = () => p.locator('.pane.focus .thread').evaluate(t => ({ top: t.scrollTop, max: t.scrollHeight - t.clientHeight }));
   assert.ok((await sc()).max > 40, 'the thread scrolls');
   await keys(p, 'g g');
@@ -1228,6 +1306,7 @@ await test('your message keeps its line breaks and renders Markdown', async p =>
 await test('a triple click selects the whole paragraph, not one wrapped line, and stops at its end', async p => {
   await p.setViewportSize({ width: 1000, height: 800 });
   await openChat(p, 'Fix session-restore race');
+  await openAll(p);
   const para = p.locator('.pane.focus .m-asst p').filter({ hasText: 'The restore path reads lastActive' }).first();
   await para.scrollIntoViewIfNeeded();
   const r = await para.boundingBox();

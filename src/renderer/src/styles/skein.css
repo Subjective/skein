@@ -313,8 +313,6 @@ pre.out { margin: 3px 0 8px; padding: 8px 12px; font: var(--mono-w) 12px/1.600 v
 .m-fig { margin: 2px 0; }
 .m-fig img { display: block; max-width: min(460px, 100%); border-radius: 10px; border: 1px solid var(--line); cursor: zoom-in; }
 .m-fig figcaption { margin-top: 5px; font: 12px var(--mono); color: var(--fg-3); }
-.worked { display: flex; align-items: center; gap: 4px; color: var(--fg-3); font-size: 13px; }
-.worked svg.i { width: 11px; height: 11px; }
 .live { display: flex; align-items: center; gap: 9px; font-size: 13.500px; color: var(--fg-2); }
 .live .dim { font-size: 12px; font-variant-numeric: tabular-nums; }
 .m-acts { display: flex; align-items: center; gap: 2px; margin-top: -4px; margin-left: -5px; font-size: 12.500px; }
@@ -329,7 +327,12 @@ pre.out { margin: 3px 0 8px; padding: 8px 12px; font: var(--mono-w) 12px/1.600 v
 .empty svg.i-claude { color: var(--fg-4); }
 
 /* timeline: one tick per message you sent; length peaks at the reading position, or at the hovered tick */
-.ticks { position: absolute; left: 8px; top: 42%; transform: translateY(-50%); display: flex; flex-direction: column; z-index: 2; }
+.ticks { position: absolute; left: 8px; top: 42%; transform: translateY(-50%); display: flex; flex-direction: column; z-index: 2; max-height: 72%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.ticks::-webkit-scrollbar { display: none; }
+.ticks button { flex: none; }
+.ticks.fade-up { mask-image: linear-gradient(to bottom, transparent, #000 36px); }
+.ticks.fade-down { mask-image: linear-gradient(to top, transparent, #000 36px); }
+.ticks.fade-up.fade-down { mask-image: linear-gradient(to bottom, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
 .ticks button { width: 30px; height: 9px; display: flex; align-items: center; }
 .ticks button i { display: block; width: 8px; height: 1.500px; border-radius: 1px; background: var(--fg-4); transition: width 140ms ease, background var(--ease); }
 .ticks button.on i { background: var(--fg); }
@@ -542,6 +545,10 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .comp { display: flex; flex-direction: column; gap: 4px; padding: 10px 10px 8px 14px; background: var(--comp); border: 1px solid var(--comp-line); border-radius: 22px; box-shadow: var(--comp-shadow); }
 .comp textarea { width: 100%; min-height: 30px; max-height: 180px; padding: 4px 2px; background: none; border: 0; outline: 0; resize: none; color: var(--fg); font: 14.500px/1.500 var(--sans); }
 .comp textarea::placeholder { color: var(--fg-3); }
+/* a subagent that takes no follow-ups: the composer's shape, grayed out, with the reason as its text */
+.comp.locked { background: var(--hover); box-shadow: none; cursor: not-allowed; }
+.comp.locked textarea { cursor: not-allowed; }
+.comp.locked .cf { opacity: .4; pointer-events: none; }
 .cf { display: flex; align-items: center; gap: 2px; margin-left: -6px; min-width: 0; }
 .cf .ib { border-radius: 50%; }
 .chip { height: 28px; min-width: 0; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border-radius: 999px; color: var(--fg-2); font-size: 13px; white-space: nowrap; transition: background var(--ease), color var(--ease); }
