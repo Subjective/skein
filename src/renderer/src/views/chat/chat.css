@@ -45,7 +45,7 @@
 
 /* Timeline ticks, as in Cursor (Josh, 2026-11-20): a little thicker, and the pointer lengthens and darkens the ticks
    around it, most at the one under it (--w is 1 there and falls off over about three ticks each side). */
-.ticks button i { height: 2px; width: calc(10px + 12px * var(--w, 0)); background: color-mix(in srgb, var(--fg) calc(var(--w, 0) * 100%), var(--fg-4)); transition: width 120ms ease-out, background-color 120ms ease-out; }
+.ticks button i { height: 1.5px; width: calc(10px + 12px * var(--w, 0)); background: color-mix(in srgb, var(--fg) calc(var(--w, 0) * 100%), var(--fg-4)); transition: width 120ms ease-out, background-color 120ms ease-out; }
 .ticks button.on i { background: var(--fg); }
 .ticks { cursor: default; }
 body.scrubbing, body.scrubbing * { cursor: ns-resize !important; user-select: none; }
