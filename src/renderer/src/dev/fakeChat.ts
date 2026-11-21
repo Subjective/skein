@@ -92,6 +92,8 @@ export const histories: Record<string, ThreadEvent[]> = {
     tool('Bash', 'pnpm install --lockfile-only', { out: 'ERR_PNPM_FETCH_503  registry unavailable', status: 'failed' }),
     { t: 'error', id: id(), kind: 'rate', text: 'Rate limit reached. Resets at 3:40 PM' },
   ],
+  // a long thread: more messages of yours than the timeline rail has room for
+  s2: Array.from({ length: 70 }, (_, i) => [user(`Backlog item ${i + 1}: what is left?`), text(`Item ${i + 1} needs one more test, then it can close.`)]).flat(),
   // a side chat of t1, branched at its first reply
   s1: [user('Why not a mutex here instead of a lock file?'),
     text('A mutex only covers one process. Restore runs in both the server and the CLI, so the lock file is the cross-process option. `sessions/lock.ts` already takes it; a mutex would only add a second, weaker layer.')],
@@ -100,6 +102,7 @@ export const histories: Record<string, ThreadEvent[]> = {
 /** Side chats and other extra threads the sample starts with. */
 export const extraThreads = (T: (id: string, h: 'claude' | 'codex', m: string, dir: string, title: string, age: number, x?: Partial<ThreadMeta>) => ThreadMeta) => [
   T('s1', 'claude', 'local', '~/projects/skein', 'Why not a mutex here?', 3, { side: true, parent: { id: 't1', at: histories.t1[2].id } }),
+  T('s2', 'claude', 'local', '~/projects/dotfiles', 'Walk through the backlog', 8000),
 ];
 
 /** The pretend agent: streams a short reply, asks nothing, and answers approvals. */
