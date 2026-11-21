@@ -571,3 +571,25 @@ test('the tab bar + opens another new-thread tab every time', async p => {
   await settle(p);
   assert.equal(await n(), before + 4, 'ldr c does the same');
 });
+
+test('archiving a thread closes its tabs and its side chat; Undo brings them back', async p => {
+  await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
+  await settle(p, 300);
+  const open = () => p.evaluate(() => { const S = window.__skein.S, w = S.workspaces.find(x => x.id === S.wid); const tabs = []; const walk = n => n.type === 'pane' ? tabs.push(...n.tabs) : (walk(n.a), walk(n.b)); walk(w.tree); return [...tabs, ...w.pops.map(x => x.tab)].filter(t => t.thread === 't1' || t.thread === 's1').map(t => t.thread).sort(); });
+  // its side chat as a popup too
+  const seg = p.locator('.pane.focus .tb .seg button[aria-label^="Chat"]');
+  if ((await seg.getAttribute('aria-pressed')) !== 'true') await seg.click();
+  await p.locator('.pane.focus .sc-link', { hasText: 'Why not a mutex here?' }).first().click();
+  await settle(p, 300);
+  const before = await open();
+  assert.deepEqual(before, ['s1', 't1'], 'the thread and its side chat are open');
+  const row = p.locator('#side .row[data-thread="t1"]');
+  await row.hover();
+  await row.getByRole('button', { name: 'Archive thread' }).click();
+  await settle(p, 300);
+  assert.deepEqual(await open(), [], 'no tab or popup shows the thread or its side chat');
+  const undo = p.locator('.toast button', { hasText: 'Undo' });
+  await undo.click(); await settle(p, 300);
+  assert.deepEqual(await open(), before, 'Undo reopens them');
+  assert.ok(!(await p.evaluate(() => window.__skein.S.threads.find(t => t.id === 't1').archived)), 'and unarchives the thread');
+});
