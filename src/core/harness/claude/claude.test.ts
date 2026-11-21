@@ -47,7 +47,7 @@ describe('Claude history', () => {
     expect(events[0]).toMatchObject({ t: 'user', id: 'u1', text: 'Fix the failing test' });
     expect(events[1]).toMatchObject({ id: 'm1:0', text: 'Look at the test first.' });
     expect(events[2]).toMatchObject({ id: 'm1:1', text: 'Running the tests.' });
-    expect(events[3]).toMatchObject({ t: 'tool', id: 'tu1', name: 'Bash', arg: 'npm test', out: '1 failing', status: 'done' });
+    expect(events[3]).toMatchObject({ t: 'tool', id: 'tu1', name: 'Bash', kind: 'command', arg: 'npm test', out: '1 failing', status: 'done' });
     expect(events[4]).toMatchObject({ t: 'edit', id: 'tu2', path: '/p/a.ts', add: 2, del: 1, status: 'done' });
     expect(events[6]).toMatchObject({ t: 'worked', ms: 9000 });
     expect(events[7]).toMatchObject({ t: 'user', text: '/compact keep tests' });

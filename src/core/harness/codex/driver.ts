@@ -17,7 +17,7 @@ import { log } from '../../log';
 import { which } from '../../shell';
 import { errorKind, throttle, tidy } from '../common';
 import { codexHistory } from './history';
-import { itemEvents, turnError } from './items';
+import { commandStep, itemEvents, turnError } from './items';
 import type { ThreadItem } from './protocol/v2/ThreadItem';
 import type { UserInput } from './protocol/v2/UserInput';
 import { Rpc } from './rpc';
@@ -455,7 +455,7 @@ export class CodexDriver implements ChatDriver {
       const s = this.text.get(itemId)?.s ?? '';
       if (kind === 'text') this.ev({ t: 'text', id: itemId, text: s, streaming: true }, true);
       else if (kind === 'thinking') this.ev({ t: 'thinking', id: itemId, text: s }, true);
-      else if (item?.type === 'commandExecution') this.ev({ t: 'tool', id: itemId, name: 'Shell', arg: item.command, out: s.slice(-6000), status: 'running' }, true);
+      else if (item?.type === 'commandExecution') this.ev({ ...commandStep(item), id: itemId, out: s.slice(-6000), status: 'running' }, true);
     });
   }
 

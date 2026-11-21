@@ -1,6 +1,6 @@
 // Codex ThreadItems (app-server v2) to ThreadEvents. The live driver and the rollout reader both go
 // through itemEvents, so an event's id is the item's id from either source.
-import type { ThreadEvent } from '../../../shared/types';
+import type { StepKind, ThreadEvent } from '../../../shared/types';
 import { clip, countDiff, errorKind, textOf, tidy } from '../common';
 import type { ThreadItem } from './protocol/v2/ThreadItem';
 import type { TurnError } from './protocol/v2/TurnError';
@@ -11,6 +11,23 @@ const dur = (ms: number | null | undefined) => (ms == null ? undefined : ms < 10
 
 /** Text a harness puts in the user's turn (environment context, instructions), not typed by the user. */
 const injected = (s: string) => /^\s*<(environment_context|user_instructions|turn_aborted|permissions|skills_instructions|INSTRUCTIONS)/.test(s) || /^# AGENTS\.md instructions/.test(s);
+
+type Command = Extract<ThreadItem, { type: 'commandExecution' }>;
+/** A shell command as the step it is. Codex runs reads, searches and listings as commands and tags each one
+ *  (commandActions): one tagged action shows as that step ("Read restore.ts"), anything else as the command itself,
+ *  without the shell wrapper Codex runs it in. */
+export function commandStep(item: Pick<Command, 'command' | 'commandActions'>): { t: 'tool'; name: string; arg: string; kind: StepKind } {
+  const acts = item.commandActions ?? [], a = acts.length === 1 ? acts[0] : null;
+  if (a?.type === 'read') return { t: 'tool', name: 'Read', arg: a.path || a.name, kind: 'read' };
+  if (a?.type === 'search') return { t: 'tool', name: 'Search', arg: [a.query, a.path].filter(Boolean).join('  '), kind: 'search' };
+  if (a?.type === 'listFiles') return { t: 'tool', name: 'List', arg: a.path || '.', kind: 'list' };
+  return { t: 'tool', name: 'Shell', arg: unwrap(item.command), kind: 'command' };
+}
+/** `/bin/bash -lc 'pnpm test'` to `pnpm test`: the command Codex was asked to run, not how it ran it. */
+export const unwrap = (c: string) => {
+  const m = /^(?:\S*\/)?(?:ba|z)?sh -l?c (?:'((?:[^']|'\\'')*)'|"((?:[^"\\]|\\.)*)")$/.exec(c.trim());
+  return !m ? c : m[1] != null ? m[1].replace(/'\\''/g, "'") : m[2].replace(/\\(["\\$`])/g, '$1');
+};
 
 export function itemEvents(item: ThreadItem): ThreadEvent[] {
   switch (item.type) {
@@ -31,7 +48,7 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
     case 'commandExecution': {
       const ok = item.exitCode == null || item.exitCode === 0;
       const meta = [item.exitCode != null && item.exitCode !== 0 ? `exit ${item.exitCode}` : '', dur(item.durationMs) ?? ''].filter(Boolean).join(' · ');
-      return [{ t: 'tool', id: item.id, name: 'Shell', arg: item.command, ...(item.aggregatedOutput ? { out: clip(item.aggregatedOutput) } : {}), status: item.status === 'declined' ? 'failed' : st(item.status, ok), ...(meta ? { meta } : {}) }];
+      return [{ ...commandStep(item), id: item.id, ...(item.aggregatedOutput ? { out: clip(item.aggregatedOutput) } : {}), status: item.status === 'declined' ? 'failed' : st(item.status, ok), ...(meta ? { meta } : {}) }];
     }
     case 'fileChange': {
       const status = item.status === 'declined' ? 'failed' : st(item.status);
@@ -43,7 +60,7 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
     }
     case 'mcpToolCall': {
       const out = item.error?.message ?? (item.result ? textOf(item.result.content) : '');
-      return [{ t: 'tool', id: item.id, name: `${item.server}: ${item.tool}`, arg: argText(item.arguments), ...(out ? { out: clip(out) } : {}), status: item.error ? 'failed' : st(item.status), ...(dur(item.durationMs) ? { meta: dur(item.durationMs) } : {}) }];
+      return [{ t: 'tool', id: item.id, kind: 'mcp', name: `${item.server}: ${item.tool}`, arg: argText(item.arguments), ...(out ? { out: clip(out) } : {}), status: item.error ? 'failed' : st(item.status), ...(dur(item.durationMs) ? { meta: dur(item.durationMs) } : {}) }];
     }
     case 'dynamicToolCall': {
       const out = item.contentItems ? textOf(item.contentItems) : '';
@@ -52,14 +69,14 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
     case 'webSearch': {
       const a = item.action;
       const arg = a?.type === 'openPage' ? a.url ?? '' : a?.type === 'findInPage' ? `${a.pattern ?? ''}  ${a.url ?? ''}` : item.query || a?.type === 'search' && (a.query ?? a.queries?.join(', ')) || '';
-      return [{ t: 'tool', id: item.id, name: a?.type === 'openPage' ? 'Open page' : 'Web search', arg: arg || '', status: 'done' }];
+      return [{ t: 'tool', id: item.id, kind: 'web', name: a?.type === 'openPage' ? 'Open page' : 'Web search', arg: arg || '', status: 'done' }];
     }
     case 'collabAgentToolCall': {
       if (item.tool !== 'spawnAgent') return [];
       const status: Status = item.status === 'inProgress' ? 'running' : item.status === 'completed' ? 'done' : 'failed';
       return [{ t: 'sub', id: item.id, name: item.model ? `Agent (${item.model})` : 'Agent', task: tidy(item.prompt ?? '', 160), status }];
     }
-    case 'imageView': return [{ t: 'tool', id: item.id, name: 'View image', arg: item.path, status: 'done' }];
+    case 'imageView': return [{ t: 'tool', id: item.id, kind: 'read', name: 'View image', arg: item.path, status: 'done' }];
     case 'contextCompaction': return [{ t: 'notice', id: item.id, text: 'Context compacted' }];
     case 'enteredReviewMode': return [{ t: 'notice', id: item.id, text: 'Reviewing' }];
     case 'exitedReviewMode': return item.review.trim() ? [{ t: 'text', id: item.id, text: item.review }] : [];
