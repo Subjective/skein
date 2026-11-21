@@ -3,7 +3,7 @@
 // y / n answer the oldest request from NORMAL anywhere in the tab (G7). Claude Code driven from its
 // terminal shows a read-only mirror with Show terminal and Take back instead of the composer (G4).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ThreadEvent, ThreadMeta } from '@shared/types';
+import type { Density, ThreadEvent, ThreadMeta } from '@shared/types';
 import type { Surface } from '../../input/dispatcher';
 import { registerTab, tabSurface } from '../../input/surfaces';
 import { api } from '../../api';
@@ -16,6 +16,7 @@ import { clipImages, Composer, LockedComposer, type ComposerHandle } from './Com
 import { onText, Reader, SEL_BLOCK, selectable } from './reader';
 import { Ticks } from './Ticks';
 import { fixError, Transcript, type TranscriptCtx } from './Transcript';
+import { DENSITY, DENSITY_NAME } from './options';
 import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, startChat, tabChat, tokenOf, ultraFor, useChat, type Draft } from './state';
 import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, quoteToTab, registerChatTab, subList } from './threads';
 import { registerHooks } from '../tools/hooks';
@@ -53,6 +54,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const outside = t.kind !== 'sub' && !!th.external && !(th.harness === 'claude' && th.drive === 'term');
   const mirror = t.kind !== 'sub' && ((th.harness === 'claude' && th.drive === 'term') || outside);
   const [taking, setTaking] = useState(false);
+  // density: the setting, or this view's own after zr / zm (until the tab closes)
+  const [dens, setDens] = useState<Density | null>(null);
+  const density = dens ?? S.settings.density ?? 'compact';
+  const densRef = useRef(density); densRef.current = density;
   // an image pasted anywhere in the focused tab (reader, nothing focused) lands in its composer (app.js paste → curTab)
   useEffect(() => {
     if (!focused || mirror) return;
@@ -126,6 +131,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     edit: (id, offset, key) => startEdit(id, offset, key),
     answer: yes => answerKey(yes),
     selection: s => setSel(s),
+    density: d => {
+      const i = Math.max(0, Math.min(DENSITY.length - 1, DENSITY.indexOf(densRef.current) + d)), to = DENSITY[i];
+      setDens(to); toast(`${DENSITY_NAME[to]} in this view`, { icon: 'layers' });
+    },
   }), [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => reader.clear(), [reader]);
 
@@ -150,6 +159,9 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
       // the reader from here too (the mirror bar has no field): [ [ your last message, { the block above
       if (k === '[' && read.current) { const prev = idleKey.current; idleKey.current = { k, at: Date.now() }; if (prev.k === '[' && Date.now() - prev.at < 800) { idleKey.current = { k: '', at: 0 }; if (reader.enter(read.current)) { reader.key('['); reader.key('['); } } return true; }
       if (k === '{' && read.current) { reader.enter(read.current, 'block'); return true; }
+      // folds from here too: zr / zm / zR / zM
+      if (k === 'z' && read.current) { idleKey.current = { k, at: Date.now() }; return true; }
+      if (idleKey.current.k === 'z' && read.current && Date.now() - idleKey.current.at < 800) { idleKey.current = { k: '', at: 0 }; reader.fold(k, read.current); return true; }
       if ((k === 'i' || k === 'a') && mirrorRef.current) { mirrorRef.current(); return true; }   // the mirror bar: i / a take the thread back
       // the mirror bar is a row of buttons (rule 16): h / l along it, enter / space press, esc presses Cancel
       const row = mirrorRow.current;
@@ -334,7 +346,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   };
 
   const ctx: TranscriptCtx = {
-    thread: th, src: t.kind === 'sub' ? `sub:${t.sub}` : `ev:${th.id}`, main: t.kind !== 'sub' && !th.side,
+    thread: th, src: t.kind === 'sub' ? `sub:${t.sub}` : `ev:${th.id}`, main: t.kind !== 'sub' && !th.side, density,
     editing: tc.edit?.event,
     editBox: tc.edit && (
       <>
@@ -354,18 +366,23 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   // the mouse (as the mockup): a click in the transcript moves the reader's cursor there (NORMAL), a drag selects
   // (VISUAL), a triple click selects lines. A click outside a message being edited cancels the edit first. A click
   // on nothing readable still leaves INSERT: the composer lets go and the tab is in NORMAL.
+  /** Where the button went down: a double-click that started on text and was dragged off it is a word-wise selection. */
+  const downAt = useRef({ x: 0, y: 0 });
   const onMouseUp = (e: React.MouseEvent) => {
     const root = read.current; if (!root || e.button !== 0) return;
     const ev = e.nativeEvent, target = ev.target as Element;
-    if (target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, [role=dialog], img[data-zoom], .flink')) return;
+    // a press on a control is the control's; a drag that only ends on one (from text above it) is still a selection
+    const ctl = target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, [role=dialog], img[data-zoom], .flink');
+    if (ctl && (ctl.contains(document.elementFromPoint(downAt.current.x, downAt.current.y)) || !getSelection()?.toString())) return;
     if (target.closest('summary') && ev.detail < 2) return;   // a click folds; a double-click selects its words (VISUAL)
     if (target.closest('.m-user.can-edit') && !getSelection()?.toString()) return;   // that click opens the edit box
     setTimeout(() => {
       const s = getSelection();
       // a double-click on blank space (beside a line, the margin, next to a bubble) does nothing: no stray VISUAL
-      if (ev.detail >= 2 && !target.closest('.diff .dl > .n') && !onText(ev.clientX, ev.clientY)) { s?.removeAllRanges(); setSel(null); if (reader.on && reader.mode !== 'n') reader.clear(); return; }
+      // (a drag that started on text and ended past a line's or paragraph's end keeps its selection)
+      if (ev.detail >= 2 && !target.closest('.diff .dl > .n') && !onText(ev.clientX, ev.clientY) && !onText(downAt.current.x, downAt.current.y)) { s?.removeAllRanges(); setSel(null); if (reader.on && reader.mode !== 'n') reader.clear(); return; }
       if (s && !s.isCollapsed && root.contains(s.anchorNode)) setSel(s.toString());
-      reader.fromMouse(ev, root);   // first, while the text under the pointer is where it was clicked
+      reader.fromMouse(ev, root, downAt.current);   // first, while the text under the pointer is where it was clicked
       if (tc.edit && (!s || s.isCollapsed)) { tc.edit = undefined; bump(); }
       if (!reader.on) {
         const el = document.activeElement as HTMLElement | null;
@@ -406,7 +423,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const anchorText = th.side && th.parent?.at ? (log(th.parent.id).events.find(e => e.id === th.parent!.at) as { text?: string } | undefined)?.text : undefined;
   return (
     <div className={cx('chat', (th.side || t.kind === 'sub') && 'side')} onFocus={onFocusIn}>
-      <div className="thread" ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} onClick={onLinkClick}>
+      <div className="thread" ref={scroller} onScroll={onScroll} onMouseDown={e => { downAt.current = { x: e.clientX, y: e.clientY }; }} onMouseUp={onMouseUp} onClick={onLinkClick}>
         <div className="col" data-read ref={read}>
           {t.kind === 'sub' && sub && <div className="sub-h"><Icon name="agent" /><span>{sub.task}</span></div>}
           {th.side && parent && (

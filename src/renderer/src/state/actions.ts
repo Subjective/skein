@@ -6,7 +6,7 @@ import { openFile as openFileTab } from '../views/tools/open';
 import { tabPlace, tabRestore } from '../views/tools/hooks';
 import {
   activeTab, allTabs, findPane, leaves, mkPane, mkTab, neighbour, placeFor, removePane, resize as resizeTree, splitAt, swap as swapPanes,
-  type Pane, type Rect, type Tab, type Workspace,
+  type Pane, type Popup, type Rect, type Tab, type Workspace,
 } from './layout';
 import { blankWs, S, thread, toast, update, ws } from './store';
 
@@ -319,3 +319,49 @@ export function save() {
 }
 
 export function notImplemented(what: string) { toast(`${what} is not built yet`); }
+
+// ---------- archiving ----------
+/** Archive a thread (or bring it back). Archiving closes every tab and popup showing it, its side chats and its
+ *  subagents, in every workspace; the toast's Undo brings the thread and those tabs back where they were. */
+export function archiveThread(id: string, archived = true) {
+  void api.threads.update(id, { archived });
+  if (!archived) return;
+  const mine = (t: Tab) => (t.kind === 'thread' || t.kind === 'sub') && !!t.thread && (t.thread === id || thread(t.thread)?.parent?.id === id);
+  const shut: { w: Workspace; pane: string; at: number; tab: Tab; active: boolean; pop?: Popup }[] = [];
+  update(s => {
+    for (const w of S.workspaces) {
+      for (const pop of w.pops.filter(x => mine(x.tab))) { shut.push({ w, pane: '', at: 0, tab: pop.tab, active: false, pop }); if (w === ws()) closePopup(pop.tab.id); else w.pops = w.pops.filter(x => x !== pop); }
+      for (const p of leaves(w.tree)) {
+        for (const t of p.tabs.filter(mine)) {
+          const i = p.tabs.indexOf(t);
+          shut.push({ w, pane: p.id, at: i, tab: t, active: p.active === t.id });
+          p.tabs.splice(i, 1);
+          if (p.active === t.id && p.tabs.length) p.active = p.tabs[Math.max(0, i - 1)].id;
+        }
+        if (p.tabs.length) continue;
+        // the pane showed only this thread: it goes, unless it is the last one, which keeps a new-thread tab
+        const r = removePane(w.tree, p.id);
+        if (r) { w.tree = r.root; if (w.focus === p.id) w.focus = r.focus; }
+        else { const t = shut[shut.length - 1].tab, l = launcherFor(t); p.tabs.push(l); p.active = l.id; }
+      }
+      if (leaves(w.tree).length === 1) w.zoom = false;
+    }
+    s.tick++;
+  });
+  save();
+  const name = thread(id)?.title || 'Thread';
+  toast(`Archived ${name}`, { icon: 'archive', action: { label: 'Undo', run: () => {
+    void api.threads.update(id, { archived: false });
+    update(s => {
+      for (const x of shut) {
+        if (x.pop) { if (!x.w.pops.some(p => p.tab.id === x.tab.id)) x.w.pops.push(x.pop); continue; }
+        const p = findPane(x.w.tree, x.pane) || focusedPane(x.w);
+        if (p.tabs.some(t => t.id === x.tab.id)) continue;
+        p.tabs.splice(Math.min(x.at, p.tabs.length), 0, x.tab);
+        if (x.active) { p.active = x.tab.id; if (x.w === ws()) x.w.focus = p.id; }
+      }
+      s.tick++;
+    });
+    save();
+  } } }, 6000);
+}

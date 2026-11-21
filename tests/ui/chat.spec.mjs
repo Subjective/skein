@@ -9,6 +9,8 @@ async function openChat(p, title) {
   await p.waitForSelector('.pane.focus .chat .col[data-read] > *');
 }
 const composer = p => p.locator('.pane.focus .compw textarea');
+/** Into the reader (esc, k) and open every fold (zR), for tests about the whole transcript's text. */
+async function openAll(p) { await composer(p).press('Escape'); await keys(p, 'k z Shift+R'); await settle(p); }
 
 await test('opens in INSERT with the composer focused', async p => {
   await openChat(p, 'Add timestamps to chat rows');
@@ -26,7 +28,6 @@ await test('send: message, streamed reply, worked row; empty send is disabled', 
   assert.equal(await composer(p).inputValue(), '');
   await p.locator('.pane.focus .live').waitFor();
   await p.locator('.pane.focus .m-asst', { hasText: 'browser preview' }).waitFor();
-  await p.locator('.pane.focus .worked').last().waitFor();
   await p.waitForFunction(() => !document.querySelector('.pane.focus .live'));
 });
 
@@ -120,7 +121,7 @@ await test('reader: k from the composer never scrolls; leader [ goes back to whe
   await openChat(p, 'Fix session-restore race');
   const th = p.locator('.pane.focus .thread');
   const cur = () => p.evaluate(() => { const h = [...(CSS.highlights.get('vcur') || [])][0]; const s = document.querySelector('.pane.focus .thread').getBoundingClientRect(); const r = h ? h.getBoundingClientRect() : document.querySelector('.pane.focus .rowcur')?.getBoundingClientRect(); return r && { top: r.top - s.top, bottom: s.bottom - r.bottom }; });
-  await composer(p).press('Escape');
+  await openAll(p);
   await p.keyboard.press('g'); await p.keyboard.press('g'); await settle(p);
   await p.keyboard.press('q'); await settle(p);
   // the cursor it left (the top line) is still on screen: k goes back to it
@@ -152,9 +153,9 @@ await test('requests: 1 of 3, y allows the oldest, n denies the next, buttons an
   await composer(p).press('Escape');
   await p.keyboard.press('y');
   await p.locator('.pane.focus .appr .count', { hasText: '1 of 2' }).waitFor();
-  await p.locator('.pane.focus .tool', { hasText: 'pnpm build && pnpm shot composer' }).waitFor();
+  await p.locator('.pane.focus .tool:not(.turn):not(.run)', { hasText: 'pnpm build && pnpm shot composer' }).last().waitFor();
   await p.keyboard.press('n');
-  await p.locator('.pane.focus .tool', { hasText: 'pnpm test ui/composer' }).waitFor();
+  await p.locator('.pane.focus .tool:not(.turn):not(.run)', { hasText: 'pnpm test ui/composer' }).last().waitFor();
   assert.equal(await p.locator('.pane.focus .appr .count').count(), 0, 'the last request shows no count');
   await p.locator('.pane.focus .appr .af .btn.primary', { hasText: 'Allow' }).click();
   await p.waitForFunction(() => !document.querySelector('.pane.focus .appr'));
@@ -412,6 +413,42 @@ await test('quote toolbar: a mouse drag shows Add to Chat', async p => {
   assert.deepEqual(gaps, [3, 3, 3, 3], 'both buttons sit the same distance from the edges and the divider');
   await p.locator('.seltb').getByRole('button', { name: 'Add to Chat' }).click();
   assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 1);
+});
+
+await test('folds: Compact shuts a finished turn under Worked for; zr Balanced, zr Detailed, zm back; zR / zM open and shut all', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const st = () => p.evaluate(() => {
+    const d = [...document.querySelectorAll('.pane.focus .reply')][0];
+    const turn = d.querySelector('details.tool.turn'), runs = [...d.querySelectorAll('details.tool.run')];
+    return { head: turn.querySelector(':scope > summary').innerText.trim(), turn: turn.open, runs: runs.map(r => r.open), edited: !!d.querySelector(':scope > .tool.edited'), steps: [...d.querySelectorAll('.run .fold-b > details.tool')].map(x => x.open) };
+  });
+  let s = await st();
+  assert.match(s.head, /^Worked for \d/, 'the header is the duration');
+  assert.ok(!s.turn && s.edited, 'Compact: shut, with the edited files below');
+  assert.ok(!(await p.locator('.pane.focus .reply').first().innerText()).match(/tool calls|failed/), 'no counts in the header');
+  await openAll(p); await keys(p, 'z Shift+M'); await settle(p);
+  await keys(p, 'z r'); s = await st();
+  assert.ok(s.turn && s.runs.every(o => !o) && !s.edited, `Balanced: open, runs shut (${JSON.stringify(s)})`);
+  await keys(p, 'z r'); s = await st();
+  assert.ok(s.turn && s.runs.every(o => o), 'Detailed: every run open');
+  await keys(p, 'z m z m'); s = await st();
+  assert.ok(!s.turn, 'zm zm: back to Compact');
+  await keys(p, 'z Shift+R'); s = await st();
+  assert.ok(s.turn && s.runs.every(o => o) && s.steps.every(o => o), 'zR opens every fold');
+  await keys(p, 'z Shift+M'); s = await st();
+  assert.ok(!s.turn, 'zM shuts them');
+});
+
+await test('folds: the Agent work setting sets the density for every thread', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).press('Escape');
+  await p.keyboard.press(`${mod}+k`);
+  await p.keyboard.type('Detailed');
+  await p.keyboard.press('Enter');
+  await settle(p);
+  assert.ok(await p.locator('.pane.focus details.tool.turn').first().evaluate(d => d.open), 'Detailed: the finished turn is open');
+  await p.keyboard.press(`${mod}+k`); await p.keyboard.type('Compact'); await p.keyboard.press('Enter'); await settle(p);
+  assert.ok(!(await p.locator('.pane.focus details.tool.turn').first().evaluate(d => d.open)), 'Compact: shut again');
 });
 
 await test('timeline ticks: one per message, hover previews, click scrolls', async p => {
@@ -1082,14 +1119,14 @@ await test('reader: G goes to the last action row, gg to the top', async p => {
 
 await test('reader: VISUAL gg / G stay inside one reply and select across prose and code', async p => {
   await openChat(p, 'Profile slow orders query');
-  await composer(p).press('Escape');
+  await openAll(p);
   // the cursor into the first reply's prose, after the code block
   await p.locator('.pane.focus .m-asst', { hasText: 'Then run the plan again' }).getByText('Then run the plan again').click();
   await settle(p);
   await keys(p, 'v g g');
   assert.equal(await mode(p), 'VISUAL');
   let sel = await p.evaluate(() => getSelection().toString());
-  assert.match(sel, /^Ran|^psql/, `starts at the reply's first line: ${sel.slice(0, 40)}`);
+  assert.match(sel, /^Worked/, `starts at the reply's first line: ${sel.slice(0, 40)}`);
   assert.match(sel, /CREATE INDEX orders_account_created/, 'prose and code together');
   assert.ok(!sel.includes('orders-by-account'), 'not the message above');
   await keys(p, 'Shift+G');
@@ -1232,7 +1269,7 @@ await test('send refused (the terminal is mid-turn): the message comes back to t
 
 await test('reader: gg scrolls the transcript all the way to the top, G all the way to the bottom', async p => {
   await openChat(p, 'Fix session-restore race');
-  await composer(p).press('Escape');
+  await openAll(p);
   const sc = () => p.locator('.pane.focus .thread').evaluate(t => ({ top: t.scrollTop, max: t.scrollHeight - t.clientHeight }));
   assert.ok((await sc()).max > 40, 'the thread scrolls');
   await keys(p, 'g g');
@@ -1269,6 +1306,7 @@ await test('your message keeps its line breaks and renders Markdown', async p =>
 await test('a triple click selects the whole paragraph, not one wrapped line, and stops at its end', async p => {
   await p.setViewportSize({ width: 1000, height: 800 });
   await openChat(p, 'Fix session-restore race');
+  await openAll(p);
   const para = p.locator('.pane.focus .m-asst p').filter({ hasText: 'The restore path reads lastActive' }).first();
   await para.scrollIntoViewIfNeeded();
   const r = await para.boundingBox();
@@ -1340,6 +1378,50 @@ await test('new thread: after the model or permissions picker closes, the compos
   await p.locator('.pane.focus .comp .cf [title="Permissions"]').click(); await p.locator('.layer .menu').waitFor();
   await p.keyboard.press('Escape');
   await back('permissions closed with esc');
+});
+
+await test('model picker: hovering a model previews every control that depends on it, in place (no row comes or goes)', async p => {
+  await p.locator('.pane.focus .comp .cf [title="Model and effort"]').click();
+  const menu = p.locator('.menu.model'); await menu.waitFor();
+  const ultra = menu.locator('.mi', { hasText: 'Ultracode' });
+  const state = () => menu.evaluate(m => ({ h: Math.round(m.getBoundingClientRect().height), pins: m.querySelectorAll('.m-pin > *').length, none: !!m.querySelector('.eff.none'), ultraOff: !![...m.querySelectorAll('.mi')].find(x => x.textContent.includes('Ultracode'))?.classList.contains('off') }));
+  const s0 = await state();
+  assert.equal(s0.pins, 2, 'effort and Ultracode'); assert.ok(!s0.none && !s0.ultraOff);
+  await menu.locator('.mi', { hasText: 'Haiku 4.5' }).hover(); await settle(p, 200);
+  const s1 = await state();
+  assert.equal(s1.pins, 2, 'the effort row stays'); assert.ok(s1.none, 'dimmed: Haiku 4.5 has no effort levels'); assert.equal(s1.h, s0.h, 'the menu keeps its height');
+  await menu.locator('.mi', { hasText: 'GPT-6.2 Sol' }).hover(); await settle(p, 200);
+  const s2 = await state();
+  assert.ok(!s2.none, 'Sol has levels'); assert.ok(s2.ultraOff, 'Ultracode is dimmed for a Codex model'); assert.equal(s2.h, s0.h);
+  assert.match(await ultra.innerText(), /not on GPT-6.2 Sol/);
+  await menu.locator('.mi', { hasText: 'Opus 5.5' }).hover(); await settle(p, 200);
+  const s3 = await state();
+  assert.ok(!s3.none && !s3.ultraOff, 'back on a Claude model: both live');
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+});
+
+await test('reader: a double- or triple-click drag that ends past a paragraph keeps its selection in VISUAL', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await openAll(p);
+  const para = p.locator('.pane.focus .m-asst p').first();
+  const drag = async (clicks, dx, dy) => {
+    await p.evaluate(() => getSelection().removeAllRanges()); await p.keyboard.press('Escape');
+    await para.evaluate(e => e.scrollIntoView({ block: 'center' })); await settle(p);
+    const bb = await para.boundingBox();
+    await p.mouse.move(bb.x + 30, bb.y + 8);
+    for (let c = 1; c <= clicks; c++) { await p.mouse.down({ clickCount: c }); if (c < clicks) await p.mouse.up({ clickCount: c }); }
+    const end = await para.evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); const rs = r.getClientRects(); const l = rs[rs.length - 1]; return { x: l.right, y: l.bottom }; });
+    await p.mouse.move(end.x + dx, end.y + dy, { steps: 8 });
+    await p.mouse.up({ clickCount: clicks }); await settle(p, 250);
+    return { mode: await mode(p), text: await p.evaluate(() => getSelection().toString()), bar: await p.locator('.seltb').count() };
+  };
+  for (const [clicks, dx, dy, why] of [[2, 40, -4, 'double, past the line end'], [1, 40, -4, 'single, past the line end'], [3, 40, -4, 'triple, past the line end'], [3, 40, 14, 'triple, onto the row below']]) {
+    const r = await drag(clicks, dx, dy);
+    assert.equal(r.mode, 'VISUAL', why);
+    assert.ok(r.text.includes('sees the old value.'), `${why}: through the paragraph's end (${JSON.stringify(r.text.slice(-30))})`);
+    assert.equal(r.bar, 1, `${why}: the quote bar`);
+  }
+  await p.keyboard.press('Escape');
 });
 
 // ---------- quote chips: a chat icon and blue words, as Cursor's (Josh, 2026-11-21) ----------

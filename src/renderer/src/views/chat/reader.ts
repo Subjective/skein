@@ -31,13 +31,15 @@ export interface ReaderHost {
   /** y with a selection while a request waits is still yank; this is for a bare y / n in NORMAL. */
   answer?(yes: boolean): boolean;
   selection?(text: string | null): void;
+  /** zr / zm: one step more (1) or less (-1) of the agent's work in this view. */
+  density?(d: 1 | -1): void;
 }
 
 const HL = typeof CSS !== 'undefined' && 'highlights' in CSS ? (CSS as unknown as { highlights: Map<string, unknown> }).highlights : null;
 declare const Highlight: { new (...r: Range[]): unknown };
 
 /** Lines that are a single thing rather than prose. */
-export const ROWS = '.tool > summary, .tool > .sum, .ag, .sc-link, .sc-anchor, .appr .af, .m-acts, .worked, .err-row, .note-row, .think > summary';
+export const ROWS = '.tool > summary, .tool > .sum, .ag, .sc-link, .sc-anchor, .appr .af, .m-acts, .err-row, .note-row, .think > summary';
 /** Rows of buttons: h / l move between the buttons, enter / space press one. */
 const KROWS = '.af, .m-acts';
 const BLOCKS = '[data-src], .ag, .sc-link, .sc-anchor';
@@ -63,6 +65,7 @@ export class Reader {
   private bound: Element | null = null;
   private x: number | null = null;
   private g = false;
+  private z = false;
   private br: string | null = null;
   private unreg: (() => void) | null = null;
   private offDown: ((e: MouseEvent) => void) | null = null;
@@ -334,7 +337,7 @@ export class Reader {
   private blocks() { return [...this.root!.querySelectorAll(BLOCKS)].filter(el => !el.parentElement?.closest('[data-src]')); }
 
   /** The mouse: click moves the cursor, a drag is v, a triple click is V. Called after mouseup. */
-  fromMouse(e: MouseEvent, root: HTMLElement) {
+  fromMouse(e: MouseEvent, root: HTMLElement, down?: { x: number; y: number }) {
     this.root = root;
     const s = getSelection()!;
     const gut = (e.target as Element).closest?.('.diff .dl > .n');   // a diff's line number: the start of that line
@@ -345,14 +348,19 @@ export class Reader {
     const at = c && c.startContainer.nodeType === 3 && this.inside(c.startContainer) && (c.startContainer as Text).data.trim() ? this.textAt(c.startContainer, c.startOffset) : null;
     // a triple click: the paragraph (or list item, heading, code block) under the pointer, as the browser shows it,
     // in VISUAL; V would keep only the one wrapped line clicked, and the browser's own end runs into the next block
-    if (e.detail >= 3 && at) {
-      const para = at.n.parentElement?.closest('p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th, .mt, summary');
-      const ns = para ? this.texts(para).filter(n => n.data.trim()) : [];
-      if (ns.length) {
-        const last = ns[ns.length - 1];
-        return this.begin(root, 'v', { n: last, o: Math.max(0, last.data.trimEnd().length - 1) }, { n: ns[0], o: ns[0].data.length - ns[0].data.trimStart().length });
+    // A drag after the third click runs from the paragraph it started in to the one under the pointer (in the same
+    // message); one that ends off the text keeps the paragraph it started in.
+    const pt = (x: number, y: number) => { const r = caretAt(x, y); return r && r.startContainer.nodeType === 3 && this.inside(r.startContainer) && (r.startContainer as Text).data.trim() ? this.textAt(r.startContainer, r.startOffset) : null; };
+    const from = e.detail >= 3 && down ? pt(down.x, down.y) ?? at : at;
+    if (e.detail >= 3 && from) {
+      const PARA = 'p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th, .mt, summary';
+      const edges = (p: Pt) => { const para = p.n.parentElement?.closest(PARA); const ns = para ? this.texts(para).filter(n => n.data.trim()) : []; return ns.length ? { a: { n: ns[0], o: ns[0].data.length - ns[0].data.trimStart().length }, z: { n: ns[ns.length - 1], o: Math.max(0, ns[ns.length - 1].data.trimEnd().length - 1) } } : null; };
+      const p0 = edges(from), bd = this.blockOf(from), to = at && bd?.contains(at.n) && edges(at) ? at : from, p1 = edges(to);
+      if (p0 && p1) {
+        const back = !!(to.n.compareDocumentPosition(from.n) & Node.DOCUMENT_POSITION_FOLLOWING);
+        return back ? this.begin(root, 'v', p1.a, p0.z) : this.begin(root, 'v', p1.z, p0.a);
       }
-      return this.begin(root, 'V', at);
+      return this.begin(root, 'V', from);
     }
     if (!s.isCollapsed && s.anchorNode && root.contains(s.anchorNode)) {
       const fwd = !!(s.anchorNode.compareDocumentPosition(s.focusNode!) & Node.DOCUMENT_POSITION_FOLLOWING) || (s.anchorNode === s.focusNode && s.focusOffset >= s.anchorOffset);
@@ -367,6 +375,20 @@ export class Reader {
   /** Put the cursor at the start of an element (a quote's source, a timeline tick's message). */
   at(el: Element) { const p = this.firstText(el); if (!p || !this.root) return; this.begin(this.root, 'n', p); }
 
+  /** Folds, as in Vim: zr / zm more or less of the agent's work, zR / zM open or close every fold. Takes the key after z. */
+  fold(k: string, root: Element): boolean {
+    if (k === 'r' || k === 'm') { this.host.density?.(k === 'r' ? 1 : -1); return false; }
+    if (k !== 'R' && k !== 'M') return false;
+    root.querySelectorAll<HTMLDetailsElement>('details.tool').forEach(d => { d.open = k === 'R'; });
+    // a cursor that is now inside a shut fold goes to the row that folds it
+    const f = this.on ? this.f : null; if (!f) return false;
+    let shut: Element | null | undefined = null;
+    for (let d = f.n.parentElement?.closest('details:not([open])'); d; d = d.parentElement?.closest('details:not([open])')) shut = d;
+    const p = shut && this.firstText(shut.querySelector(':scope > summary')!);
+    if (p && this.ok(p)) this.f = p;
+    return true;
+  }
+
   // ---------- keys ----------
   surface: Surface = {
     kind: 'reader',
@@ -376,7 +398,7 @@ export class Reader {
 
   /** A key, with a count before it (3w, 5j) and the shared search keys. */
   key(k: string): boolean {
-    if (!this.br && !this.g && this.count.feed(k)) return true;
+    if (!this.br && !this.g && !this.z && this.count.feed(k)) return true;
     const n = this.count.take();
     if (this.search.key(k, n)) return true;
     if (n > 1 && COUNTED.has(k)) { let used = false; for (let i = 0; i < n && this.on; i++) used = this.key1(k) || used; return used; }
@@ -394,6 +416,7 @@ export class Reader {
       if (!this.jump(mine, b === '[' ? -1 : 1) && b === ']' && this.mode === 'n') { this.exit(); return true; }
       return settle();
     }
+    if (this.z) { this.z = false; if (this.fold(k, this.root!)) return settle(); return true; }
     if (this.g) {
       this.g = false;
       if (k === 'g') {   // the top; in VISUAL the start of the message the selection is in
@@ -444,6 +467,7 @@ export class Reader {
     }
     switch (k) {
       case 'g': this.g = true; return true;
+      case 'z': this.z = true; return true;
       case '[': case ']': this.br = k; return true;
       case '{': this.jump(this.blocks(), -1); break;
       case '}': if (!this.jump(this.blocks(), 1) && this.mode === 'n') { this.exit(); return true; } break;

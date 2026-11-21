@@ -75,12 +75,16 @@ export interface ThreadMeta {
   external?: number;
 }
 
+/** What a tool step did, whatever the harness called it: the chat view's icons, verbs and run summaries go by this.
+ *  Claude names each kind of step as its own tool; Codex runs most of them as shell commands and tags what each one does. */
+export type StepKind = 'read' | 'search' | 'list' | 'command' | 'web' | 'mcp' | 'other';
+
 // ---- normalized conversation events, rendered by the chat view and derived from either harness ----
 export type ThreadEvent =
   | { t: 'user'; id: string; text: string; images?: string[]; at?: number }
   | { t: 'text'; id: string; text: string; streaming?: boolean }
   | { t: 'thinking'; id: string; text: string }
-  | { t: 'tool'; id: string; name: string; arg: string; out?: string; status: 'running' | 'done' | 'failed'; meta?: string }
+  | { t: 'tool'; id: string; name: string; arg: string; out?: string; status: 'running' | 'done' | 'failed'; meta?: string; kind?: StepKind }
   | { t: 'edit'; id: string; path: string; add: number; del: number; diff?: string; status: 'running' | 'done' | 'failed' }
   | { t: 'todo'; id: string; items: { text: string; done: boolean }[] }
   /** A subagent. `events`: its turns as they stream in (the full record comes from api.threads.sub). `agent`: the
@@ -116,10 +120,14 @@ export interface Settings {
   /** What a new start shows: the last session's workspaces and layouts, or one empty workspace. */
   launch?: 'restore' | 'empty';
   termFont?: string;
+  /** How much of an agent's steps a turn shows (absent: compact). */
+  density?: Density;
   termFontSize?: number;
   /** The open file's ⋯ menu: line numbers (on unless false) and word wrap. */
   fileNumbers?: boolean;
   fileWrap?: boolean;
 }
+
+export type Density = 'compact' | 'balanced' | 'detailed';
 
 export interface DirEntry { name: string; dir: boolean; hidden?: boolean }

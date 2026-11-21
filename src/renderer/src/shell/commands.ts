@@ -113,6 +113,9 @@ const RUN: Record<string, (args: string[]) => void | boolean> = {
   // every thread tab, and new threads from now on (Settings > General)
   termall: () => { A.allViews('term'); void setSetting({ defaultView: 'term' }); },
   chatall: () => { A.allViews('chat'); void setSetting({ defaultView: 'chat' }); },
+  compact: () => void setSetting({ density: 'compact' }),
+  balanced: () => void setSetting({ density: 'balanced' }),
+  detailed: () => void setSetting({ density: 'detailed' }),
   recent: () => void setSetting({ sideView: 'recent' }),
   grouped: () => void setSetting({ sideView: 'grouped' }),
   theme: () => void setSetting({ theme: themeNow() === 'dark' ? 'light' : 'dark' }),

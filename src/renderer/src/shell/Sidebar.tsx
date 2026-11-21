@@ -64,7 +64,7 @@ function dirsOf(m: string, ts: ThreadMeta[]): string[] {
 const hasProjects = (m: string, ts: ThreadMeta[]) => ts.length > 0 || (S.projects[m] || []).length > 0;
 
 const fold = (k: string) => update(s => { s.collapsed = { ...s.collapsed, [k]: !s.collapsed[k] }; });
-const archive = (t: ThreadMeta) => { void api.threads.update(t.id, { archived: !t.archived }); };
+const archive = (t: ThreadMeta) => A.archiveThread(t.id, !t.archived);
 const pin = (t: ThreadMeta) => { void api.threads.update(t.id, { pinned: !t.pinned }); };
 function newIn(machine: string, dir: string) {
   const p = A.focusedPane();
