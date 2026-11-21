@@ -576,7 +576,7 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .under .u { display: inline-flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .under svg.i { width: 13px; height: 13px; }
 .under.pick { gap: 2px; padding: 6px 2px 0; overflow: visible; }
-.ring { width: 13px; height: 13px; flex: none; border-radius: 50%; background: conic-gradient(var(--fg-2) calc(var(--p) * 1%), var(--active) 0); -webkit-mask: radial-gradient(circle, transparent 3.500px, #000 4px); mask: radial-gradient(circle, transparent 3.500px, #000 4px); }
+.ring { --c: var(--fg-2); width: 13px; height: 13px; flex: none; border-radius: 50%; background: conic-gradient(var(--c) calc(var(--p) * 1%), var(--active) 0); -webkit-mask: radial-gradient(circle, transparent 3.500px, #000 4px); mask: radial-gradient(circle, transparent 3.500px, #000 4px); }
 
 /* new session: an empty pane is the composer */
 .newp { flex: 1; min-height: 0; overflow: auto; display: grid; align-items: center; padding: 20px 0 8vh; }
@@ -919,13 +919,17 @@ button[aria-expanded="true"] > .i-down { transform: rotate(180deg); }
 
 .term-context { font: inherit; color: var(--fg-3); }
 .term-context:hover, .under .ctx:hover { color: var(--fg); }
-/* context usage: the same surface as a menu, and the same two tones as the ring that opens it */
-#context-usage { position: fixed; inset: auto; margin: 0; width: min(220px, calc(100vw - 16px)); padding: 10px 12px; color: var(--fg-2); background: var(--pop); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow); font-size: 12.5px; }
+/* context usage: the same surface as a menu; the bar and the ring that opens it share one fill (amber, then red, as it fills) */
+#context-usage { position: fixed; inset: auto; margin: 0; width: min(200px, calc(100vw - 16px)); padding: 10px 12px 11px; color: var(--fg-2); background: var(--pop); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow); font-size: 12.5px; }
 #context-usage .cu-h { display: flex; justify-content: space-between; align-items: baseline; color: var(--fg); }
-#context-usage .cu-h span { color: var(--fg-2); font-variant-numeric: tabular-nums; }
-#context-usage .cu-bar { height: 4px; margin: 8px 0 7px; border-radius: 2px; background: var(--active); overflow: hidden; }
-#context-usage .cu-bar i { display: block; height: 100%; width: calc(var(--p) * 1%); border-radius: 2px; background: var(--fg-2); }
-#context-usage .cu-f { color: var(--fg-3); }
+#context-usage .cu-h span { color: var(--fg); font-variant-numeric: tabular-nums; }
+#context-usage .cu-h em { font-style: normal; color: var(--fg-3); }
+#context-usage .cu-bar { --c: var(--fg-2); position: relative; height: 6px; margin-top: 9px; border-radius: 3px; background: var(--active); }
+#context-usage .cu-bar i { display: block; height: 100%; width: calc(var(--p) * 1%); min-width: 6px; border-radius: 3px; background: var(--c); transition: width var(--ease), background-color var(--ease); }
+#context-usage .cu-bar b { position: absolute; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--fg-4); }
+#context-usage .cu-f { margin-top: 8px; font-size: 12px; color: var(--fg-3); }
+.ring.warn, #context-usage .cu-bar.warn { --c: var(--amber); }
+.ring.full, #context-usage .cu-bar.full { --c: var(--red); }
 
 :is(.thread, .term, .s-list, .tool-b) { overscroll-behavior-y: none; }
 
