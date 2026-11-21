@@ -413,6 +413,33 @@ await test('timeline ticks: one per message, hover previews, click scrolls', asy
   await p.waitForFunction(() => document.querySelector('.pane.focus .thread').scrollTop < 60);
 });
 
+await test('timeline ticks: a long thread caps the rail to the pane; it scrolls, follows the message you read and fades its clipped ends', async p => {
+  await openChat(p, 'Walk through the backlog');
+  const rail = p.locator('.pane.focus .ticks');
+  const m = () => rail.evaluate(el => {
+    const r = el.getBoundingClientRect(), pane = el.closest('.pane').getBoundingClientRect(), on = el.querySelector('button.on').getBoundingClientRect();
+    return { top: r.top - pane.top, bottom: pane.bottom - r.bottom, sh: el.scrollHeight, ch: el.clientHeight, st: el.scrollTop, cls: el.className, onIn: on.top >= r.top && on.bottom <= r.bottom };
+  });
+  await settle(p, 300);
+  let s = await m();
+  assert.ok(s.sh > s.ch, 'the rail scrolls');
+  assert.ok(s.top > 30 && s.bottom > 30, `the rail stays inside the pane (${s.top}, ${s.bottom})`);
+  assert.ok(s.onIn, 'the tick of the message you read is in view');
+  assert.match(s.cls, /fade-up/);
+  // the wheel scrolls the rail
+  const box = await rail.boundingBox();
+  await p.mouse.move(box.x + 6, box.y + box.height / 2);
+  await p.mouse.wheel(0, -2000); await settle(p, 300);
+  s = await m();
+  assert.equal(s.st, 0, 'wheeled to the top'); assert.doesNotMatch(s.cls, /fade-up/); assert.match(s.cls, /fade-down/);
+  await p.mouse.move(box.x + 400, box.y);
+  // reading at the end of the thread (G) brings the current tick back into view
+  await composer(p).press('Escape');
+  await p.keyboard.press('g'); await p.keyboard.press('g'); await p.keyboard.press('Shift+G'); await settle(p, 400);
+  s = await m();
+  assert.ok(s.onIn && s.st > 0, 'the rail followed the reader to the end');
+});
+
 await test('timeline ticks: the tick under the pointer is darkest and longest, its neighbours less; press and drag scrubs', async p => {
   await openChat(p, 'Fix session-restore race');
   const ticks = p.locator('.pane.focus .ticks button');

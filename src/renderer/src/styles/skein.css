@@ -327,7 +327,12 @@ pre.out { margin: 3px 0 8px; padding: 8px 12px; font: var(--mono-w) 12px/1.600 v
 .empty svg.i-claude { color: var(--fg-4); }
 
 /* timeline: one tick per message you sent; length peaks at the reading position, or at the hovered tick */
-.ticks { position: absolute; left: 8px; top: 42%; transform: translateY(-50%); display: flex; flex-direction: column; z-index: 2; }
+.ticks { position: absolute; left: 8px; top: 42%; transform: translateY(-50%); display: flex; flex-direction: column; z-index: 2; max-height: 72%; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
+.ticks::-webkit-scrollbar { display: none; }
+.ticks button { flex: none; }
+.ticks.fade-up { mask-image: linear-gradient(to bottom, transparent, #000 36px); }
+.ticks.fade-down { mask-image: linear-gradient(to top, transparent, #000 36px); }
+.ticks.fade-up.fade-down { mask-image: linear-gradient(to bottom, transparent, #000 36px, #000 calc(100% - 36px), transparent); }
 .ticks button { width: 30px; height: 9px; display: flex; align-items: center; }
 .ticks button i { display: block; width: 8px; height: 1.500px; border-radius: 1px; background: var(--fg-4); transition: width 140ms ease, background var(--ease); }
 .ticks button.on i { background: var(--fg); }
