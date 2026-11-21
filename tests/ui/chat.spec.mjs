@@ -1347,3 +1347,26 @@ await test('model picker: hovering a model previews every control that depends o
   assert.ok(!s3.none && !s3.ultraOff, 'back on a Claude model: both live');
   await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
 });
+
+await test('reader: a double- or triple-click drag that ends past a paragraph keeps its selection in VISUAL', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const para = p.locator('.pane.focus .m-asst p').first();
+  const drag = async (clicks, dx, dy) => {
+    await p.evaluate(() => getSelection().removeAllRanges()); await p.keyboard.press('Escape');
+    await para.evaluate(e => e.scrollIntoView({ block: 'center' })); await settle(p);
+    const bb = await para.boundingBox();
+    await p.mouse.move(bb.x + 30, bb.y + 8);
+    for (let c = 1; c <= clicks; c++) { await p.mouse.down({ clickCount: c }); if (c < clicks) await p.mouse.up({ clickCount: c }); }
+    const end = await para.evaluate(el => { const r = document.createRange(); r.selectNodeContents(el); const rs = r.getClientRects(); const l = rs[rs.length - 1]; return { x: l.right, y: l.bottom }; });
+    await p.mouse.move(end.x + dx, end.y + dy, { steps: 8 });
+    await p.mouse.up({ clickCount: clicks }); await settle(p, 250);
+    return { mode: await mode(p), text: await p.evaluate(() => getSelection().toString()), bar: await p.locator('.seltb').count() };
+  };
+  for (const [clicks, dx, dy, why] of [[2, 40, -4, 'double, past the line end'], [1, 40, -4, 'single, past the line end'], [3, 40, -4, 'triple, past the line end'], [3, 40, 14, 'triple, onto the row below']]) {
+    const r = await drag(clicks, dx, dy);
+    assert.equal(r.mode, 'VISUAL', why);
+    assert.ok(r.text.includes('sees the old value.'), `${why}: through the paragraph's end (${JSON.stringify(r.text.slice(-30))})`);
+    assert.equal(r.bar, 1, `${why}: the quote bar`);
+  }
+  await p.keyboard.press('Escape');
+});

@@ -351,18 +351,23 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   // the mouse (as the mockup): a click in the transcript moves the reader's cursor there (NORMAL), a drag selects
   // (VISUAL), a triple click selects lines. A click outside a message being edited cancels the edit first. A click
   // on nothing readable still leaves INSERT: the composer lets go and the tab is in NORMAL.
+  /** Where the button went down: a double-click that started on text and was dragged off it is a word-wise selection. */
+  const downAt = useRef({ x: 0, y: 0 });
   const onMouseUp = (e: React.MouseEvent) => {
     const root = read.current; if (!root || e.button !== 0) return;
     const ev = e.nativeEvent, target = ev.target as Element;
-    if (target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, [role=dialog], img[data-zoom], .flink')) return;
+    // a press on a control is the control's; a drag that only ends on one (from text above it) is still a selection
+    const ctl = target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, [role=dialog], img[data-zoom], .flink');
+    if (ctl && (ctl.contains(document.elementFromPoint(downAt.current.x, downAt.current.y)) || !getSelection()?.toString())) return;
     if (target.closest('summary') && ev.detail < 2) return;   // a click folds; a double-click selects its words (VISUAL)
     if (target.closest('.m-user.can-edit') && !getSelection()?.toString()) return;   // that click opens the edit box
     setTimeout(() => {
       const s = getSelection();
       // a double-click on blank space (beside a line, the margin, next to a bubble) does nothing: no stray VISUAL
-      if (ev.detail >= 2 && !target.closest('.diff .dl > .n') && !onText(ev.clientX, ev.clientY)) { s?.removeAllRanges(); setSel(null); if (reader.on && reader.mode !== 'n') reader.clear(); return; }
+      // (a drag that started on text and ended past a line's or paragraph's end keeps its selection)
+      if (ev.detail >= 2 && !target.closest('.diff .dl > .n') && !onText(ev.clientX, ev.clientY) && !onText(downAt.current.x, downAt.current.y)) { s?.removeAllRanges(); setSel(null); if (reader.on && reader.mode !== 'n') reader.clear(); return; }
       if (s && !s.isCollapsed && root.contains(s.anchorNode)) setSel(s.toString());
-      reader.fromMouse(ev, root);   // first, while the text under the pointer is where it was clicked
+      reader.fromMouse(ev, root, downAt.current);   // first, while the text under the pointer is where it was clicked
       if (tc.edit && (!s || s.isCollapsed)) { tc.edit = undefined; bump(); }
       if (!reader.on) {
         const el = document.activeElement as HTMLElement | null;
@@ -403,7 +408,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const anchorText = th.side && th.parent?.at ? (log(th.parent.id).events.find(e => e.id === th.parent!.at) as { text?: string } | undefined)?.text : undefined;
   return (
     <div className={cx('chat', (th.side || t.kind === 'sub') && 'side')} onFocus={onFocusIn}>
-      <div className="thread" ref={scroller} onScroll={onScroll} onMouseUp={onMouseUp} onClick={onLinkClick}>
+      <div className="thread" ref={scroller} onScroll={onScroll} onMouseDown={e => { downAt.current = { x: e.clientX, y: e.clientY }; }} onMouseUp={onMouseUp} onClick={onLinkClick}>
         <div className="col" data-read ref={read}>
           {t.kind === 'sub' && sub && <div className="sub-h"><Icon name="agent" /><span>{sub.task}</span></div>}
           {th.side && parent && (

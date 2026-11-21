@@ -334,7 +334,7 @@ export class Reader {
   private blocks() { return [...this.root!.querySelectorAll(BLOCKS)].filter(el => !el.parentElement?.closest('[data-src]')); }
 
   /** The mouse: click moves the cursor, a drag is v, a triple click is V. Called after mouseup. */
-  fromMouse(e: MouseEvent, root: HTMLElement) {
+  fromMouse(e: MouseEvent, root: HTMLElement, down?: { x: number; y: number }) {
     this.root = root;
     const s = getSelection()!;
     const gut = (e.target as Element).closest?.('.diff .dl > .n');   // a diff's line number: the start of that line
@@ -345,14 +345,19 @@ export class Reader {
     const at = c && c.startContainer.nodeType === 3 && this.inside(c.startContainer) && (c.startContainer as Text).data.trim() ? this.textAt(c.startContainer, c.startOffset) : null;
     // a triple click: the paragraph (or list item, heading, code block) under the pointer, as the browser shows it,
     // in VISUAL; V would keep only the one wrapped line clicked, and the browser's own end runs into the next block
-    if (e.detail >= 3 && at) {
-      const para = at.n.parentElement?.closest('p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th, .mt, summary');
-      const ns = para ? this.texts(para).filter(n => n.data.trim()) : [];
-      if (ns.length) {
-        const last = ns[ns.length - 1];
-        return this.begin(root, 'v', { n: last, o: Math.max(0, last.data.trimEnd().length - 1) }, { n: ns[0], o: ns[0].data.length - ns[0].data.trimStart().length });
+    // A drag after the third click runs from the paragraph it started in to the one under the pointer (in the same
+    // message); one that ends off the text keeps the paragraph it started in.
+    const pt = (x: number, y: number) => { const r = caretAt(x, y); return r && r.startContainer.nodeType === 3 && this.inside(r.startContainer) && (r.startContainer as Text).data.trim() ? this.textAt(r.startContainer, r.startOffset) : null; };
+    const from = e.detail >= 3 && down ? pt(down.x, down.y) ?? at : at;
+    if (e.detail >= 3 && from) {
+      const PARA = 'p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th, .mt, summary';
+      const edges = (p: Pt) => { const para = p.n.parentElement?.closest(PARA); const ns = para ? this.texts(para).filter(n => n.data.trim()) : []; return ns.length ? { a: { n: ns[0], o: ns[0].data.length - ns[0].data.trimStart().length }, z: { n: ns[ns.length - 1], o: Math.max(0, ns[ns.length - 1].data.trimEnd().length - 1) } } : null; };
+      const p0 = edges(from), bd = this.blockOf(from), to = at && bd?.contains(at.n) && edges(at) ? at : from, p1 = edges(to);
+      if (p0 && p1) {
+        const back = !!(to.n.compareDocumentPosition(from.n) & Node.DOCUMENT_POSITION_FOLLOWING);
+        return back ? this.begin(root, 'v', p1.a, p0.z) : this.begin(root, 'v', p1.z, p0.a);
       }
-      return this.begin(root, 'V', at);
+      return this.begin(root, 'V', from);
     }
     if (!s.isCollapsed && s.anchorNode && root.contains(s.anchorNode)) {
       const fwd = !!(s.anchorNode.compareDocumentPosition(s.focusNode!) & Node.DOCUMENT_POSITION_FOLLOWING) || (s.anchorNode === s.focusNode && s.focusOffset >= s.anchorOffset);
