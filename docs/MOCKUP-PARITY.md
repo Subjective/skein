@@ -98,6 +98,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | chat C2 | After Add to Chat the caret sits after the token, in INSERT | Fixed | VimField keeps its first value; test "a second Add to chat goes after the first". |
 | chat C3 | Quotes are kept in text order, so the right words are sent | Fixed | `views/chat/threads.ts:116` syncQuotes. |
 | chat C9 | A quote whose source is closed reopens it (thread or file) and reveals | Fixed | Composer goQuote; diff and plan sources do not reopen. |
+| chat C20 | A quote in the composer is a tinted pill (`.tok`) | Proposed deviation | Josh, 2026-11-21: a chat icon, then the quoted words in blue with no pill, as Cursor's; a soft fill and the x on hover. The icon is drawn in front so a block cursor or selection never hides it. Removal by keys is unchanged (x, d, backspace), and u now brings a deleted quote back still linked. Tests "quote chip: …". |
 | chat C16 | The token is sent as is | Proposed deviation | The full quote text is sent because the harness needs the words; the bubble still shows chips. |
 | chat C17 | Add to Chat on a terminal-view thread types `"text" ` into the TUI | Fixed | `views/chat/threads.ts:135`. |
 | chat C18 | Drafts keep their quotes across a relaunch | Fixed | `views/chat/state.ts:80`. |
@@ -321,6 +322,7 @@ during this review; rows say what was seen in the browser build at the time.
   model (chat E10, M12), and a busy thread cannot be moved (shell K8).
 - Vim follows real Vim where the mockup simplified: word motions, `I`, counts, registers, the menu search field in
   NORMAL, `l` picking, the 1200 ms sequence timeout, the 500 ms insert map (keys V5, V8, V10, M11, M13, A9, I3).
+- Quote chips look like Cursor's (chat C20, asked for by Josh on 2026-11-21): a chat icon and blue words, no pill.
 - Small, deliberate choices: a toast for mod-l with nothing selected (keys G12), send queues a follow-up while a turn
   runs (chat P6), /model keeps the rest of the draft (chat M9), "Send to thread" inserts a linked quote (chat D6),
   `G` stays in the reader (chat R11), offline machines connect on start (shell L9), empty machines stay listed
