@@ -9,8 +9,8 @@ Every part of the interface is one of these. A new feature picks a kind and inhe
 
 | Kind | What it is | Examples |
 |---|---|---|
-| **Field** | Text you can edit | Composer, edit-a-message box, a menu's search field, an SSH passphrase, vimrc |
-| **Reader** | Text you can only read | A thread, a side chat, a subagent transcript, a diff, terminal scrollback; a file until you edit it |
+| **Field** | Text you can edit | Composer, edit-a-message box, a menu's search field, an SSH passphrase, vimrc, an open file (the code editor, rule 23) |
+| **Reader** | Text you can only read | A thread, a side chat, a subagent transcript, a diff, terminal scrollback, a Markdown preview |
 | **Terminal** | A program that owns its own input | A thread's terminal view (the harness TUI), a shell |
 | **List** | Discrete items | Sidebar, any menu, settings, keyboard popup, rows inside a thread |
 | **Layout** | Where things are | Panes, tabs, popups |
@@ -140,6 +140,18 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
     reader, a terminal into its scrollback). In a menu it goes back to the search field. ctrl-k is the palette.
     (A deliberate change from the mockup, where app NORMAL `/` opened the palette; `search` in `shell/commands.ts`.)
 
+23. **Code is read and edited in one editor.** An open file is the code editor (ui/editor/CodeEditor.tsx:
+    CodeMirror 6 with its Vim mode and Lezer highlighting), so it has Vim's full set of motions, text objects,
+    operators, `.`, macros and named registers, and it stays highlighted while you type. The dispatcher still
+    runs first: the leader, the global chords and an open popup take their keys before the editor sees them.
+    Then the view's own keys (a file: `/` `?` `n` `N` through the shared search, `:` the command line with `:w`,
+    `-` the folder list, ctrl-s / cmd-s). Then, only in NORMAL with nothing pending, Skein's NORMAL keys win over
+    Vim's (`H` `L` `|` `\` `g t` `g T` `g v` `esc` `ctrl-w`; each listed with its reason in ui/editor/route.ts,
+    and input/keyclash.test.ts fails if a new one appears unlisted). A key Vim is in the middle of (`2H`,
+    `dL`, `gg`) is Vim's. The mode in the status bar is the editor's. One selection colour (`--sel`) in `v`,
+    `V` and with the mouse; `V` shades whole lines, never the gutter; the cursor's line is not shaded while
+    there is a selection. Its unnamed register is the app's (rule 18): a yank in a file puts in a composer.
+
 ## 4. Per-surface summary
 
 | Surface | Kind | Opens in | Notes |
@@ -155,7 +167,7 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 | Thread, side chat, subagent, file, diff, scrollback | Reader | NORMAL | entered from the field below, by click, or leader `[`; counts, `/` `?` `n` `N` (rule 19). In a thread `zr` / `zm` show more or less of the agent's work in this view (Compact, Balanced, Detailed; the default is in Settings, Agent work), `zR` / `zM` open or shut every fold, and a cursor inside a fold that shuts moves to its row |
 | Changes (diff + file tree) | Reader + Field | NORMAL | `/` `?` search the diff like any reader; `f` searches the tree, `enter` there goes to the first match; on a file's header `s` stages, `x` reverts (Undo in the toast), `enter` on "N unmodified lines" shows them |
 | Browser tab | Terminal (the page) + Field (address) | NORMAL (a new tab: INSERT in the address) | `i` / `gi` or a click give the page the keys (TERMINAL), `esc` takes them back; while the page has them Skein keeps only rule 11's keys and mod-l. In NORMAL: `r` reload, `[` `]` and `ctrl-o` / `ctrl-i` back and forward, `o` / `ctrl-l` / mod-l the address (`enter` goes, `esc` `esc` puts it back), `j` `k` `ctrl-d` `ctrl-u` `gg` `G` scroll the page, `enter` on an error presses Retry, `H` / `L` tabs |
-| Open file | Reader | NORMAL | `ctrl-o` / `ctrl-i` back and forward through files opened in that tab; the path's folders and the tree switch file in place. `V` shades the text area of its lines only, never the gutter or line numbers, and only paints: nothing moves or reflows |
+| Open file | Field (the code editor, rule 23) | NORMAL | edits in place: no separate reading mode. `ctrl-o` / `ctrl-i` back and forward through files opened in that tab; the path's folders and the tree switch file in place. A Markdown file opens as a preview (a Reader: `j` `k` scroll, `gp` or the switch shows the source); `v` / `V` there open the source at the line on top of the view, selecting from it, so `V` then `y` copies the Markdown, and `i` `a` `o` `enter` edit there. A click on a line number puts the cursor at the line's start |
 | Rows inside a thread | List | NORMAL | `l` / `h` unfold / fold; `enter` opens. A row of buttons (a request's answers, a reply's copy / fork / side chat row) is one line for `j` / `k` (rule 9); on it `h` / `l` (and `w` / `b`, `0` / `$`) move a ring between its buttons and `enter` or `space` presses the ringed one (rule 16). A reply's action row shows while the cursor is on it, though it otherwise shows on hover; `v` there starts at the reply's last character |
 | Menus, keyboard popup | List | NORMAL | `esc` closes |
 | Settings | List (two: sections, then the section's rows) | NORMAL | The section list has the keys first: `j` / `k` move over sections (the page follows), `l`, `enter` or `tab` go into its rows. In the rows `j` / `k` move, `h` / `l` lower and raise a row's value (a choice, a switch), `enter` presses; `esc`, `shift-tab`, or `h` on a row with no value go back to the sections; `esc` there closes, `q` closes from either. `H` / `L` mean tabs everywhere and do nothing in this dialog. |
@@ -184,7 +196,7 @@ The Electron build must also drop the default menu accelerators that would swall
 - **Search in the chat transcript matches within one run of text.** A phrase split by formatting (inline code,
   bold, a link) is not found as a whole; each part is.
 - **Search is literal.** No regular expressions, no `*` / `#` (search for the word under the cursor), no `:s`.
-- **One register.** No named registers, no explicit `"+` / `"*`, and `p` in VISUAL does not replace the selection.
+- **One register outside the code editor.** Composers and other fields have no named registers, no explicit `"+` / `"*`, and `p` in VISUAL does not replace the selection; the code editor (an open file) has all of these, as Vim does. Moving the composer and the edit box onto the code editor is the next step.
 - **Counts stop at the edges they knew before**: `5j` past a reader's last line goes to the field below (rule 7)
   like `j` does, and a count before `G` in the chat transcript is ignored.
 - **App NORMAL `k` in a chat** enters the transcript reader (and `enter` goes back to the composer), so there only
