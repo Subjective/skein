@@ -895,9 +895,6 @@ textarea.vn.hollow.drawn { caret-color: transparent; }
 .m-acts.rowcur { background: none; box-shadow: none; }
 .m-acts .ib.kcur { background: var(--active) !important; color: var(--fg) !important; box-shadow: none; outline: 2px solid var(--fg-3); outline-offset: 1px; }
 
-/* a file being edited: gutter + field, same type as the read-only source */
-.tool-h .mod { display: none; }
-.tool-h.dirty .mod { display: inline-flex; }
 .tool-h span.mod { margin-left: 8px; font-size: 12px; }
 .tab.dirty .t::after { content: " \2022"; color: var(--fg-3); }
 

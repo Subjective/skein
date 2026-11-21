@@ -1,6 +1,6 @@
 // An open file, in the code editor (ui/editor/CodeEditor: CodeMirror with its Vim mode, the same everywhere code is
 // edited). It opens in NORMAL: motions, counts, v / V and y read it; i, a, o, x, d, p ... edit it in place, with
-// u / ctrl-r. / ? n N search through the shared search popup (ui/search.tsx). :w, ctrl-s / cmd-s or Save writes
+// u / ctrl-r. / ? n N search through the shared search popup (ui/search.tsx). :w, ctrl-s / cmd-s or the palette's "Save this file" writes
 // it. Unsaved text stays with the file (closing the tab keeps it for this session) and is what Preview shows.
 // Markdown opens as a preview (a reader: j / k scroll, gp or the switch shows the source); v or V there opens the
 // source at the top of the view with that line selected, so y copies Markdown, not rendered text.
@@ -16,7 +16,7 @@ import { ReaderSearch, type Searchable } from '../../ui/search';
 import type { Tab } from '../../state/layout';
 import { toast, update, useApp } from '../../state/store';
 import { openCmdline, openMenu } from '../../shell/overlays';
-import { Button, cx, Icon, IconButton, Seg, Spinner } from '../../ui/primitives';
+import { cx, Icon, IconButton, Seg, Spinner } from '../../ui/primitives';
 import { CodeEditor, type CodeEditorHandle } from '../../ui/editor/CodeEditor';
 import { LangBadge } from './code';
 import { useToolSel } from './mousesel';
@@ -258,7 +258,6 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
           <Icon name="chev" className="sep" /><span className="crumb now"><LangBadge path={path} />&nbsp;{parts[parts.length - 1]}</span>
         </nav>
         <span className="sp" />
-        {dirty && <Button small className="mod" onClick={() => void save()} title={`Save · :w · ${kb('mod-s')}`}>Save</Button>}
         {isMd && <Seg text label="Preview or source" value={preview ? 'preview' : 'source'} onChange={x => { v.md = x; update(); }}
           options={[{ v: 'preview', label: 'Preview' }, { v: 'source', label: 'Source' }]} />}
         <IconButton data-k="find" icon="search" small label="Find in file" keys="/" onClick={() => find()} />

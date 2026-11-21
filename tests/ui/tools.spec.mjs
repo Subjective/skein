@@ -461,7 +461,7 @@ await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', 
   assert.equal(await mode(p), 'NORMAL');
   await p.keyboard.press('Escape');
   await settle(p);
-  assert.ok(await F(p).getByRole('button', { name: 'Save' }).isVisible());
+  assert.equal(await F(p).getByRole('button', { name: 'Save' }).count(), 0, 'no Save button: the tab dot shows unsaved edits');
   assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 1, 'the tab marks unsaved edits');
   const dd = p.locator('.pane.focus .tab.on.dirty .tx .dd');
   assert.ok(await dd.isVisible(), 'a dot where the close button is');
