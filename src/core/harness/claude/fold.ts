@@ -6,7 +6,7 @@
 //   thinking    same as text
 //   tool, edit, todo, sub   the tool_use id
 //   a subagent's prompt      `p-${tool_use id}` (the first message of its own transcript)
-import type { ThreadEvent } from '../../../shared/types';
+import type { StepKind, ThreadEvent } from '../../../shared/types';
 import { clip, countDiff, errorKind, replaceDiff, textOf, tidy } from '../common';
 
 type Block = { type: string; [k: string]: unknown };
@@ -66,6 +66,12 @@ export function toolArg(name: string, input: Record<string, unknown>): string {
 }
 
 /** A friendlier tool name: mcp__server__tool reads as "server: tool". */
+/** Claude Code names each kind of step as its own tool. */
+export const stepKind = (name: string): StepKind =>
+  name === 'Read' || name === 'NotebookRead' ? 'read' : name === 'Grep' || name === 'Glob' ? 'search' : name === 'LS' ? 'list'
+    : name === 'Bash' || name === 'BashOutput' || name === 'KillShell' ? 'command' : name === 'WebFetch' || name === 'WebSearch' ? 'web'
+      : name.startsWith('mcp__') ? 'mcp' : 'other';
+
 export const toolName = (name: string) => {
   const m = name.match(/^mcp__(.+?)__(.+)$/);
   return m ? `${m[1].replace(/_/g, ' ')}: ${m[2].replace(/_/g, ' ')}` : name;
@@ -206,7 +212,7 @@ export class ClaudeFold {
       const ev: SubEvent = { t: 'sub', id, name: String(input.subagent_type ?? 'Subagent'), task: String(input.description ?? prompt), status: 'running', events: prompt ? [{ t: 'user', id: subPromptId(id), text: prompt }] : [] };
       this.subs.set(id, { ev, started: this.now(), fold: new ClaudeFold((se, rep) => this.subEvent(id, se, rep), this.now, subPromptId(id)) });
       e = ev;
-    } else e = { t: 'tool', id, name: toolName(name), arg: toolArg(name, input), status: 'running' };
+    } else e = { t: 'tool', id, name: toolName(name), arg: toolArg(name, input), status: 'running', kind: stepKind(name) };
     this.tools.set(id, e);
     this.put(e, uuid);
   }

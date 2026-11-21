@@ -12,7 +12,8 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…'
 const said = (u: Element) => {
   const r = u.nextElementSibling, rep = r?.matches('.reply') ? r : null;
   const first = rep && (rep.querySelector('.m-asst') || rep.querySelector('.tool, .live, .err-row'));
-  if (first) return ((first.querySelector(':scope > summary') || first) as HTMLElement).innerText.replace(/\s+/g, ' ').trim();
+  // textContent, not innerText: the first note may be inside a fold that is shut, where innerText is empty
+  if (first) return ((first.querySelector(':scope > summary') || first).textContent || '').replace(/\s+/g, ' ').trim();
   return rep ? '' : 'Working…';
 };
 

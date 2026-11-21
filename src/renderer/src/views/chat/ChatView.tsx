@@ -3,7 +3,7 @@
 // y / n answer the oldest request from NORMAL anywhere in the tab (G7). Claude Code driven from its
 // terminal shows a read-only mirror with Show terminal and Take back instead of the composer (G4).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ThreadEvent, ThreadMeta } from '@shared/types';
+import type { Density, ThreadEvent, ThreadMeta } from '@shared/types';
 import type { Surface } from '../../input/dispatcher';
 import { registerTab, tabSurface } from '../../input/surfaces';
 import { api } from '../../api';
@@ -16,6 +16,7 @@ import { clipImages, Composer, LockedComposer, type ComposerHandle } from './Com
 import { onText, Reader, SEL_BLOCK, selectable } from './reader';
 import { Ticks } from './Ticks';
 import { fixError, Transcript, type TranscriptCtx } from './Transcript';
+import { DENSITY, DENSITY_NAME } from './options';
 import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, startChat, tabChat, tokenOf, ultraFor, useChat, type Draft } from './state';
 import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, quoteToTab, registerChatTab, subList } from './threads';
 import { registerHooks } from '../tools/hooks';
@@ -53,6 +54,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const outside = t.kind !== 'sub' && !!th.external && !(th.harness === 'claude' && th.drive === 'term');
   const mirror = t.kind !== 'sub' && ((th.harness === 'claude' && th.drive === 'term') || outside);
   const [taking, setTaking] = useState(false);
+  // density: the setting, or this view's own after zr / zm (until the tab closes)
+  const [dens, setDens] = useState<Density | null>(null);
+  const density = dens ?? S.settings.density ?? 'compact';
+  const densRef = useRef(density); densRef.current = density;
   // an image pasted anywhere in the focused tab (reader, nothing focused) lands in its composer (app.js paste → curTab)
   useEffect(() => {
     if (!focused || mirror) return;
@@ -126,6 +131,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     edit: (id, offset, key) => startEdit(id, offset, key),
     answer: yes => answerKey(yes),
     selection: s => setSel(s),
+    density: d => {
+      const i = Math.max(0, Math.min(DENSITY.length - 1, DENSITY.indexOf(densRef.current) + d)), to = DENSITY[i];
+      setDens(to); toast(`${DENSITY_NAME[to]} in this view`, { icon: 'layers' });
+    },
   }), [t.id]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => reader.clear(), [reader]);
 
@@ -150,6 +159,9 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
       // the reader from here too (the mirror bar has no field): [ [ your last message, { the block above
       if (k === '[' && read.current) { const prev = idleKey.current; idleKey.current = { k, at: Date.now() }; if (prev.k === '[' && Date.now() - prev.at < 800) { idleKey.current = { k: '', at: 0 }; if (reader.enter(read.current)) { reader.key('['); reader.key('['); } } return true; }
       if (k === '{' && read.current) { reader.enter(read.current, 'block'); return true; }
+      // folds from here too: zr / zm / zR / zM
+      if (k === 'z' && read.current) { idleKey.current = { k, at: Date.now() }; return true; }
+      if (idleKey.current.k === 'z' && read.current && Date.now() - idleKey.current.at < 800) { idleKey.current = { k: '', at: 0 }; reader.fold(k, read.current); return true; }
       if ((k === 'i' || k === 'a') && mirrorRef.current) { mirrorRef.current(); return true; }   // the mirror bar: i / a take the thread back
       // the mirror bar is a row of buttons (rule 16): h / l along it, enter / space press, esc presses Cancel
       const row = mirrorRow.current;
@@ -334,7 +346,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   };
 
   const ctx: TranscriptCtx = {
-    thread: th, src: t.kind === 'sub' ? `sub:${t.sub}` : `ev:${th.id}`, main: t.kind !== 'sub' && !th.side,
+    thread: th, src: t.kind === 'sub' ? `sub:${t.sub}` : `ev:${th.id}`, main: t.kind !== 'sub' && !th.side, density,
     editing: tc.edit?.event,
     editBox: tc.edit && (
       <>
