@@ -12,6 +12,7 @@ import { scrollback } from '../views/terminal/scrollback';
 import { tabHook } from '../views/tools/hooks';
 import { searchSidebar } from './Sidebar';
 import { openTool, saveFile } from '../views/tools/open';
+import { FILE_ACTIONS, fileAction, openFileMenu } from '../views/tools/fileactions';
 import { liveTab, quoteSelection } from '../views/chat/threads';
 
 const setSetting = async (patch: Partial<typeof S.settings>) => { const v = await api.app.setSettings(patch); update(st => { st.settings = v; }); };
@@ -107,6 +108,8 @@ const RUN: Record<string, (args: string[]) => void | boolean> = {
   files: () => openTool('files'),
   browser: () => openTool('browser'),
   w: () => saveFile(),
+  filemenu: () => { const t = A.currentTab(); if (t.kind !== 'file') return void toast('Open a file first'); openFileMenu(t, document.querySelector(`[data-tab="${t.id}"] .file-v [data-k=more]`)?.getBoundingClientRect() ?? null); },
+  ...Object.fromEntries(FILE_ACTIONS.map(a => [a, () => { if (!fileAction(a)) toast('Open a file first'); }])),
   // every thread tab, and new threads from now on (Settings > General)
   termall: () => { A.allViews('term'); void setSetting({ defaultView: 'term' }); },
   chatall: () => { A.allViews('chat'); void setSetting({ defaultView: 'chat' }); },

@@ -68,6 +68,17 @@ export function parseNumstat(text: string): { path: string; add: number; del: nu
 }
 
 /** A git remote URL as the web page that opens a pull request for `branch`, if the host is a known forge. */
+/** A file's page on the forge, at `ref` (a branch or a commit). null for a host it doesn't know. */
+export function blobUrl(remote: string, ref: string, path: string): string | null {
+  const m = /^(?:https?:\/\/(?:[^@/]+@)?|ssh:\/\/(?:[^@/]+@)?|git@)([^/:]+)(?::\d+)?[:/](.+?)(?:\.git)?\/?$/.exec(remote.trim());
+  if (!m) return null;
+  const [, host, repo] = m, r = ref.split('/').map(encodeURIComponent).join('/'), p = path.split('/').map(encodeURIComponent).join('/');
+  if (/github/.test(host)) return `https://${host}/${repo}/blob/${r}/${p}`;
+  if (/gitlab/.test(host)) return `https://${host}/${repo}/-/blob/${r}/${p}`;
+  if (/bitbucket/.test(host)) return `https://${host}/${repo}/src/${r}/${p}`;
+  return null;
+}
+
 export function prUrl(remote: string, branch: string): string | null {
   const m = /^(?:https?:\/\/(?:[^@/]+@)?|ssh:\/\/(?:[^@/]+@)?|git@)([^/:]+)(?::\d+)?[:/](.+?)(?:\.git)?\/?$/.exec(remote.trim());
   if (!m) return null;

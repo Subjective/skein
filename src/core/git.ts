@@ -11,7 +11,7 @@ import type { Branch, Commit, FileDiff, GitStatus, RepoState, RevertUndo, ScopeC
 import type { Machine } from '../shared/types';
 import { run } from './exec';
 import { expandLocal } from './files';
-import { parseDiff, parseNumstat, prUrl } from './gitparse';
+import { blobUrl, parseDiff, parseNumstat, prUrl } from './gitparse';
 import { sq, sqPath } from './shell';
 
 type R = { code: number | null; stdout: string; stderr: string };
@@ -303,4 +303,20 @@ export async function push(m: Machine, root: string): Promise<{ pr?: string }> {
 export async function diff(m: Machine, dir: string, o: { path?: string; staged?: boolean; range?: string }) {
   const r = await g(m, dir, [...DIFF, ...(o.range ? [o.range] : o.staged ? ['--cached'] : ['HEAD']), ...(o.path ? paths([o.path]) : [])]);
   return r.stdout;
+}
+
+/** The file's page on the remote's website: the upstream's remote and branch when there is one, else origin (or the
+ *  only remote) at its default branch, else at HEAD's commit. */
+export async function webUrl(m: Machine, root: string, path: string): Promise<string | null> {
+  const [up, remotes, trunk, head] = await multi(m, root, [
+    ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], ['remote'], ['symbolic-ref', '-q', '--short', 'refs/remotes/origin/HEAD'], ['rev-parse', 'HEAD'],
+  ]);
+  const names = remotes.stdout.split('\n').map(x => x.trim()).filter(Boolean);
+  const u = up.code === 0 ? up.stdout.trim() : '', ur = names.find(n => u.startsWith(n + '/'));
+  const remote = ur || (names.includes('origin') ? 'origin' : names[0]);
+  if (!remote) return null;
+  const ref = ur ? u.slice(ur.length + 1) : trunk.stdout.trim().replace(/^origin\//, '') || head.stdout.trim();
+  if (!ref) return null;
+  const url = (await g(m, root, ['remote', 'get-url', remote])).stdout.trim();
+  return blobUrl(url, ref, path);
 }

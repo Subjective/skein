@@ -36,6 +36,8 @@ export interface ShellHooks {
   version: string;
   home: string;
   openExternal(url: string): Promise<void>;
+  /** Show a local file in the system's file manager. */
+  reveal(path: string): void;
   notify(title: string, body: string, thread?: string): void;
   /** The keys Skein keeps while a Browser tab's page has focus (main's before-input-event reads them). */
   browserKeys?(keys: string[]): void;
@@ -145,6 +147,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       settings: async () => ({ ...DEFAULT_SETTINGS, ...store.get<Partial<Settings>>('settings') }),
       setSettings: async patch => { const s = { ...DEFAULT_SETTINGS, ...store.get<Partial<Settings>>('settings'), ...patch }; store.set('settings', s); return s; },
       openExternal: url => shell.openExternal(url),
+      reveal: async p => shell.reveal(files.expandLocal(p)),
       notify: async (title, body, thread) => shell.notify(title, body, thread),
     },
     machines: {
@@ -275,6 +278,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       push: (m, r) => git.push(M(m), r),
       snapshot: (m, r) => git.snapshot(M(m), r),
       files: (m, r) => git.files(M(m), r),
+      webUrl: (m, r, p) => git.webUrl(M(m), r, p),
     },
     browser: {
       forward: (m, port) => forwards.forward(m, port),

@@ -6,7 +6,7 @@
 // The header has back / forward (ctrl-o / ctrl-i, through the jump list), the path (each folder opens a list of
 // what is in it; - opens the file's own folder), the language, and the project tree. Lines changed since the last
 // commit get a bar in the gutter: green added, amber changed, a red notch where lines were removed.
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { gutterMarks } from '@shared/gutter';
 import { api } from '../../api';
 import type { Mode } from '../../input/dispatcher';
@@ -25,6 +25,7 @@ import { CodeLine, LangBadge, selectPainted, type Paint } from './code';
 import { selEnds, useToolSel } from './mousesel';
 import { baseName, indentUnit, langOf, tokenizeAll, type Tok } from './highlight';
 import { registerHooks } from './hooks';
+import { numbersOn, openFileMenu, registerFile, wrapOn } from './fileactions';
 import { diffLines, toHunks } from './linediff';
 import { Markdown } from './md';
 import { fileNav, openFile, readText } from './open';
@@ -48,7 +49,7 @@ const EDIT_N = new Set(['i', 'a', 'I', 'A', 'o', 'O', 's', 'S', 'c', 'C', 'd', '
 const EDIT_V = new Set(['d', 'x', 'c', 's', 'J', '~', 'r', 'delete']);
 const HL_MAX = 8000;   // lines highlighted; the rest of a huge file is plain
 
-interface View { rs: TextState; mode: 'read' | 'edit'; md: 'preview' | 'source'; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string; search: ReaderSearch; reader?: Searchable }
+interface View { rs: TextState; mode: 'read' | 'edit'; md: 'preview' | 'source'; diff?: boolean; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string; search: ReaderSearch; reader?: Searchable }
 
 const fakeKey = (k: string): KeyLike => ({ key: k.length === 1 ? k : k === 'esc' ? 'Escape' : k, code: '', ctrlKey: k.startsWith('ctrl-'), altKey: false, shiftKey: false, metaKey: false });
 const lineStarts = (t: string) => { const a = [0]; for (let i = 0; i < t.length; i++) if (t.charCodeAt(i) === 10) a.push(i + 1); return a; };
@@ -127,6 +128,21 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     return out;
   }, [doc.base, text]);
 
+  // the diff view: the last commit's removed lines drawn above where they were, added lines marked
+  const diffv = !!v.diff && doc.base != null;
+  const drows = useMemo(() => {
+    if (!diffv) return null;
+    const base = doc.base ? doc.base.replace(/\n$/, '').split('\n') : [];
+    const gone = new Map<number, string[]>(), added = new Set<number>();
+    let b = 0;
+    for (const l of diffLines(base, text.replace(/\n$/, '').split('\n'))) {
+      if (l.k === '-') gone.set(b, [...(gone.get(b) || []), l.text]);
+      else { if (l.k === '+') added.add(b); b++; }
+    }
+    const goneToks = new Map([...gone].map(([i, ls]) => [i, tokenizeAll(ls, lang)] as const));
+    return { gone, goneToks, added };
+  }, [diffv, doc.base, text, lang]);
+
   // where to put the cursor when asked (opened at a line, back / forward)
   useEffect(() => {
     const g = nav.goto; if (!g || doc.disk == null) return;
@@ -163,6 +179,13 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   // mod-l in VISUAL: the painted selection becomes a page selection, and the quote command takes it from there
   const addr = () => { if (v.rs.mode === 'VISUAL') selectPainted(body.current, '.src .vs'); else if (v.rs.mode === 'V-LINE') selectPainted(body.current, '.src .dl.vsel .c'); return false; };
   useEffect(() => registerHooks(t.id, { back: () => histStep(-1), forward: () => histStep(1), save: () => { void save(); return true; }, addr }));
+  // the ⋯ menu (fileactions.tsx) asks this tab what it can do
+  const discard = () => { if (v.mode === 'edit') stopEdit(); bufs.delete(key); update(); };
+  useEffect(() => registerFile(t.id, {
+    dirty: () => dirty, discard, canDiff: () => doc.base != null, diff: () => !!v.diff,
+    setDiff: on => { if (v.mode === 'edit') stopEdit(); v.diff = on; if (on && isMd) v.md = 'source'; update(); },
+    repo: () => (repo ? { root: repo.root, rel: repo.prefix ? repo.prefix + '/' + path : path } : null),
+  }));
   // a mouse selection (mouseUp below) is the reader's VISUAL with the Add to Chat bar; the page selection follows
   // the painted one as keys move it, and goes when VISUAL does
   const mouse = useRef(false);
@@ -284,7 +307,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
 
   // ---------- mouse: a click puts the cursor there, a double click starts editing ----------
   const posFromPoint = (e: React.MouseEvent): number | null => {
-    const row = (e.target as HTMLElement).closest('.dl') as HTMLElement | null; if (!row) return null;
+    const row = (e.target as HTMLElement).closest('.dl[data-ln]') as HTMLElement | null; if (!row) return null;
     const ln = +(row.dataset.ln || 0), c = row.querySelector('.c'); if (!c) return null;
     const cr = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint?.(e.clientX, e.clientY);
     // the line number puts the cursor at the line's start; right of the text, its end
@@ -333,7 +356,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     }, 0);
   };
   return (
-    <div className="file-v" ref={side.ref} onMouseDown={e => { if (v.mode === 'read' && !(e.target as HTMLElement).closest('.ctree, .tool-h')) own(); }}>
+    <div className={cx('file-v', !numbersOn() && 'nonum', wrapOn() && 'wrap')} ref={side.ref} onMouseDown={e => { if (v.mode === 'read' && !(e.target as HTMLElement).closest('.ctree, .tool-h')) own(); }}>
       <header className={cx('tool-h', dirty && 'dirty')}>
         <IconButton icon="chev" className="flip" small label="Back" keys="ctrl-o" disabled={nav.hi === 0} onClick={() => histStep(-1)} />
         <IconButton icon="chev" small label="Forward" keys="ctrl-i" disabled={nav.hi >= nav.hist.length - 1} onClick={() => histStep(1)} />
@@ -349,6 +372,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
         {dirty && <Button small className="mod" onClick={() => void save()} title={`Save · :w · ${kb('mod-s')}`}>Save</Button>}
         {isMd && <Seg text label="Preview or source" value={preview ? 'preview' : 'source'} onChange={x => { if (v.mode === 'edit') stopEdit(); v.md = x; update(); }}
           options={[{ v: 'preview', label: 'Preview' }, { v: 'source', label: 'Source' }]} />}
+        <IconButton data-k="more" icon="dots" small label="More actions" onClick={e => openFileMenu(t, e.currentTarget.getBoundingClientRect())} />
         <IconButton data-k="find" icon="search" small label="Find in file" keys="/" onClick={() => find()} />
         <IconButton icon="panelR" small on={side.show} aria-pressed={side.show} label="Project files" onClick={side.toggle} />
       </header>
@@ -369,14 +393,17 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
               </div>
             )}
           {showLines && (
-            <div className={cx('src', mouse.current && sel && 'msel', sel && v.rs.mode !== 'NORMAL' && 'vis')} data-src={`file:${path}`} role="textbox" aria-readonly="true" aria-label={path} aria-multiline="true"
+            <div className={cx('src', diffv && 'diffv', mouse.current && sel && 'msel', sel && v.rs.mode !== 'NORMAL' && 'vis')} data-src={`file:${path}`} role="textbox" aria-readonly="true" aria-label={path} aria-multiline="true"
               onMouseDown={e => { if (e.detail > 1) return; const p = posFromPoint(e); if (p != null) { v.rs = { ...v.rs, pos: p, mode: 'NORMAL' }; update(); } }}
               onMouseUp={mouseUp}>
-              {lines.map((_, i) => (
-                <div key={i} data-ln={i} className={cx('dl', marks?.get(i + 1), i === curLine && 'curl', sel && v.rs.mode === 'V-LINE' && starts[i] >= sel[0] && starts[i] <= sel[1] && 'vsel')}>
+              {[...lines, null].map((_, i) => (<Fragment key={i}>
+                {drows?.gone.get(i)?.map((g, j) => (
+                  <div key={'g' + j} className="dl del" aria-hidden="true"><span className="n" /><span className="c"><CodeLine toks={drows.goneToks.get(i)![j] || [['', g]]} unit={unit} /></span></div>
+                ))}
+                {i < lines.length && <div data-ln={i} className={cx('dl', drows ? drows.added.has(i) && 'add' : marks?.get(i + 1), i === curLine && 'curl', sel && v.rs.mode === 'V-LINE' && starts[i] >= sel[0] && starts[i] <= sel[1] && 'vsel')}>
                   <span className="n">{i + 1}</span><span className="c"><CodeLine toks={toks[i] || []} unit={unit} paint={paintFor(i)} /></span>
-                </div>
-              ))}
+                </div>}
+              </Fragment>))}
             </div>
           )}
           {v.mode === 'read' && preview && doc.disk != null && <article className="doc prose" data-src={`file:${path}`} onMouseUp={mouseUp}><Markdown text={text} /></article>}
@@ -384,7 +411,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
         {side.show && (<>
           <div className="tree-resize" title="Drag to resize" onPointerDown={resizeTree} />
           <aside className="ctree" aria-label="Project files">
-            <ProjectTree l={lister} st={v.ts} active={path} label="Project files" onOpen={n => { if (n.dir) toggleDir(lister, v.ts, n.rel); else openFile(ctx, n.rel, { from: t }); }} />
+            <ProjectTree l={lister} st={v.ts} active={path} label="Project files" onOpen={(n, split) => { if (n.dir) toggleDir(lister, v.ts, n.rel); else openFile(ctx, n.rel, { from: t, split }); }} />
           </aside>
         </>)}
       </div>

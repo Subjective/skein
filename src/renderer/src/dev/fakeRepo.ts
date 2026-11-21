@@ -135,6 +135,7 @@ export const fakeGit: SkeinApi['git'] = {
   push: async () => { await delay(0, 200); return { pr: `https://github.com/example/skein/compare/${branch}?expand=1` }; },
   snapshot: async () => treeId(work),
   files: async () => delay([...work.keys()].sort()),
+  webUrl: async (_m, _r, p) => `https://github.com/example/skein/blob/${branch}/${p}`,
   stage: async (_m, _d, ps, on) => { for (const p of ps) { const src = on ? work : head().tree; if (src.has(p)) index.set(p, src.get(p)!); else index.delete(p); } touch(); },
   revert: async (_m, _d, ps): Promise<RevertUndo> => {
     const id = 'u' + Date.now();

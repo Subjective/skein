@@ -11,6 +11,7 @@ import { GitMark, LangBadge } from './code';
 import { FileIcon } from '../../ui/FileIcon';
 import { baseName } from './highlight';
 import { join, type Ctx, type RepoEntry } from './repo';
+import { splitClick } from './open';
 
 export interface Node { name: string; rel: string; dir: boolean; ign?: boolean }
 export interface TreeState { open: Set<string>; cur: string | null; q: string }
@@ -116,7 +117,7 @@ export function visible(l: Lister, st: TreeState): (Node & { depth: number })[] 
 }
 
 export function ProjectTree({ l, st, onOpen, active, cursor, className, label }: {
-  l: Lister; st: TreeState; onOpen: (n: Node) => void; active?: string; cursor?: boolean; className?: string; label: string;
+  l: Lister; st: TreeState; onOpen: (n: Node, split?: boolean) => void; active?: string; cursor?: boolean; className?: string; label: string;
 }) {
   const rows = visible(l, st);
   const ref = useRef<HTMLDivElement>(null);
@@ -133,7 +134,7 @@ export function ProjectTree({ l, st, onOpen, active, cursor, className, label }:
           <button key={n.rel} type="button" role="treeitem" aria-expanded={n.dir ? open : undefined} aria-selected={n.rel === st.cur}
             className={cx('pr', n.dir && 'dir', n.ign && 'ign', n.rel === active && 'on', cursor && n.rel === st.cur && 'rowcur')}
             style={{ paddingLeft: 6 + n.depth * 14 }} title={n.rel}
-            onMouseDown={e => e.preventDefault()} onClick={() => { st.cur = n.rel; onOpen(n); }}>
+            onMouseDown={e => e.preventDefault()} onClick={e => { st.cur = n.rel; onOpen(n, splitClick(e)); }}>
             {n.dir ? <><Icon name="chev" className={cx('tw', open && 'open')} /><FileIcon path={n.rel} dir open={open} /></> : <LangBadge path={n.rel} />}
             <span className="t">{n.name}</span>
             {st.q && n.rel.includes('/') && <span className="dim">{n.rel.replace(/\/[^/]*$/, '')}</span>}

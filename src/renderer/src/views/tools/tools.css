@@ -139,3 +139,19 @@
    (for copy and Add to Chat) is not drawn over it, and the cursor line's shade waits until the selection ends */
 .file-v .src.vis ::selection { background: transparent; }
 .file-v .src.vis .dl.curl:not(.vsel) { background: none; }
+
+/* The open file's ⋯ menu (fileactions.tsx): rule rows between groups, switches on the right. */
+.mx:has(.msep) { margin: 4px 0; padding: 0; height: 0; }
+.file-menu .mr .sw { margin-left: 6px; }
+/* its toggles: line numbers off, word wrap on (reading and editing), and the diff view's added and removed rows */
+.file-v.nonum .src .dl .n, .file-v.nonum .ed-n { display: none; }
+.file-v.nonum .src .dl .c, .file-v.nonum .file-ed { padding-left: 14px; }
+.file-v.wrap .src { overflow-x: hidden; }
+.file-v.wrap .src .dl { min-width: 0; }
+.file-v.wrap .src .dl .c { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.file-v.wrap .file-ed { white-space: pre-wrap; overflow-wrap: anywhere; }
+.file-v.wrap .ed-n { display: none; }
+.file-v.wrap:not(.nonum) .file-ed { padding-left: 14px; }
+.src.diffv .dl.add { box-shadow: inset 3px 0 0 var(--green); }
+.src.diffv .dl.del { box-shadow: inset 3px 0 0 var(--red); user-select: none; }
+.src.diffv .dl.add.curl { background: color-mix(in srgb, var(--add-bg) 100%, var(--fg) 6%); }

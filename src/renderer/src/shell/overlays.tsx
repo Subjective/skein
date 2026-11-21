@@ -22,6 +22,7 @@ import { captureKeys } from './keyboard';
 import { log } from '../views/chat/state';
 import { openSide, openSub } from '../views/chat/threads';
 import { openTool } from '../views/tools/open';
+import { fileAction, fileItems } from '../views/tools/fileactions';
 
 /** Open any menu as an overlay. */
 export function openMenu<D>(p: Omit<MenuProps<D>, 'onClose'> & { onClose?: () => void }) {
@@ -88,7 +89,7 @@ function FileSearch({ m, dir, close }: { m: string; dir: string; close: () => vo
   return <Menu<string> modal className="pal files" ranked onClose={close}
     empty={list === null ? (err ? `Couldn't list files in ${dir}: ${err}` : 'Listing files…') : list.length ? 'No matching files' : 'No files here'}
     search={{ placeholder: `Search files in ${mc?.ssh ? mc.name + ':' : ''}${tildify(m, dir)}` }}
-    items={items} onPick={it => { if (it.data) A.openFile(m, dir, it.data); }} />;
+    items={items} onPick={it => { if (it.data) A.openFile(m, dir, it.data); }} altPick={it => { if (it.data) A.openFile(m, dir, it.data, { split: true }); }} />;
 }
 function openFiles() {
   const { machine: m, dir } = here();
@@ -112,11 +113,15 @@ export function openPalette(mode: 'all' | 'file' = 'all') {
   // every thread, as the mockup's: archived ones (last) and side chats too; a side chat opens as a popup
   const th = [...S.threads].sort((a, b) => Number(!!a.archived) - Number(!!b.archived) || b.updatedAt - a.updatedAt);
   const where = (t: ThreadMeta) => [machine(t.machine)?.name ?? t.machine, projectName(t.machine, t.dir), t.side && 'side chat', t.archived && 'archived'].filter(Boolean).join(' · ');
+  const ft = A.currentTab();
   const items: MenuItem<() => void>[] = [
     { head: true, label: 'Threads' },
     ...th.map(t => ({ label: t.title, hint: where(t), icon: <Icon name={t.side ? 'chat' : t.harness} size="hm" />, right: threadRight(t.id), data: () => (t.side ? openSide(t.id) : A.openThread(t.id)) })),
     { head: true, label: 'Actions' },
     ...ACTIONS.map(([label, icon, cmd]) => ({ label, icon: <Icon name={icon} />, data: () => run(cmd) })),
+    // an open file in front: its ⋯ menu's actions too (views/tools/fileactions)
+    ...(ft.kind === 'file' ? [{ head: true, label: `File · ${base(ft.path || '')}` },
+      ...fileItems(ft).filter(it => !it.head).map(it => ({ ...it, icon: <Icon name="file" />, data: () => { if (it.data) fileAction(it.data, ft); } }))] : []),
   ];
   openMenu<() => void>({ modal: true, className: 'pal', search: { placeholder: 'Search threads and actions' }, items, onPick: it => it.data?.(), empty: 'No matches' });
 }

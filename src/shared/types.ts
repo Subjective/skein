@@ -117,6 +117,9 @@ export interface Settings {
   launch?: 'restore' | 'empty';
   termFont?: string;
   termFontSize?: number;
+  /** The open file's ⋯ menu: line numbers (on unless false) and word wrap. */
+  fileNumbers?: boolean;
+  fileWrap?: boolean;
 }
 
 export interface DirEntry { name: string; dir: boolean; hidden?: boolean }

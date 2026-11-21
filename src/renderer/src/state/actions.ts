@@ -5,7 +5,7 @@ import { api } from '../api';
 import { openFile as openFileTab } from '../views/tools/open';
 import { tabPlace, tabRestore } from '../views/tools/hooks';
 import {
-  activeTab, allTabs, findPane, leaves, mkPane, mkTab, neighbour, removePane, resize as resizeTree, splitAt, swap as swapPanes,
+  activeTab, allTabs, findPane, leaves, mkPane, mkTab, neighbour, placeFor, removePane, resize as resizeTree, splitAt, swap as swapPanes,
   type Pane, type Rect, type Tab, type Workspace,
 } from './layout';
 import { blankWs, S, thread, toast, update, ws } from './store';
@@ -57,12 +57,15 @@ export const shellFor = (from?: Tab) => mkTab('shell', from ? ctxOf(from) : { ma
 
 export function addTab(p: Pane, t: Tab) { p.tabs.push(t); p.active = t.id; ws().focus = p.id; }
 
-/** Tools and files open next to what you're on: in the pane to the right if there is one, else a new split. */
-export function openBeside(t: Tab) {
+/** A file or tool opens where `placeFor` says, from the pane holding `from` (else the focused pane); `split`
+ *  always opens it in a new split to the right of that pane. */
+export function openBeside(t: Tab, o: { from?: Tab; split?: boolean } = {}) {
   update(s => {
-    const w = ws(), g = focusedPane(w), n = neighbour(rects(), g.id, 'l'), right = n && findPane(w.tree, n);
-    if (right) addTab(right, t);
-    else { const p = mkPane(t); w.tree = splitAt(w.tree, g.id, 'row', p); w.focus = p.id; }
+    const w = ws(), src = (o.from && leaves(w.tree).find(p => p.tabs.includes(o.from!))) || focusedPane(w);
+    const n = o.split ? null : neighbour(rects(), src.id, 'l');
+    const at = o.split ? 'split' : placeFor(w.tree, src, (n && findPane(w.tree, n)) || null);
+    if (at === 'split') { const p = mkPane(t); w.tree = splitAt(w.tree, src.id, 'row', p); w.focus = p.id; }
+    else addTab(at, t);
     w.pf = null; w.zoom = false; s.sideFocus = false; s.tick++;
   });
   save();
@@ -158,9 +161,9 @@ export function openThread(id: string, o: { split?: boolean; view?: ViewKind } =
   save();
 }
 
-/** Open a file (path relative to dir, forward slashes): an open tab for it is reused, else it opens in the
- *  focused pane (replacing a new-tab launcher). The file view keeps back / forward history (views/tools/open). */
-export function openFile(machine: string, dir: string, path: string) { openFileTab({ machine, dir }, path); }
+/** Open a file (path relative to dir, forward slashes): an open tab for it is reused, else it opens where
+ *  views/tools/open says (`split`: in a new split). The file view keeps back / forward history. */
+export function openFile(machine: string, dir: string, path: string, o: { split?: boolean } = {}) { openFileTab({ machine, dir }, path, o); }
 
 /** Start a thread from a launcher tab: the tab becomes the thread. */
 export async function startThread(t: Tab, harness: 'claude' | 'codex', view: ViewKind): Promise<ThreadMeta> {
