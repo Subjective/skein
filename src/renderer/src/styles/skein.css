@@ -406,7 +406,7 @@ textarea.vn.vv::selection { background: var(--sel); color: inherit; }
 .eff .stp.on { background: var(--fg); }
 .eff .thumb { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--fg); transform: translate(-50%, -50%); box-shadow: 0 0 0 3px var(--pop); transition: left var(--ease); }
 .eff .et { display: block; position: relative; height: 16px; margin: 11px 7px 0; }
-.eff .et span { position: absolute; transform: translateX(-50%); }
+.eff .et span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
 .eff .et span:first-child { transform: translateX(-7px); }
 .eff .et span:last-child { transform: translateX(calc(-100% + 7px)); }
 /* another model's levels (the one under the cursor): stops and labels slide to their new places, new ones fade in */
@@ -414,6 +414,12 @@ textarea.vn.vv::selection { background: var(--sel); color: inherit; }
 @keyframes eff-in { from { opacity: 0; } }
 .eff.pv .thumb { background: var(--pop); box-shadow: 0 0 0 2px var(--fg), 0 0 0 5px var(--pop); }   /* a preview: hollow until the model is picked */
 .eff.pv .fill { background: var(--fg-3); }
+/* the model under the cursor has no effort levels: the track keeps its place, dimmed (no jump in the menu) */
+.eff .trk, .eff .et, .eff .eh b { transition: opacity var(--ease); }
+.eff.none .trk, .eff.none .et { opacity: .35; pointer-events: none; }
+.eff.none .eh b { color: var(--fg-3); }
+.eff.none .fill, .eff.none .thumb { opacity: 0; }
+.eff .thumb { transition: left var(--ease), opacity var(--ease); }
 .mhint { display: flex; gap: 14px; font-size: 11.500px; color: var(--fg-3); }
 .mhint span { display: inline-flex; align-items: center; gap: 4px; }
 .mx:last-child { padding-bottom: 5px; }
@@ -1003,6 +1009,7 @@ button[aria-expanded="true"] > .i-down { transform: rotate(180deg); }
 .err-row .btn.sm { margin: 0; }
 
 /* G6: a model the machine cannot run */
+.mi { transition: opacity var(--ease); }
 .mi.off { opacity: .45; cursor: default; }
 .mi.off .mh { font-size: 11.500px; }
 

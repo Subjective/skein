@@ -468,7 +468,12 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
   };
   const m = machine(target.machine), has = (h: Harness) => !m || m.has.includes(h);
   const def = modelDef(v.h, v.model, target.machine);
+  // one rule for every control that depends on the model: it shows what the model under the cursor (else the picked
+  // one) has. A row stays in its place while any listed model has it, dimmed with a note when this one does not, so
+  // moving through the list never makes the menu jump; it eases between the states
   const shown = pv ? modelDef(pv.h, pv.id, target.machine) : def, es = shown.efforts, ei = Math.max(0, es.indexOf(pv ? pv.effort : v.effort));
+  const listed = target.groups.flatMap(h => harnessOptions(h, target.machine).models.map(x => modelDef(h, x.id, target.machine)));
+  const anyEfforts = listed.find(d => d.efforts.length)?.efforts ?? [], anyUltra = listed.some(d => d.ultra);
   // one function per state, so the menu re-lists only when the choice changes (not on every app render)
   const items = useMemo(() => (q: string): MenuItem<Row>[] => {
     const match = (s: string) => !q || s.toLowerCase().includes(q.toLowerCase());
@@ -482,7 +487,8 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
     // the cursor lands on, so enter picks nothing
     if (q && !out.some(it => it.data?.k === 'model')) return [];
     if (es.length) out.push({ label: 'Effort', block: <EffortTrack stops={es.map(e => effortLabel(e))} i={ei} onTo={effortTo} preview={!!pv} />, data: { k: 'effort' }, pin: true });
-    if (def.ultra) out.push({ label: 'Ultracode', right: <span className={cx('sw', v.ultra && 'on')} />, data: { k: 'ultra' }, pin: true });
+    else if (anyEfforts.length) out.push({ label: 'Effort', block: <EffortTrack stops={anyEfforts.map(e => effortLabel(e))} i={-1} onTo={() => {}} none={`${shown.label} has no effort levels`} />, data: { k: 'effort' }, pin: true, dis: true });
+    if (anyUltra) out.push({ label: 'Ultracode', right: <span className={cx('sw', shown.ultra && v.ultra && 'on')} />, hint: shown.ultra ? undefined : `not on ${shown.label}`, data: { k: 'ultra' }, pin: true, dis: !shown.ultra });
     return out;
   }, [v, pv, ...opts]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -492,7 +498,7 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
       onPick={it => {
         const r = it.data; if (!r) return;
         if (r.k === 'install') { void navigator.clipboard?.writeText(INSTALL[r.h]).catch(() => {}); toast(`Copied ${INSTALL[r.h]}`, { icon: 'copy' }); return; }
-        if (r.k === 'ultra') { put({ ...cur.current, ultra: !cur.current.ultra }); return; }
+        if (r.k === 'ultra') { if (def.ultra) put({ ...cur.current, ultra: !cur.current.ultra }); return; }
         if (r.k === 'effort') return;   // enter on the effort row: the current model and effort stand (h / l already set it)
         const d = modelDef(r.h, r.id, target.machine), p = pvRef.current;
         put({ h: r.h, model: r.id, effort: p && p.h === r.h && p.id === r.id ? p.effort : snapEffort(cur.current.effort, d), ultra: d.ultra ? cur.current.ultra : false });
@@ -502,7 +508,7 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
 }
 
 /** Effort as a stepped track: a stop per level, the label row under it; click or drag to a stop. */
-function EffortTrack({ stops, i, onTo, preview }: { stops: string[]; i: number; onTo(j: number): void; preview?: boolean }) {
+function EffortTrack({ stops, i, onTo, preview, none }: { stops: string[]; i: number; onTo(j: number): void; preview?: boolean; /** the model has no levels: the track stays, dimmed, with this note */ none?: string }) {
   const trk = useRef<HTMLDivElement>(null);
   const to = useRef(onTo); to.current = onTo;
   const pct = (j: number) => (stops.length > 1 ? (j / (stops.length - 1)) * 100 : 0);
@@ -514,8 +520,8 @@ function EffortTrack({ stops, i, onTo, preview }: { stops: string[]; i: number; 
     addEventListener('pointermove', mv); addEventListener('pointerup', up); at(e.clientX);
   };
   return (
-    <div className={cx('eff', preview && 'pv')} title={preview ? 'The effort this model gets when you pick it' : undefined}>
-      <div className="eh"><span>Effort</span><b>{stops[i]}</b></div>
+    <div className={cx('eff', preview && 'pv', none && 'none')} title={none || (preview ? 'The effort this model gets when you pick it' : undefined)} aria-disabled={none ? true : undefined}>
+      <div className="eh"><span>Effort</span><b>{none ? 'None' : stops[i]}</b></div>
       <div className="trk" ref={trk} data-n={stops.length} role="slider" aria-label="Effort" aria-valuemin={0} aria-valuemax={stops.length - 1} aria-valuenow={i} aria-valuetext={stops[i]} onPointerDown={down}>
         <i className="fill" style={{ width: pct(i) + '%' }} />
         {stops.map((x, j) => <i key={x} className={cx('stp', j <= i && 'on')} style={{ left: pct(j) + '%' }} />)}

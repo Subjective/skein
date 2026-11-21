@@ -1327,3 +1327,23 @@ await test('new thread: after the model or permissions picker closes, the compos
   await p.keyboard.press('Escape');
   await back('permissions closed with esc');
 });
+
+await test('model picker: hovering a model previews every control that depends on it, in place (no row comes or goes)', async p => {
+  await p.locator('.pane.focus .comp .cf [title="Model and effort"]').click();
+  const menu = p.locator('.menu.model'); await menu.waitFor();
+  const ultra = menu.locator('.mi', { hasText: 'Ultracode' });
+  const state = () => menu.evaluate(m => ({ h: Math.round(m.getBoundingClientRect().height), pins: m.querySelectorAll('.m-pin > *').length, none: !!m.querySelector('.eff.none'), ultraOff: !![...m.querySelectorAll('.mi')].find(x => x.textContent.includes('Ultracode'))?.classList.contains('off') }));
+  const s0 = await state();
+  assert.equal(s0.pins, 2, 'effort and Ultracode'); assert.ok(!s0.none && !s0.ultraOff);
+  await menu.locator('.mi', { hasText: 'Haiku 4.5' }).hover(); await settle(p, 200);
+  const s1 = await state();
+  assert.equal(s1.pins, 2, 'the effort row stays'); assert.ok(s1.none, 'dimmed: Haiku 4.5 has no effort levels'); assert.equal(s1.h, s0.h, 'the menu keeps its height');
+  await menu.locator('.mi', { hasText: 'GPT-6.2 Sol' }).hover(); await settle(p, 200);
+  const s2 = await state();
+  assert.ok(!s2.none, 'Sol has levels'); assert.ok(s2.ultraOff, 'Ultracode is dimmed for a Codex model'); assert.equal(s2.h, s0.h);
+  assert.match(await ultra.innerText(), /not on GPT-6.2 Sol/);
+  await menu.locator('.mi', { hasText: 'Opus 5.5' }).hover(); await settle(p, 200);
+  const s3 = await state();
+  assert.ok(!s3.none && !s3.ultraOff, 'back on a Claude model: both live');
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+});
