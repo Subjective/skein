@@ -542,6 +542,10 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .comp { display: flex; flex-direction: column; gap: 4px; padding: 10px 10px 8px 14px; background: var(--comp); border: 1px solid var(--comp-line); border-radius: 22px; box-shadow: var(--comp-shadow); }
 .comp textarea { width: 100%; min-height: 30px; max-height: 180px; padding: 4px 2px; background: none; border: 0; outline: 0; resize: none; color: var(--fg); font: 14.500px/1.500 var(--sans); }
 .comp textarea::placeholder { color: var(--fg-3); }
+/* a subagent that takes no follow-ups: the composer's shape, grayed out, with the reason as its text */
+.comp.locked { background: var(--hover); box-shadow: none; cursor: not-allowed; }
+.comp.locked textarea { cursor: not-allowed; }
+.comp.locked .cf { opacity: .4; pointer-events: none; }
 .cf { display: flex; align-items: center; gap: 2px; margin-left: -6px; min-width: 0; }
 .cf .ib { border-radius: 50%; }
 .chip { height: 28px; min-width: 0; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border-radius: 999px; color: var(--fg-2); font-size: 13px; white-space: nowrap; transition: background var(--ease), color var(--ease); }

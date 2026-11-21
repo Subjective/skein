@@ -12,7 +12,7 @@ import { machine, S, thread, toast, update, useApp, ws } from '../../state/store
 import * as A from '../../state/actions';
 import { Button, cx, Dot, Icon, Spinner } from '../../ui/primitives';
 import { harnessName, setSubNames } from '../../shell/meta';
-import { clipImages, Composer, type ComposerHandle } from './Composer';
+import { clipImages, Composer, LockedComposer, type ComposerHandle } from './Composer';
 import { onText, Reader, SEL_BLOCK, selectable } from './reader';
 import { Ticks } from './Ticks';
 import { fixError, Transcript, type TranscriptCtx } from './Transcript';
@@ -38,7 +38,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   useEffect(() => { if (focused && !t.sub) A.markRead(th.id); }, [focused, th.status]); // eslint-disable-line react-hooks/exhaustive-deps
   const lg = log(th.id);
   const sub = t.kind === 'sub' ? lg.events.find((e): e is Sub => e.t === 'sub' && e.id === t.sub) : undefined;
-  const events = t.kind === 'sub' ? sub?.events || [] : lg.events;
+  const subTurns = useSubTurns(th, sub);
+  const events = t.kind === 'sub' ? subTurns.events : lg.events;
+  // a subagent the harness takes no messages for gets a grayed-out composer that says so
+  const locked = t.kind === 'sub' && !sub?.followUps;
   const key = t.kind === 'sub' ? `${th.id}:${t.sub}` : th.id;   // a thread's draft follows the thread, whichever tab shows it
   const tc = tabChat(key);
   const composer = useRef<ComposerHandle>(null);
@@ -411,7 +414,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
               <Icon name="branch" /><span>{anchorText ? anchorText.replace(/[`*]/g, '') : parent.title}</span>
             </button>
           )}
-          {!lg.loaded && !events.length ? <div className="empty"><Spinner /></div>
+          {(t.kind === 'sub' ? !subTurns.loaded : !lg.loaded) && !events.length ? <div className="empty"><Spinner /></div>
             : !events.length && !th.side && t.kind !== 'sub' ? <div className="empty"><Icon name={th.harness} size="xl" /></div>
             : <Transcript events={events} c={ctx} running={!!running} since={since.current} />}
         </div>
@@ -435,8 +438,8 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
               : <><Button small onClick={() => A.setView(t, 'term')}>Show terminal</Button>
                 <Button small variant="primary" title="Continue here. The terminal picks up what you send when you open it again" onClick={() => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); }}>Take back</Button></>}
           </div>
-        ) : (
-          <Composer ref={composer} tabId={t.id} persist={key} thread={th} draft={tc.draft} onDraft={setDraft} running={!!running} onSend={send} onStop={stop}
+        ) : locked ? <LockedComposer note="Follow-ups aren't available for this subagent" /> : (
+          <Composer ref={composer} tabId={t.id} persist={key} thread={th} draft={tc.draft} onDraft={setDraft} running={!!running && t.kind !== 'sub'} onSend={send} onStop={stop}
             placeholder={t.kind === 'sub' ? `Message ${sub?.name || 'subagent'}` : th.side ? 'Ask in this side chat' : undefined}
             showContext={!th.side && t.kind !== 'sub'} bare={t.kind === 'sub'} onCommand={onCommand} onLeave={() => { if (ws().pf === t.id) A.closeFocusedPopup(); else { (document.activeElement as HTMLElement | null)?.blur(); idle(); } }}
             onLeaveUp={() => { if (read.current && !reader.enter(read.current, 'view')) composer.current?.focus(false); }} onNormalKey={onNormalKey} />
@@ -453,6 +456,32 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
       {sel && <SelBar tab={t} text={sel} onDone={() => { setSel(null); reader.clear(); }} />}
     </div>
   );
+}
+
+/** A subagent's turns: what the harness keeps of it (read when its popup opens, and again every few seconds while
+ *  it runs, since a session driven from a terminal streams nothing here), with what streamed in live on top. */
+function useSubTurns(th: ThreadMeta, sub: Sub | undefined): { events: ThreadEvent[]; loaded: boolean } {
+  const [kept, setKept] = useState<ThreadEvent[] | null>(null);
+  const id = sub?.id, agent = sub?.agent, running = sub?.status === 'running';
+  useEffect(() => {
+    if (!id) return;
+    let live = true;
+    const read = () => api.threads.sub(th.id, { id, ...(agent ? { agent } : {}) }).then(es => { if (live) setKept(es); }, () => { if (live) setKept(k => k ?? []); });
+    void read();
+    const timer = running ? setInterval(read, 2500) : undefined;
+    return () => { live = false; if (timer) clearInterval(timer); };
+  }, [th.id, id, agent, running]);
+  return useMemo(() => ({ events: mergeTurns(kept ?? [], sub?.events ?? []), loaded: kept !== null || !!sub?.events?.length }), [kept, sub?.events]);
+}
+
+/** The kept turns, with each live event in its place (or after them, when it is newer than the record). */
+function mergeTurns(kept: ThreadEvent[], live: ThreadEvent[]): ThreadEvent[] {
+  if (!kept.length) return live;
+  if (!live.length) return kept;
+  const at = new Map(kept.map((e, i) => [e.id, i]));
+  const out = [...kept];
+  for (const e of live) { const i = at.get(e.id); if (i == null) out.push(e); else out[i] = e; }
+  return out;
 }
 
 /** Side chat → thread: its last answer becomes a quote in the parent's composer. */

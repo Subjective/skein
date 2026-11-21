@@ -542,3 +542,17 @@ export function clipImages(dt: DataTransfer | null): File[] {
   if (!out.length) for (const it of dt.items || []) if (it.kind === 'file' && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) out.push(f); }
   return out;
 }
+
+/** The composer of a subagent the harness takes no messages for: the same shape, grayed out, saying why. */
+export function LockedComposer({ note }: { note: string }) {
+  return (
+    <div className="comp locked" aria-disabled="true" title={note}>
+      <div className="taw"><textarea disabled rows={1} placeholder={note} aria-label={note} /></div>
+      <div className="cf">
+        <IconButton icon="plus" label="Attach image" disabled tabIndex={-1} />
+        <span className="sp" />
+        <SendButton disabled tabIndex={-1} />
+      </div>
+    </div>
+  );
+}

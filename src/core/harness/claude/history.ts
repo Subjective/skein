@@ -2,17 +2,17 @@
 // A transcript is a tree: an edit-and-resend or a rewind starts a new branch from an older entry, so the
 // conversation is the chain from the newest entry back through parentUuid, not the file in order.
 import type { Machine, ThreadEvent } from '../../../shared/types';
-import { jsonLines, readHarnessFile } from '../common';
-import { ClaudeFold, collector, promptOf, type AssistantIn, type UserIn } from './fold';
+import { harnessFileWith, jsonLines, readHarnessFile } from '../common';
+import { ClaudeFold, collector, promptOf, subPromptId, type AssistantIn, type UserIn } from './fold';
 
 type Entry = Record<string, unknown> & { uuid?: string; parentUuid?: string | null; logicalParentUuid?: string | null; type?: string; isSidechain?: boolean; timestamp?: string };
 
 const CHAIN = new Set(['user', 'assistant', 'system', 'attachment']);
 
 /** The entries of the current branch, oldest first. */
-export function currentChain(entries: Entry[]): Entry[] {
+export function currentChain(entries: Entry[], sidechain = false): Entry[] {
   const byId = new Map<string, Entry>();
-  for (const e of entries) if (e.uuid && CHAIN.has(String(e.type)) && !e.isSidechain) byId.set(e.uuid, e);
+  for (const e of entries) if (e.uuid && CHAIN.has(String(e.type)) && !!e.isSidechain === sidechain) byId.set(e.uuid, e);
   // The newest leaf: the last chain entry in the file. A `last-prompt` record names it explicitly when present.
   let leafId: string | undefined;
   for (let i = entries.length - 1; i >= 0 && !leafId; i--) {
@@ -33,14 +33,16 @@ export function currentChain(entries: Entry[]): Entry[] {
 
 export interface ClaudeHistory { events: ThreadEvent[]; fold: ClaudeFold }
 
-/** Fold transcript text (or its already parsed lines) into events. Pure, for tests. */
-export function parseClaudeTranscript(text: string | Record<string, unknown>[]): ClaudeHistory {
+/** Fold transcript text (or its already parsed lines) into events. Pure, for tests. `sub`: the transcript is the
+ *  subagent started by that tool call (its entries are a sidechain; its first prompt is the task it was given). */
+export function parseClaudeTranscript(text: string | Record<string, unknown>[], sub?: string): ClaudeHistory {
   const c = collector();
-  const fold = new ClaudeFold(c.emit);
-  const chain = currentChain((typeof text === 'string' ? jsonLines(text) : text) as Entry[]);
+  const fold = new ClaudeFold(c.emit, Date.now, sub ? subPromptId(sub) : undefined);
+  const chain = currentChain((typeof text === 'string' ? jsonLines(text) : text) as Entry[], !!sub);
   let turnStart: number | null = null, turnEnd = 0, turnId = '';
   const endTurn = () => {
-    if (turnStart != null && turnEnd - turnStart >= 1000) fold.worked('w-' + turnId, turnEnd - turnStart);
+    // a subagent's time shows on its row in the thread, not as a line of its own
+    if (!sub && turnStart != null && turnEnd - turnStart >= 1000) fold.worked('w-' + turnId, turnEnd - turnStart);
     turnStart = null;
   };
   for (const e of chain) {
@@ -55,7 +57,7 @@ export function parseClaudeTranscript(text: string | Record<string, unknown>[]):
       if (!Number.isNaN(at)) turnEnd = at;
     } else if (e.type === 'system') {
       if (e.subtype === 'compact_boundary') fold.notice('c-' + e.uuid, 'Context compacted');
-      else if (e.subtype === 'turn_duration' && typeof e.durationMs === 'number' && turnStart != null) { fold.worked('w-' + turnId, e.durationMs); turnStart = null; }
+      else if (!sub && e.subtype === 'turn_duration' && typeof e.durationMs === 'number' && turnStart != null) { fold.worked('w-' + turnId, e.durationMs); turnStart = null; }
     }
   }
   endTurn();
@@ -82,4 +84,19 @@ export async function claudeHistory(m: Machine, sessionId: string | undefined): 
   if (!sessionId) return [];
   const text = await readClaudeTranscript(m, sessionId);
   return text ? parseClaudeTranscript(text).events : [];
+}
+
+/** A subagent's turns: the transcript Claude Code keeps for it beside the session's
+ *  (<session>/subagents/agent-<agentId>.jsonl). `agent` is its agentId when the thread knows it; otherwise it is
+ *  found from the .meta.json beside each transcript, which names the tool call that started it. */
+export async function claudeSubHistory(m: Machine, sessionId: string | undefined, toolId: string, agent?: string): Promise<ThreadEvent[]> {
+  if (!sessionId || !/^[\w-]+$/.test(sessionId) || !/^[\w-]+$/.test(toolId)) return [];
+  const dir = [...configDir(m), 'projects', '*', sessionId, 'subagents'];
+  if (!agent || !/^[\w-]+$/.test(agent)) {
+    const meta = await harnessFileWith(m, [...dir, 'agent-*.meta.json'], toolId);
+    agent = meta?.match(/^agent-([\w-]+)\.meta\.json$/)?.[1];
+    if (!agent) return [];
+  }
+  const text = await readHarnessFile(m, [...dir, `agent-${agent}.jsonl`]);
+  return text ? parseClaudeTranscript(text, toolId).events : [];
 }
