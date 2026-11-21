@@ -289,8 +289,9 @@ export class ClaudeDriver implements ChatDriver {
         } else if (r.is_error && r.result) this.ev({ t: 'error', id: 'e-' + randomUUID(), kind: errorKind(r.result), text: tidy(r.result, 600) });
         if (r.duration_ms >= 1000) this.fold.worked('w-' + this.turnId, r.duration_ms);
         const window = Math.max(0, ...Object.values((r as { modelUsage?: Record<string, { contextWindow?: number }> }).modelUsage ?? {}).map(x => x.contextWindow ?? 0));
-        const ctx = window && this.contextUsed ? { ctx: Math.min(100, Math.round((this.contextUsed / window) * 100)) } : {};
+        const ctx = window && this.contextUsed ? { ctx: Math.min(100, Math.round((this.contextUsed / window) * 100)), ctxTokens: { used: this.contextUsed, max: window } } : {};
         this.host.update(this.id, { status: r.is_error ? 'error' : 'idle', updatedAt: Date.now(), ...ctx });
+        this.contextUsage();
         this.endTurn();
         return;
       }
@@ -329,6 +330,14 @@ export class ClaudeDriver implements ChatDriver {
   /** Set when this turn was stopped on purpose (interrupt, or a denial that interrupts): its error result is expected. */
   private interrupted = false;
   private contextUsed = 0;
+  /** Claude Code's own count (what /context shows): used, the window and where it auto-compacts. */
+  private contextUsage() {
+    this.q?.getContextUsage({ detail: 'summary' }).then(c => {
+      const max = c.rawMaxTokens || c.maxTokens; if (!max) return;
+      const compactAt = c.isAutoCompactEnabled && c.autoCompactThreshold ? c.autoCompactThreshold : undefined;
+      this.host.update(this.id, { ctx: Math.min(100, Math.round((c.totalTokens / max) * 100)), ctxTokens: { used: c.totalTokens, max, ...(compactAt ? { compactAt } : {}) } });
+    }, e => log('claude', 'context', e));
+  }
 
   private startTurn(id: string) {
     this.interrupted = false;

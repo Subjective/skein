@@ -360,8 +360,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // a layer of its own, so esc closes it through the dispatcher and the keys go back where they were
   const ctxClose = useRef<(() => void) | null>(null), ctxWas = useRef(false);
   const openCtx = (button: HTMLElement) => {
-    const c = props.current.thread.ctx ?? 0, model = modelLabel(h, props.current.thread.model);
-    ctxClose.current = openLayer(close => <ContextUsage button={button} ctx={c} model={model} onClose={close} />, () => { ctxClose.current = null; });
+    const t = props.current.thread;
+    ctxClose.current = openLayer(close => <ContextUsage button={button} ctx={t.ctx ?? 0} tokens={t.ctxTokens} onClose={close} />, () => { ctxClose.current = null; });
   };
 
   // the layer behind the text paints quote chips
@@ -398,7 +398,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         {p.showContext && ctx != null && (
           <button type="button" className="ib" aria-label={`Context usage: ${ctx}% used`} title={`Context usage: ${ctx}% used, ${100 - ctx}% available`}
             onMouseDown={() => { ctxWas.current = !!ctxClose.current; }} onClick={e => { if (!ctxWas.current) openCtx(e.currentTarget); ctxWas.current = false; }}>
-            <span className="ring" style={{ ['--p' as string]: ctx }} />
+            <span className={cx('ring', fill(ctx))} style={{ ['--p' as string]: ctx }} />
           </button>
         )}
         <SendButton stop={p.running && !hasText} armed={armed} disabled={!p.running && !hasText} onClick={() => { if (armed) { disarm(false); p.onStop?.(); return; } if (p.running && !hasText) p.onStop?.(); else p.onSend(); }} />
@@ -414,15 +414,21 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   );
 });
 
-/** The context popover over the ring (the mockup's act.contextUsage): used, a bar, what is left and the model. */
-function ContextUsage({ button, ctx, model, onClose }: { button: HTMLElement; ctx: number; model: string; onClose(): void }) {
+/** How full the context is, for the ring and the bar: amber from 70%, red from 90%. */
+const fill = (p: number) => p >= 90 ? 'full' : p >= 70 ? 'warn' : undefined;
+/** 850, 8.2k, 124k, 1M, 1.5M */
+const tokens = (n: number) => n < 1000 ? String(n) : n < 1e6 ? (n < 1e4 ? +(n / 1e3).toFixed(1) : Math.round(n / 1e3)) + 'k' : +(n / 1e6).toFixed(1) + 'M';
+
+/** The context popover, centered over the ring: tokens used of the window, a bar colored by how full it is with a
+ *  tick where the harness compacts on its own, and that point in words. A harness that gives only a share shows it. */
+function ContextUsage({ button, ctx, tokens: tk, onClose }: { button: HTMLElement; ctx: number; tokens?: ThreadMeta['ctxTokens']; onClose(): void }) {
   const ref = useRef<HTMLElement>(null);
   useLayoutEffect(() => {
     const el = ref.current as (HTMLElement & { showPopover?(): void; hidePopover?(): void }) | null; if (!el) return;
     try { el.showPopover?.(); } catch { /* already open */ }
     const r = button.getBoundingClientRect();
     // above the ring when there is room (an edit box near the top of the window has none: then below it)
-    const at = placeBy(r, el.offsetWidth, el.offsetHeight, 'top', 'end');
+    const at = placeBy(r, el.offsetWidth, el.offsetHeight, 'top', 'center');
     el.style.left = at.left + 'px';
     el.style.top = (at.side === 'top' ? r.top - 6 - Math.min(el.offsetHeight, at.maxHeight ?? Infinity) : r.bottom + 6) + 'px';
     if (at.maxHeight != null) { el.style.maxHeight = at.maxHeight + 'px'; el.style.overflow = 'auto'; }
@@ -430,9 +436,12 @@ function ContextUsage({ button, ctx, model, onClose }: { button: HTMLElement; ct
   useDialogSurface({ onEsc: onClose, key: k => { if (k === 'enter' || k === 'space' || k === 'q') { onClose(); return true; } return false; } });
   return (
     <section id="context-usage" ref={ref} popover="auto" aria-label="Context usage" onToggle={e => { if ((e.nativeEvent as ToggleEvent).newState === 'closed') onClose(); }}>
-      <div className="cu-h">Context<span>{ctx}%</span></div>
-      <div className="cu-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={ctx} aria-label="Context used" style={{ ['--p' as string]: ctx }}><i /></div>
-      <div className="cu-f">{100 - ctx}% left · {model}</div>
+      <div className="cu-h">Context<span>{tk ? <>{tokens(tk.used)}<em> / {tokens(tk.max)}</em></> : ctx + '%'}</span></div>
+      <div className={cx('cu-bar', fill(ctx))} role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={ctx} aria-label="Context used"
+        aria-valuetext={tk ? `${tokens(tk.used)} of ${tokens(tk.max)} tokens` : `${ctx}%`} style={{ ['--p' as string]: Math.min(100, ctx) }}>
+        <i />{tk?.compactAt != null && <b style={{ left: `${Math.min(100, (tk.compactAt / tk.max) * 100)}%` }} />}
+      </div>
+      {tk?.compactAt != null && <div className="cu-f">Auto-compacts at {tokens(tk.compactAt)}</div>}
     </section>
   );
 }
