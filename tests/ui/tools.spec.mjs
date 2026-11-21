@@ -952,3 +952,30 @@ await test('file: v and V paint one selection colour; the cursor line is not sha
   assert.ok(await F(p).locator('.src .vs').count(), 'v paints the characters');
   assert.equal(await F(p).locator('.src .dl.vsel').count(), 0);
 });
+
+await test('commit button: with nothing to commit it is one secondary button, the menu still reachable, with the reason on hover', async p => {
+  await openChanges(p);
+  const split = C(p).locator('.split');
+  const look = () => split.evaluate(s => { const [a, b] = s.querySelectorAll('button'); const st = x => { const c = getComputedStyle(x); return { bg: c.backgroundColor, op: c.opacity, dis: x.disabled }; }; return { cls: s.className, a: st(a), b: st(b), title: s.title }; });
+  const on = await look();
+  assert.equal(on.a.bg, on.b.bg, 'enabled: both halves primary');
+  // commit everything: the staged file, then the rest
+  for (let i = 0; i < 2; i++) {
+    await keys(p, 'c');
+    const d = p.locator('[role=dialog]').last(); await d.waitFor();
+    await p.keyboard.press(`${mod}+Enter`); await d.waitFor({ state: 'detached' }); await settle(p, 300);
+  }
+  await p.waitForFunction(() => document.querySelector('.pane.focus .split button')?.disabled); await settle(p, 300);
+  const off = await look();
+  assert.match(off.cls, /\bpart\b/);
+  assert.ok(off.a.dis && !off.b.dis, 'the action is off, its menu on');
+  assert.equal(off.a.bg, off.b.bg, 'both halves draw the same button');
+  assert.equal(off.a.op, '1', 'not the half-transparent primary');
+  assert.match(off.title, /Nothing to commit/);
+  // the menu half is still keyboard reachable and offers Create branch
+  await C(p).getByRole('button', { name: 'More commit actions' }).focus();
+  await p.keyboard.press('Enter');
+  const m = p.locator('.layer .menu'); await m.waitFor();
+  assert.ok(await m.getByText('Create branch', { exact: true }).isVisible());
+  await p.keyboard.press('Escape');
+});

@@ -1404,6 +1404,7 @@ await test('reader: a double- or triple-click drag that ends past a paragraph ke
   await openChat(p, 'Fix session-restore race');
   await openAll(p);
   const para = p.locator('.pane.focus .m-asst p').first();
+  const tail = (await para.innerText()).trim().slice(-12);
   const drag = async (clicks, dx, dy) => {
     await p.evaluate(() => getSelection().removeAllRanges()); await p.keyboard.press('Escape');
     await para.evaluate(e => e.scrollIntoView({ block: 'center' })); await settle(p);
@@ -1418,7 +1419,7 @@ await test('reader: a double- or triple-click drag that ends past a paragraph ke
   for (const [clicks, dx, dy, why] of [[2, 40, -4, 'double, past the line end'], [1, 40, -4, 'single, past the line end'], [3, 40, -4, 'triple, past the line end'], [3, 40, 14, 'triple, onto the row below']]) {
     const r = await drag(clicks, dx, dy);
     assert.equal(r.mode, 'VISUAL', why);
-    assert.ok(r.text.includes('sees the old value.'), `${why}: through the paragraph's end (${JSON.stringify(r.text.slice(-30))})`);
+    assert.ok(r.text.includes(tail), `${why}: through the paragraph's end (${JSON.stringify(r.text.slice(-30))})`);
     assert.equal(r.bar, 1, `${why}: the quote bar`);
   }
   await p.keyboard.press('Escape');

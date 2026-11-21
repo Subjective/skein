@@ -101,7 +101,7 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 .nav:hover { background: var(--hover); }
 .nav svg.i { color: var(--fg-2); }
 .s-list { flex: 1; min-height: 0; overflow: auto; padding: 0 8px 10px; }
-.s-h { display: flex; align-items: center; justify-content: space-between; padding: 16px 10px 6px; color: var(--fg-3); font-size: 12.500px; }
+.s-h { display: flex; align-items: center; justify-content: space-between; min-height: 30px; margin-top: 10px; padding: 0 10px; border-radius: 8px; color: var(--fg-3); font-size: 12.500px; }   /* the gap above is margin, so a cursor on it hugs the label like a row's */
 .s-d { height: 30px; display: flex; align-items: center; gap: 10px; padding: 0 4px 0 10px; border-radius: 8px; color: var(--fg); cursor: pointer; font-size: 13.500px; }
 .sidebar-group, .project-threads { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 180ms ease-out; }
 .sidebar-group[inert], .project-threads[inert] { grid-template-rows: 0fr; }
@@ -1060,6 +1060,9 @@ button[aria-expanded="true"] > .i-down { transform: rotate(180deg); }
 .split .btn { margin-left: 0; }
 .split .btn:first-child { border-radius: 7px 0 0 7px; }
 .split .caret { width: 24px; padding: 0; border-radius: 0 7px 7px 0; box-shadow: inset 1px 0 0 rgba(0, 0, 0, .18); }
+/* only the menu can run: one secondary button, the action's label dimmed (not the half-transparent primary) */
+.split.part .btn[disabled] { opacity: 1; color: var(--fg-4); }
+.split.part .caret { box-shadow: inset 1px 0 0 var(--line-2); }
 .tool-h .ib.on { color: var(--fg); }
 button.cb { padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
 button.cb.on { background: var(--fg); color: var(--bg); }
@@ -1144,8 +1147,9 @@ svg.fi { width: 14px; height: 14px; flex: none; display: block; overflow: visibl
 .row:is(:hover, :focus-within) .row-actions { margin-right: 0; }
 
 /* the sidebar as a pane: focused, its cursor row is outlined like the reading cursor */
-#side .s-h.cur, #side .s-d.cur { box-shadow: inset 0 0 0 1px var(--line-2); border-radius: 8px; }
-#side.focus .row.cur, #side.focus .s-h.cur, #side.focus .s-d.cur { box-shadow: inset 0 0 0 1px var(--fg-3); }
+/* one cursor for every kind of row (New thread, a machine or Pinned heading, a folder, a thread) */
+#side :is(.nav, .s-h, .s-d, .row).cur { box-shadow: inset 0 0 0 1px var(--line-2); border-radius: 8px; }
+#side.focus :is(.nav, .s-h, .s-d, .row).cur { box-shadow: inset 0 0 0 1px var(--fg-3); }
 
 /* moving a thread: drop targets in the sidebar, the confirm card and its steps */
 #side .drop-into { background: var(--active); box-shadow: inset 0 0 0 1px var(--blue); }

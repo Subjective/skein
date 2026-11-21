@@ -77,11 +77,16 @@ export const Checkbox = ({ on, onChange, label, className }: { on: boolean | 'mi
 
 /** A primary action with a caret for its other forms (Commit | Commit & push ...). */
 /** `menuDisabled` defaults to `disabled`; a menu with an action that needs nothing (Create branch) stays open to it. */
-export function SplitButton({ label, onClick, onMenu, menuLabel, disabled, menuDisabled = disabled, keys }: { label: ReactNode; onClick: () => void; onMenu: (anchor: DOMRect) => void; menuLabel: string; disabled?: boolean; menuDisabled?: boolean; keys?: string }) {
+/** A primary action with a menu of related ones, drawn as one button in every state: both halves primary when the
+ *  action can run; both secondary, the action's label dimmed, when only the menu can (with `reason` on hover); both
+ *  dimmed when neither can. The menu half stays keyboard reachable whenever it is enabled. */
+export function SplitButton({ label, onClick, onMenu, menuLabel, disabled, menuDisabled = disabled, keys, reason }: { label: ReactNode; onClick: () => void; onMenu: (anchor: DOMRect) => void; menuLabel: string; disabled?: boolean; menuDisabled?: boolean; keys?: string; /** why the action cannot run now */ reason?: string }) {
+  const part = disabled && !menuDisabled, kind = disabled ? 'btn sm' : 'btn primary sm';
+  const tip = disabled ? reason : keys ? (typeof label === 'string' ? `${label} · ${kb(keys)}` : kb(keys)) : undefined;
   return (
-    <span className="split">
-      <button type="button" className="btn primary sm" disabled={disabled} title={keys ? (typeof label === 'string' ? `${label} · ${kb(keys)}` : kb(keys)) : undefined} onMouseDown={e => e.preventDefault()} onClick={onClick}>{label}</button>
-      <button type="button" className="btn primary sm caret" disabled={menuDisabled} aria-haspopup="menu" aria-label={menuLabel} title={menuLabel}
+    <span className={cx('split', part && 'part', disabled && menuDisabled && 'off')} title={disabled ? reason : undefined}>
+      <button type="button" className={kind} disabled={disabled} aria-disabled={disabled || undefined} title={tip} onMouseDown={e => e.preventDefault()} onClick={onClick}>{label}</button>
+      <button type="button" className={cx(kind, 'caret')} disabled={menuDisabled} aria-haspopup="menu" aria-label={menuLabel} title={menuLabel}
         onMouseDown={e => e.preventDefault()} onClick={e => onMenu(e.currentTarget.parentElement!.getBoundingClientRect())}><Icon name="down" size="sm" /></button>
     </span>
   );

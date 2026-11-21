@@ -454,7 +454,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
           onClick={e => void pickBranch(e.currentTarget.getBoundingClientRect())} />
         {v.loading && v.files && <Spinner label="Refreshing" />}
         <span className="sp" />
-        <SplitButton label={commitLabel} keys="c" disabled={!total?.files} menuDisabled={false} onClick={() => commit('commit')} onMenu={r => commitMenu(r)} menuLabel="More commit actions" />
+        <SplitButton label={commitLabel} keys="c" disabled={!total?.files} menuDisabled={false} reason="Nothing to commit: no file has changes. Create branch is still in the menu." onClick={() => commit('commit')} onMenu={r => commitMenu(r)} menuLabel="More commit actions" />
         <IconButton icon="panelR" small on={side.show} label="Changed files" keys="t" aria-pressed={side.show} onClick={side.toggle} />
       </header>
       <div className={cx('cbody', side.show && 'tree')}>
