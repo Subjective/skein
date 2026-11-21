@@ -5,6 +5,7 @@
 //   text        `${message.id}:${n}` where n is the block's index in the API message
 //   thinking    same as text
 //   tool, edit, todo, sub   the tool_use id
+//   a subagent's prompt      `p-${tool_use id}` (the first message of its own transcript)
 import type { StepKind, ThreadEvent } from '../../../shared/types';
 import { clip, countDiff, errorKind, replaceDiff, textOf, tidy } from '../common';
 
@@ -113,6 +114,18 @@ export function promptOf(m: UserIn): { text: string; images: string[] } | 'inter
   return { text: text ?? '', images };
 }
 
+/** The id of a subagent's prompt event (see the constructor's promptId). */
+export const subPromptId = (toolId: string) => `p-${toolId}`;
+
+/** What a <task-notification> message (a background subagent stopped) says. */
+function taskNotification(blocks: Block[]): { toolId: string; status: string; ms?: number } | null {
+  const raw = blocks.filter(b => b.type === 'text').map(b => String(b.text)).join('\n');
+  if (!raw.trimStart().startsWith('<task-notification>')) return null;
+  const tag = (n: string) => raw.match(new RegExp(`<${n}>([\\s\\S]*?)</${n}>`))?.[1]?.trim();
+  const toolId = tag('tool-use-id'), status = tag('status'), ms = Number(tag('duration_ms'));
+  return toolId && status ? { toolId, status, ...(Number.isFinite(ms) ? { ms } : {}) } : null;
+}
+
 const fmtDur = (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
 
 export class ClaudeFold {
@@ -125,7 +138,9 @@ export class ClaudeFold {
   private subs = new Map<string, { ev: SubEvent; fold: ClaudeFold; started: number }>();
   private last: string | null = null;
 
-  constructor(private emit: Emit, private now: () => number = Date.now) {}
+  /** promptId: this fold reads a subagent's transcript, whose first prompt is the task it was given: that event
+   *  takes this id, so the prompt shown when it started (live) and the one read back (history) are one event. */
+  constructor(private emit: Emit, private now: () => number = Date.now, private promptId?: string) {}
 
   assistant(m: AssistantIn, parentTool?: string | null) {
     if (parentTool) return this.toSub(parentTool, f => f.assistant(m));
@@ -159,10 +174,13 @@ export class ClaudeFold {
     const results = blocks.filter(b => b.type === 'tool_result');
     for (const r of results) this.toolResult(String(r.tool_use_id), r.content, !!r.is_error, m.toolUseResult, m.uuid);
     if (results.length || m.isMeta || m.isSynthetic || m.isCompactSummary || m.isVisibleInTranscriptOnly) { if (m.uuid) this.last = m.uuid; return; }
+    const note = taskNotification(blocks);
+    if (note) { this.subEnded(note.toolId, note.status, note.ms); if (m.uuid) this.last = m.uuid; return; }
     const p = promptOf(m);
     if (p === 'interrupted') { this.put({ t: 'interrupted', id: m.uuid ?? 'i' + this.now() }, m.uuid); return; }
     if (!p) { if (m.uuid) this.last = m.uuid; return; }
-    const id = m.uuid ?? 'u' + this.now();
+    const id = this.promptId ?? m.uuid ?? 'u' + this.now();
+    this.promptId = undefined;
     this.before.set(id, m.parentUuid ?? this.last);
     this.put({ t: 'user', id, text: p.text, ...(p.images.length ? { images: p.images } : {}) }, m.uuid);
   }
@@ -178,13 +196,21 @@ export class ClaudeFold {
 
   get lastUuid() { return this.last; }
 
+  /** A background subagent stopped (the SDK's task_notification, or the <task-notification> the transcript keeps). */
+  subEnded(toolId: string, status: string, ms?: number) {
+    const e = this.tools.get(toolId);
+    if (e?.t !== 'sub') return;
+    this.update(toolId, { status: status === 'completed' ? 'done' : 'failed', ...(ms && ms > 0 ? { dur: fmtDur(ms) } : {}) });
+  }
+
   private toolUse(id: string, name: string, input: Record<string, unknown>, uuid?: string) {
     let e: ToolEvent;
     if (EDIT_TOOLS.has(name)) e = editOf(id, name, input);
     else if (name === 'TodoWrite' && Array.isArray(input.todos)) e = { t: 'todo', id, items: (input.todos as { content?: string; status?: string }[]).map(x => ({ text: String(x.content ?? ''), done: x.status === 'completed' })) };
     else if (SUB_TOOLS.has(name)) {
-      const ev: SubEvent = { t: 'sub', id, name: String(input.subagent_type ?? 'Subagent'), task: String(input.description ?? input.prompt ?? ''), status: 'running', events: [] };
-      this.subs.set(id, { ev, started: this.now(), fold: new ClaudeFold((se, rep) => this.subEvent(id, se, rep), this.now) });
+      const prompt = typeof input.prompt === 'string' ? input.prompt : '';
+      const ev: SubEvent = { t: 'sub', id, name: String(input.subagent_type ?? 'Subagent'), task: String(input.description ?? prompt), status: 'running', events: prompt ? [{ t: 'user', id: subPromptId(id), text: prompt }] : [] };
+      this.subs.set(id, { ev, started: this.now(), fold: new ClaudeFold((se, rep) => this.subEvent(id, se, rep), this.now, subPromptId(id)) });
       e = ev;
     } else e = { t: 'tool', id, name: toolName(name), arg: toolArg(name, input), status: 'running', kind: stepKind(name) };
     this.tools.set(id, e);
@@ -198,9 +224,13 @@ export class ClaudeFold {
     if (uuid) this.uuidOf.set(id, uuid);
     if (e.t === 'todo') return;
     if (e.t === 'sub') {
+      const r = (extra ?? {}) as { totalDurationMs?: number; agentId?: string; status?: string };
+      const agent = typeof r.agentId === 'string' ? { agent: r.agentId } : {};
+      // launched in the background: it runs on, and a task notification says when it ends (subEnded)
+      if (r.status === 'async_launched' && !isError) { this.update(id, agent); return; }
       const s = this.subs.get(id);
-      const ms = (extra as { totalDurationMs?: number } | undefined)?.totalDurationMs ?? (s ? this.now() - s.started : 0);
-      this.update(id, { status, ...(ms > 0 ? { dur: fmtDur(ms) } : {}) });
+      const ms = r.totalDurationMs ?? (s ? this.now() - s.started : 0);
+      this.update(id, { status, ...agent, ...(ms > 0 ? { dur: fmtDur(ms) } : {}) });
       return;
     }
     if (e.t === 'edit') { this.update(id, { status }); return; }

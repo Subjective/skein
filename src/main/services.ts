@@ -182,6 +182,10 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
         const evs = await follows.history(id).catch(() => null);
         return evs ?? harnesses.history(t, M(t.machine));
       },
+      sub: async (id, sub) => {
+        const t = threads.get(id);
+        return harnesses.subHistory ? harnesses.subHistory(t, M(t.machine), sub) : [];
+      },
       move: async (id, machine, dir) => {
         const t = threads.get(id), from = M(t.machine), to = M(machine);
         const abs = await files.resolve(to, dir).catch(() => dir);

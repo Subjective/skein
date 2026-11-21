@@ -2,7 +2,7 @@
 import type { ChatDriver, ChatHost, Harnesses } from '../chat';
 import type { Machine, ThreadEvent, ThreadMeta } from '../../shared/types';
 import { ClaudeDriver, type QueryFn } from './claude/driver';
-import { claudeHistory } from './claude/history';
+import { claudeHistory, claudeSubHistory } from './claude/history';
 import { CodexDriver, CodexServers, type Launch } from './codex/driver';
 import { codexHistory } from './codex/history';
 import { harnessCommands } from './commands';
@@ -37,6 +37,15 @@ export function createHarnesses(deps: HarnessDeps = {}): Harnesses {
       // through the machine's app-server, which reads its own records (see codex/history.ts)
       const rpc = await servers.get(m).catch(() => null);
       return rpc ? (await codexHistory(rpc, t.sessionId)).events : [];
+    },
+    async subHistory(t: ThreadMeta, m: Machine, sub: { id: string; agent?: string }): Promise<ThreadEvent[]> {
+      if (t.harness === 'claude') return claudeSubHistory(m, t.sessionId, sub.id, sub.agent);
+      // a Codex sub-agent is a thread of its own on the same app-server
+      const rpc = await servers.get(m).catch(() => null);
+      if (!rpc) return [];
+      const spawn = sub.agent ? undefined : (await codexHistory(rpc, t.sessionId)).events.find(e => e.t === 'sub' && e.id === sub.id);
+      const agent = sub.agent ?? (spawn?.t === 'sub' ? spawn.agent : undefined);
+      return agent ? (await codexHistory(rpc, agent)).events : [];
     },
     driver(t: ThreadMeta, host: ChatHost): ChatDriver {
       lastHost = host;

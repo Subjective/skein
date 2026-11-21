@@ -2,6 +2,7 @@
 // code, bold, italics and links. Enough for what agents write; no HTML passes through.
 import { Fragment, type ReactNode } from 'react';
 import { api } from '../../api';
+import { Icon } from '../../ui/primitives';
 
 /** Inline code that names a file (a path with an extension, or a well-known file name) links to it (`.flink`). */
 export const isFile = (c: string) => /^[\w.~/-]+\.[a-z][a-z0-9]{0,4}$/i.test(c) && (c.includes('/') || /\.(md|tsx?|jsx?|json|py|rs|go|css|html|toml|ya?ml|sh|txt)$/i.test(c));
@@ -19,7 +20,7 @@ function inline(s: string, key = 0): ReactNode[] {
     else if (m[4]) {
       const [, label, href] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(t)!;
       out.push(<a key={k++} href={href} onClick={e => { e.preventDefault(); void api.app.openExternal(href); }}>{label}</a>);
-    } else if (m[5]) out.push(<span key={k++} className="qtok">{t}</span>);
+    } else if (m[5]) out.push(<span key={k++} className="qtok"><Icon name="chat" />{t.replace(/^⁣(\u2003\u2009)?|⁣$/g, '')}</span>);
     last = m.index + t.length;
   }
   if (last < s.length) out.push(s.slice(last));

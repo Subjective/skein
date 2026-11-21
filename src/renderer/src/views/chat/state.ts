@@ -101,7 +101,7 @@ let saved: Record<string, string | { text: string; quotes: Quote[] }> = {};
 try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { saved = {}; }
 function loadDraft(tabId: string): Draft {
   const v = saved[tabId];
-  return typeof v === 'object' && v ? { ...blank(), text: v.text, quotes: v.quotes || [] } : { ...blank(), text: v || '' };
+  return typeof v === 'object' && v ? { ...blank(), text: withIcons(v.text), quotes: v.quotes || [] } : { ...blank(), text: v || '' };
 }
 let timer: ReturnType<typeof setTimeout> | null = null;
 export function saveDraft(tabId: string, text: string, quotes: Quote[] = []) {
@@ -115,23 +115,34 @@ export function saveDraft(tabId: string, text: string, quotes: Quote[] = []) {
 // anywhere among the words; the composer paints it as a chip. On send it becomes the full quoted text.
 export const TK = '⁣';
 export const TOK = /⁣[^⁣]*⁣/g;
+/** A chip's lead: an em space and a thin space, which hold the chat icon the composer draws over them (as Cursor's). */
+export const QI = '\u2003\u2009';
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
-export const tokenOf = (q: Quote) => `${TK}“${clip(q.text, 40)}”${TK}`;
+export const tokenOf = (q: Quote) => `${TK}${QI}“${clip(q.text, 40)}”${TK}`;
+/** A draft saved before chips had their icon: give each of its quotes the icon's space, so it still sends. */
+export function withIcons(t: string) { return t.replace(/⁣“([^⁣]*)⁣/g, (_, x: string) => `${TK}${QI}“${x}${TK}`); }
 /** The text the harness receives: each chip becomes its whole quote (a chip with no quote, its own words). */
 export function outgoing(d: Draft): string {
   const pool = [...d.quotes];
   return d.text.replace(TOK, m => { const i = pool.findIndex(q => tokenOf(q) === m); return i >= 0 ? `“${pool.splice(i, 1)[0].text}”` : m.replace(new RegExp(TK, 'g'), ''); }).trim();
 }
-/** Keep quotes in step with the chips in the text, in text order: one was deleted, the text was replaced, or a
- *  chip was yanked and put again (the copy points at the same place). */
+/** Quotes whose chip was deleted, by chip, so undo (u) brings back the quote and not just its words. */
+const gone = new Map<string, Quote>();
+/** Keep quotes in step with the chips in the text, in text order: one was deleted, the text was replaced, a
+ *  chip was yanked and put again (the copy points at the same place), or a deletion was undone. */
 export function syncQuotes(d: Draft): Quote[] {
   const pool = [...d.quotes];
-  return (d.text.match(TOK) || []).map(m => {
+  const out = (d.text.match(TOK) || []).map(m => {
     const i = pool.findIndex(q => tokenOf(q) === m);
     if (i >= 0) return pool.splice(i, 1)[0];
     const twin = d.quotes.find(q => tokenOf(q) === m);
-    return twin ? { ...twin, id: twin.id + '+' + Math.random().toString(36).slice(2, 6) } : null;
+    if (twin) return { ...twin, id: twin.id + '+' + Math.random().toString(36).slice(2, 6) };
+    const back = gone.get(m);
+    if (back) gone.delete(m);
+    return back ?? null;
   }).filter((q): q is Quote => !!q);
+  for (const q of pool) gone.set(tokenOf(q), q);
+  return out;
 }
 export const plain = (s: string) => s.replace(new RegExp(TK, 'g'), '');
 

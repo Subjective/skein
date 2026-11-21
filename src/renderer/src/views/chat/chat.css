@@ -1,7 +1,6 @@
 /* Chat view: only what the mockup stylesheet (skein.css) does not already cover. */
 .send:disabled { opacity: .3; cursor: default; }
 .send:disabled:hover { opacity: .3; }
-.comp .bk .tok { color: transparent; }
 .prose h3, .prose h4, .prose h5 { margin: .8em 0 .4em; font-size: 14px; font-weight: 600; }
 .prose ul, .prose ol { margin: 0 0 .6em; padding-left: 1.4em; }
 .prose li + li { margin-top: .2em; }
