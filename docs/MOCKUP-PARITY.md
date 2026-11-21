@@ -146,9 +146,9 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | chat TL1 | A long thread's timeline rail stays inside the pane: capped to its height, scrolled by the wheel, following the message you read, its clipped ends faded (as in Codex) | Proposed deviation (Josh's request; the mockup's rail grows with the thread) | `views/chat/Ticks.tsx`, `styles/skein.css` `.ticks`; UI test "timeline ticks: a long thread caps the rail"; before/after `skein-timeline/`. |
 | chat D11 | No timeline ticks in side chats | Fixed | `views/chat/ChatView.tsx:346`. |
 | chat T1 | User bubbles show quote chips; images zoom | Fixed | Transcript `.qtok`, lightbox. |
-| chat T3 | Every Edit diff starts open | Fixed | `views/chat/Transcript.tsx:127`. |
+| chat T3 | Every Edit diff starts open | Deviation (approved by Josh) | Diffs start open only in the Detailed density; in Compact and Balanced an edit is one row that `l` or a click opens (`views/chat/Transcript.tsx` StepRow). |
 | chat T5 | Read / Edit paths are links that open the file | Fixed | `views/chat/Transcript.tsx:124-128`, reader `g f`. |
-| chat T8 | "Worked for" has a chevron | Fixed | `views/chat/Transcript.tsx:149`. |
+| chat T8 | "Worked for" has a chevron | Deviation (approved by Josh) | The chevron now does something: "Worked for 2m 13s" heads the turn ("Working" while it runs) and folds its notes and steps, Codex style. Steps between two notes are one run row named by kind ("Edited 2 files, ran 2 commands, thought"). Density Compact (default) / Balanced / Detailed sets how much stays open; the answer, requests, errors, subagents and the latest to-do list always show. No counts or failed totals in the header; a failed step is red on its own row. `views/chat/Transcript.tsx` Turn, Run; UI tests "folds:". |
 | chat T10 | Plan card with a file, Open and Approve | Proposed deviation | The harness sends the plan as request text, not a file. |
 | chat A3 | Error rows use the alert icon and are button rows | Fixed | `views/chat/Transcript.tsx:78-79, 143`; no "Resets at" (no data). |
 | chat A4 | Fix buttons: Resuming / Retrying, auth opens /login, missing copies the install | Fixed | `views/chat/Transcript.tsx:89`; auth opens the real terminal. |
