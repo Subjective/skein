@@ -42,13 +42,13 @@ function WaitIcon({ id }: { id: string }) {
 
 /** Items in sidebar order, for j / k: headings ('fold:<key>') and threads (ids). */
 function navOrder(): string[] {
-  const out: string[] = [];
+  const out: string[] = ['new'];   // New thread first, so k from the top heading reaches it
   const live = S.threads.filter(t => !t.archived && !t.side);
   const pinned = live.filter(t => t.pinned), rest = live.filter(t => !t.pinned);
   if (pinned.length) { out.push('fold:h:pinned'); if (!S.collapsed['h:pinned']) out.push(...pinned.map(t => t.id)); }
   if (S.settings.sideView === 'recent') { out.push('fold:h:recent'); if (!S.collapsed['h:recent']) out.push(...[...rest].sort((a, b) => b.updatedAt - a.updatedAt).map(t => t.id)); }
   else for (const m of S.machines) {
-    const ts = rest.filter(t => t.machine === m.id); if (!hasProjects(m.id, ts)) continue;
+    const ts = rest.filter(t => t.machine === m.id); if (!hasProjects(m.id, ts) && !m.ssh) continue;   // as drawn
     out.push('fold:h:' + m.id); if (S.collapsed['h:' + m.id]) continue;
     for (const d of dirsOf(m.id, ts)) { const k = m.id + ':' + d; out.push('fold:' + k); if (!S.collapsed[k]) out.push(...ts.filter(t => t.dir === d).sort((a, b) => b.updatedAt - a.updatedAt).map(t => t.id)); }
   }
@@ -174,6 +174,7 @@ const sideSurface: Surface = {
         if (isFold) { go(i + 1); return true; }
         A.sideFocus(false); return true;
       case 'enter': case 'o': case 'O': case 'shift-enter':
+        if (cur === 'new') { A.sideFocus(false); run('tabnew'); return true; }
         if (isFold) { fold(key!); return true; }
         if (t) A.openThread(t.id, { split: k === 'O' || k === 'shift-enter' });
         return true;
@@ -353,7 +354,7 @@ export function Sidebar() {
         <IconButton icon={s.settings.sideView === 'grouped' ? 'tree' : 'clock'} label={s.settings.sideView === 'grouped' ? 'Grouped by machine and folder' : 'Most recently active'} title={`${s.settings.sideView === 'grouped' ? 'Grouped by machine and folder' : 'Most recently active'} · click to switch`}
           onClick={async () => { const v = await api.app.setSettings({ sideView: s.settings.sideView === 'grouped' ? 'recent' : 'grouped' }); update(x => { x.settings = v; }); }} />
       </div>
-      <div className="s-nav"><button className="nav" onClick={() => run('tabnew')}><Icon name="compose" /><span>New thread</span></button></div>
+      <div className="s-nav"><button className={cx('nav', s.sideFocus && s.sideCursor === 'new' && 'cur')} onClick={() => run('tabnew')}><Icon name="compose" /><span>New thread</span></button></div>
       <div className="s-list">
         {pinned.length > 0 && <><Head k="h:pinned" label="Pinned" /><Group k="h:pinned">{pinned.map(t => <Row key={t.id} t={t} />)}</Group></>}
         {s.settings.sideView === 'recent'
