@@ -1273,3 +1273,30 @@ await test('Markdown tables render as tables: alignment, formatting in cells, si
   assert.equal(await u.locator('p').first().innerText(), 'before', 'the paragraph above ends where the table starts');
   assert.equal(await u.locator('.tbl').evaluate(e => getComputedStyle(e).overflowX), 'auto');
 });
+
+await test('new thread: after the model or permissions picker closes, the composer has the keys again in INSERT', async p => {
+  const box = p.locator('.pane.focus .comp textarea').first();
+  await box.click();
+  const back = async why => {
+    await p.waitForFunction(() => !document.querySelector('.layer .menu') && document.activeElement?.matches('.pane.focus .comp textarea'), null, { timeout: 2000 }).catch(() => {});
+    assert.ok(await box.evaluate(el => el === document.activeElement), `${why}: the composer has focus`);
+    assert.equal(await mode(p), 'INSERT', `${why}: INSERT`);
+  };
+  // /model, enter on a model
+  await p.keyboard.type('/model'); await settle(p);
+  await p.keyboard.press('Enter'); await p.locator('.menu.model').waitFor();
+  await p.keyboard.press('Enter');
+  await back('picked with enter');
+  // /model, esc (the picker's NORMAL), esc (closed)
+  await p.keyboard.type('/model'); await settle(p);
+  await p.keyboard.press('Enter'); await p.locator('.menu.model').waitFor();
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  await back('closed with esc');
+  // the chips, by mouse
+  await p.locator('.pane.focus .comp .cf [title="Model and effort"]').click(); await p.locator('.menu.model').waitFor();
+  await p.locator('.menu.model .mi').filter({ hasNotText: 'Effort' }).nth(1).click();
+  await back('picked with the mouse');
+  await p.locator('.pane.focus .comp .cf [title="Permissions"]').click(); await p.locator('.layer .menu').waitFor();
+  await p.keyboard.press('Escape');
+  await back('permissions closed with esc');
+});
