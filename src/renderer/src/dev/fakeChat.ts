@@ -44,7 +44,8 @@ export const histories: Record<string, ThreadEvent[]> = {
       text('Three callers: `restore()`, `touch()` and the export job. Only `restore()` reads before the flush.')] },
     { t: 'sub', id: 'g3', name: 'Review', task: 'Check lock ordering in restore.ts', status: 'done', dur: '1m 04s', events: [
       tool('Read', 'sessions/restore.ts', { meta: '84 lines' }), text('The lock is taken before the flush wait and released in `finally`. No ordering problem.')] },
-    { t: 'sub', id: 'g2', name: 'Test runner', task: 'Run the sessions suite and report failures', status: 'running', dur: '42s', events: [
+    // takes follow-ups, as a Codex sub-agent does (Claude Code's take none: their popups say so)
+    { t: 'sub', id: 'g2', name: 'Test runner', task: 'Run the sessions suite and report failures', status: 'running', dur: '42s', followUps: true, events: [
       tool('Bash', 'pnpm test sessions', { out: ' PASS  sessions/store.test.ts\n PASS  sessions/lock.test.ts' })] },
   ],
   t2: [

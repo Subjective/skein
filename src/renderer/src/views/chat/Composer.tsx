@@ -24,7 +24,7 @@ import { VimField, type VimFieldHandle } from '../../ui/VimField';
 import { openLightbox } from '../../ui/Lightbox';
 import { useDialogSurface } from '../../ui/Dialog';
 import { effortId, effortLabel, harnessOptions, INSTALL, modelDef, modelId, modelLabel, OURS, permChoices, permLabel, permOf, slashHit, THREAD_SLASH, useHarnessCommands, type Slash } from './options';
-import { hoverQuote, paintQuotes, revealQuote, saveDraft, setUltra, syncQuotes, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
+import { hoverQuote, paintQuotes, QI, revealQuote, saveDraft, setUltra, syncQuotes, TK, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
 
 export interface ComposerHandle { focus(insert?: boolean): void; caret(): number; field(): VimFieldHandle | null }
 
@@ -66,14 +66,21 @@ const wordAt = (text: string, pos: number): Pop => {
   return null;
 };
 
-/** The text behind the textarea: quotes as chips, plus the block cursor (.hc) or VISUAL's moving end (.vcur). */
-function backLayer(text: string, cur: { hollow: number; vcur: number } | null): React.ReactNode[] {
+/** The text behind the textarea, which draws it (the textarea's own glyphs are transparent so a quote can be blue):
+ *  quotes as chips, plus the block cursor (.hc) or VISUAL's moving end (.vcur). `hot` is the quote under the pointer.
+ *  With `icons`, the layer in front: only each quote's chat icon shows, so a block cursor or a selection never hides it. */
+function backLayer(text: string, cur: { hollow: number; vcur: number } | null, hot = -1, icons = false): React.ReactNode[] {
+  let n = 0;
+  const chip = (t: string, key: string) => {
+    const i = n++, lead = t.indexOf(QI) === 1;
+    return <span key={key} className={cx('tok', i === hot && 'hot')}>{lead ? <>{TK}<span className="qi">{QI}{icons && <Icon name="chat" />}</span>{t.slice(1 + QI.length)}</> : t}</span>;
+  };
   const part = (str: string, key: string) => {
     const toks = str.match(TOK) || [];
-    return str.split(TOK).flatMap((x, i, a) => (i < a.length - 1 ? [x, <span key={key + i} className="tok">{toks[i]}</span>] : [x]));
+    return str.split(TOK).flatMap((x, i, a) => (i < a.length - 1 ? [x, chip(toks[i], key + i)] : [x]));
   };
-  if (cur && cur.hollow >= 0) { const at = Math.min(cur.hollow, text.length); return [...part(text.slice(0, at), 'a'), <span key="hc" className="hc"><i /></span>, ...part(text.slice(at), 'b')]; }
-  if (cur && cur.vcur >= 0 && cur.vcur < text.length) return [...part(text.slice(0, cur.vcur), 'a'), <span key="vc" className="vcur">{text[cur.vcur]}</span>, ...part(text.slice(cur.vcur + 1), 'b')];
+  if (cur && cur.hollow >= 0) { const at = Math.min(cur.hollow, text.length); return [...part(text.slice(0, at), 'a'), <span key="hc" className="hc">{!icons && <i />}</span>, ...part(text.slice(at), 'b')]; }
+  if (cur && cur.vcur >= 0 && cur.vcur < text.length) return [...part(text.slice(0, cur.vcur), 'a'), <span key="vc" className={icons ? undefined : 'vcur'}>{text[cur.vcur]}</span>, ...part(text.slice(cur.vcur + 1), 'b')];
   return part(text, 'a');
 }
 
@@ -358,7 +365,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   };
 
   // the layer behind the text paints quote chips
-  const paintBk = () => { const b = bk.current, el = field.current?.el(); if (b && el) b.scrollTop = el.scrollTop; };
+  const fk = useRef<HTMLDivElement>(null);
+  const paintBk = () => { const el = field.current?.el(); if (!el) return; for (const b of [bk.current, fk.current]) if (b) b.scrollTop = el.scrollTop; };
   useEffect(paintBk);
   // the textarea also scrolls on its own (the wheel, typing past the bottom, a motion revealing the cursor): the layer follows
   useEffect(() => { const el = field.current?.el(); if (!el) return; el.addEventListener('scroll', paintBk); return () => el.removeEventListener('scroll', paintBk); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -374,11 +382,12 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         ))}</div>
       )}
       <div className="taw" ref={taw} onMouseUp={onTawUp}>
-        <div ref={bk} className="bk" aria-hidden="true">{backLayer(p.draft.text, cur)}{'\u200b'}</div>
+        <div ref={bk} className="bk" aria-hidden="true">{backLayer(p.draft.text, cur, hot?.i)}{'\u200b'}</div>
         <VimField ref={field} tabId={p.tabId} value={p.draft.text} onChange={onChange} onCursor={setCur} placeholder={p.placeholder || 'Send follow-up'}
           autoFocus={p.autoFocus} onEnter={() => { if (open) return; if (ourCommand()) return; p.onSend(); }} onLeave={() => { setPop(null); p.onLeave?.(); }}
           onLeaveUp={() => p.onLeaveUp?.()} onLeaveDown={toControls} onKey={onKey} local={() => popOpen.current}
           startMode={p.startMode} onPaste={e => { const fs = clipImages(e.clipboardData); if (fs.length) { e.preventDefault(); addFiles(fs); } }} />
+        {p.draft.text.includes(TK) && <div ref={fk} className="fk" aria-hidden="true">{backLayer(p.draft.text, cur, -1, true)}{'\u200b'}</div>}
       </div>
       <div className="cf" ref={cf}>
         <IconButton icon="plus" label="Attach image · or paste one" onMouseDown={e => e.preventDefault()} onClick={() => file.current?.click()} />
@@ -538,4 +547,18 @@ export function clipImages(dt: DataTransfer | null): File[] {
   const out = [...dt.files].filter(f => f.type.startsWith('image/'));
   if (!out.length) for (const it of dt.items || []) if (it.kind === 'file' && it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) out.push(f); }
   return out;
+}
+
+/** The composer of a subagent the harness takes no messages for: the same shape, grayed out, saying why. */
+export function LockedComposer({ note }: { note: string }) {
+  return (
+    <div className="comp locked" aria-disabled="true" title={note}>
+      <div className="taw"><textarea disabled rows={1} placeholder={note} aria-label={note} /></div>
+      <div className="cf">
+        <IconButton icon="plus" label="Attach image" disabled tabIndex={-1} />
+        <span className="sp" />
+        <SendButton disabled tabIndex={-1} />
+      </div>
+    </div>
+  );
 }

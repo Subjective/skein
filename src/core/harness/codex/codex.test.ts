@@ -187,3 +187,50 @@ describe.skipIf(!which('codex') || !process.env.SKEIN_REAL_CODEX)('real codex ap
     servers.dispose();
   }, 90_000);
 });
+
+// A sub-agent is a Codex thread of its own (collabAgentToolCall spawnAgent → receiverThreadIds).
+describe('Codex sub-agents', () => {
+  const spawn = (states: object = { 'cx-child': { status: 'running', message: null } }) => ({ type: 'collabAgentToolCall', id: 'sp1', tool: 'spawnAgent', status: 'completed', senderThreadId: 'cx-1', receiverThreadIds: ['cx-child'], prompt: 'Run the tests', model: 'gpt-5.2', reasoningEffort: null, agentsStates: states });
+  const wait = { type: 'collabAgentToolCall', id: 'w1', tool: 'wait', status: 'completed', senderThreadId: 'cx-1', receiverThreadIds: ['cx-child'], prompt: null, model: null, reasoningEffort: null, agentsStates: { 'cx-child': { status: 'completed', message: 'ok' } } };
+
+  it('history: the spawn is a sub event that takes follow-ups; a later wait reports how it ended', () => {
+    const { events } = turnEvents([{ id: 'turn1', status: 'completed', error: null, durationMs: 10, items: [spawn(), wait] }] as never);
+    expect(events).toEqual([{ t: 'sub', id: 'sp1', name: 'Agent (gpt-5.2)', task: 'Run the tests', status: 'done', agent: 'cx-child', followUps: true }]);
+  });
+
+  it("reads its turns from its own thread, streams them into its event, and sends follow-ups to that thread", async () => {
+    const srv = fakeServer(method => (method === 'turn/start' ? { turn: { id: 'turn-x' } } : method === 'thread/read' ? { thread: { turns: [{ id: 'turn1', status: 'completed', error: null, durationMs: 10, items: [spawn()] }] } } : {}));
+    const servers = new CodexServers(srv.launch);
+    const h = fakeHost([{ id: 't1', harness: 'codex', sessionId: 'cx-1' }]);
+    const d = new CodexDriver('t1', h.host, servers);
+    await d.send({ text: 'spawn one' });
+    srv.notify('item/completed', { threadId: 'cx-1', turnId: 'turn-x', item: spawn() });
+    await until(() => h.view().some(e => e.t === 'sub'));
+    // its own thread's items go to its event; its approvals come to this thread's chat, marked as its
+    srv.notify('turn/started', { threadId: 'cx-child', turn: { id: 'ct1' } });
+    srv.notify('item/completed', { threadId: 'cx-child', turnId: 'ct1', item: { type: 'agentMessage', id: 'cm1', text: 'Tests pass.' } });
+    await until(() => !!(h.view().find(e => e.t === 'sub') as { events?: unknown[] }).events?.length);
+    srv.request('item/commandExecution/requestApproval', { threadId: 'cx-child', turnId: 'ct1', itemId: 'cmd9', command: 'npm test', reason: null });
+    await until(() => h.view().some(e => e.t === 'approval'));
+    expect(h.view().find(e => e.t === 'approval')).toMatchObject({ request: { from: 'Agent (gpt-5.2)' } });
+    // a follow-up while its turn runs steers it; after the turn, it starts a new one on the sub-agent's thread
+    await d.send({ text: 'and lint?', sub: 'sp1' });
+    expect(srv.got.at(-1)).toMatchObject({ method: 'turn/steer', params: { threadId: 'cx-child', expectedTurnId: 'ct1' } });
+    srv.notify('turn/completed', { threadId: 'cx-child', turn: { id: 'ct1', status: 'completed', error: null, durationMs: 5 } });
+    await until(() => (h.view().find(e => e.t === 'sub') as { status: string }).status === 'done');
+    await d.send({ text: 'one more', sub: 'sp1' });
+    expect(srv.got.filter(g => g.params?.threadId === 'cx-child').map(g => g.method)).toEqual(['thread/resume', 'turn/steer', 'turn/start']);
+    const sub = h.view().find(e => e.t === 'sub') as { status: string; events: { t: string; text?: string }[] };
+    expect(sub.status).toBe('running');
+    expect(sub.events.map(e => e.text)).toEqual(['Tests pass.', 'and lint?', 'one more']);
+  });
+
+  it('a history-loaded sub-agent: its thread is found through the parent when the driver has not seen it', async () => {
+    const srv = fakeServer(method => (method === 'thread/read' ? { thread: { turns: [{ id: 'turn1', status: 'completed', error: null, durationMs: 10, items: [spawn()] }] } } : method === 'turn/start' ? { turn: { id: 'tx' } } : {}));
+    const h = fakeHost([{ id: 't1', harness: 'codex', sessionId: 'cx-1' }]);
+    const d = new CodexDriver('t1', h.host, new CodexServers(srv.launch));
+    await d.send({ text: 'hi', sub: 'sp1' });
+    expect(srv.got.at(-1)).toMatchObject({ method: 'turn/start', params: { threadId: 'cx-child', input: [{ type: 'text', text: 'hi' }] } });
+    await expect(d.send({ text: 'hi', sub: 'nope' })).rejects.toThrow(/Follow-ups aren't available/);
+  });
+});

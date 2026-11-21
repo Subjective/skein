@@ -39,4 +39,22 @@ describe.skipIf(!process.env.SKEIN_REAL_CLAUDE)('real Claude Code', () => {
     expect(hist.filter(e => e.t === 'user').map(text).join(' ')).toContain('77');
     expect(hist.filter(e => e.t === 'user').map(text).join(' ')).not.toContain('41');
   }, 300_000);
+
+  it("streams a subagent's turns into its event live, and reads the same turns back from its transcript", async () => {
+    const h = fakeHost([{ id: 't1', harness: 'claude', sessionId: randomUUID(), dir: process.cwd(), model: 'haiku', perm: 'bypassPermissions' }]);
+    const hs = createHarnesses();
+    const d = hs.driver(h.thread('t1'), h.host);
+    await d.send({ text: 'Use the Agent tool once (subagent_type general-purpose, description "List etc") to have a subagent run `ls / | head -3` with Bash and report the names. Then reply "done".' });
+    await until(() => h.view().some(e => e.t === 'sub' && e.status !== 'running'), 180_000);
+    const sub = h.view().find(e => e.t === 'sub') as Extract<ThreadEvent, { t: 'sub' }>;
+    expect(sub.status).toBe('done');
+    expect(sub.agent).toBeTruthy();
+    const live = sub.events ?? [];
+    expect(live[0]).toMatchObject({ t: 'user', id: 'p-' + sub.id });
+    expect(live.some(e => e.t === 'tool' && e.name === 'Bash')).toBe(true);
+    expect(live.some(e => e.t === 'text')).toBe(true);
+    await d.release();
+    const kept = await hs.subHistory!(h.thread('t1'), h.host.machine('local'), { id: sub.id });
+    expect(kept.map(e => e.id)).toEqual(live.map(e => e.id));
+  }, 300_000);
 });

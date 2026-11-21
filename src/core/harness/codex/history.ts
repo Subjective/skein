@@ -3,7 +3,7 @@
 // mapping (itemEvents) and one set of ids, and Skein does not depend on how Codex stores a thread on disk.
 import type { ThreadEvent } from '../../../shared/types';
 import { log } from '../../log';
-import { itemEvents, turnError } from './items';
+import { agentStates, itemEvents, turnError } from './items';
 import type { Turn } from './protocol/v2/Turn';
 import type { Rpc } from './rpc';
 
@@ -19,8 +19,13 @@ const empty = (): CodexHistory => ({ events: [], turnOf: new Map() });
 export function turnEvents(turns: Turn[]): CodexHistory {
   const events: ThreadEvent[] = [], turnOf = new Map<string, string>();
   const put = (e: ThreadEvent, turn: string) => { events.push(e); turnOf.set(e.id, turn); };
+  const subs = new Map<string, number>();   // sub-agent thread id → its sub event's index
   for (const turn of turns) {
-    for (const item of turn.items) for (const e of itemEvents(item)) put(e, turn.id);
+    for (const item of turn.items) {
+      for (const e of itemEvents(item)) { if (e.t === 'sub' && e.agent) subs.set(e.agent, events.length); put(e, turn.id); }
+      // a later wait or close reports how the sub-agent ended
+      for (const [agent, status] of agentStates(item)) { const i = subs.get(agent); if (i != null) events[i] = { ...events[i], status } as ThreadEvent; }
+    }
     if (turn.status === 'failed' && turn.error) put(turnError('e-' + turn.id, turn.error), turn.id);
     if (turn.status === 'interrupted') put({ t: 'interrupted', id: 'i-' + turn.id }, turn.id);
     if (turn.status !== 'inProgress' && (turn.durationMs ?? 0) >= 1000) put({ t: 'worked', id: 'w-' + turn.id, ms: turn.durationMs! }, turn.id);

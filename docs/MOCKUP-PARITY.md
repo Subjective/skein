@@ -98,6 +98,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | chat C2 | After Add to Chat the caret sits after the token, in INSERT | Fixed | VimField keeps its first value; test "a second Add to chat goes after the first". |
 | chat C3 | Quotes are kept in text order, so the right words are sent | Fixed | `views/chat/threads.ts:116` syncQuotes. |
 | chat C9 | A quote whose source is closed reopens it (thread or file) and reveals | Fixed | Composer goQuote; diff and plan sources do not reopen. |
+| chat C20 | A quote in the composer is a tinted pill (`.tok`) | Proposed deviation | Josh, 2026-11-21: a chat icon, then the quoted words in blue with no pill, as Cursor's; a soft fill and the x on hover. The icon is drawn in front so a block cursor or selection never hides it. Removal by keys is unchanged (x, d, backspace), and u now brings a deleted quote back still linked. Tests "quote chip: …". |
 | chat C16 | The token is sent as is | Proposed deviation | The full quote text is sent because the harness needs the words; the bubble still shows chips. |
 | chat C17 | Add to Chat on a terminal-view thread types `"text" ` into the TUI | Fixed | `views/chat/threads.ts:135`. |
 | chat C18 | Drafts keep their quotes across a relaunch | Fixed | `views/chat/state.ts:80`. |
@@ -128,6 +129,8 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | chat M9 | /model at the start of an empty draft clears it | Proposed deviation | Only the word is removed, so a draft is never lost (HANDOFF). |
 | chat M11 | /model, /side, /sidechats, /subagents typed alone run on enter | Fixed | `views/chat/Composer.tsx:150-156`. |
 | chat M12 | /model in a subagent | Proposed deviation | A subagent uses its thread's model. |
+| chat SUB1 | A subagent popup shows the subagent's turns, live and from history | Fixed | Claude: the SDK's `forwardSubagentText` streams them (`core/harness/claude/driver.ts`); history reads `<session>/subagents/agent-<id>.jsonl` (`claude/history.ts` claudeSubHistory). Codex: a sub-agent is a thread of its own, read with `thread/read` and listened to live (`codex/driver.ts`). API `threads.sub`; the popup re-reads every 2.5 s while the subagent runs (`views/chat/ChatView.tsx` useSubTurns). |
+| chat SUB2 | A subagent the harness takes no messages for (Claude Code) | Deviation (decided by Josh) | The composer is grayed out and reads "Follow-ups aren't available for this subagent"; the popup opens in NORMAL on its transcript (`views/chat/Composer.tsx` LockedComposer). Codex sub-agents take follow-ups: a turn on the sub-agent's thread (steered while it runs). |
 | chat M13, M14 | @ lists every project file by substring; no empty state | Proposed deviation | Real filesystem browsing, folder by folder, with a Loading state. |
 | chat D1 | Reply actions show the age on every turn; tooltip names /side | Fixed | Transcript Acts. /side is back (Josh, 2026-11-20): it starts a side chat at once, about the composer's quote (which moves into it) or the last reply; /sidechats lists them. |
 | chat D2 | No reply actions in side chats | Fixed | Transcript `c.main`. |
@@ -322,6 +325,7 @@ during this review; rows say what was seen in the browser build at the time.
   model (chat E10, M12), and a busy thread cannot be moved (shell K8).
 - Vim follows real Vim where the mockup simplified: word motions, `I`, counts, registers, the menu search field in
   NORMAL, `l` picking, the 1200 ms sequence timeout, the 500 ms insert map (keys V5, V8, V10, M11, M13, A9, I3).
+- Quote chips look like Cursor's (chat C20, asked for by Josh on 2026-11-21): a chat icon and blue words, no pill.
 - Small, deliberate choices: a toast for mod-l with nothing selected (keys G12), send queues a follow-up while a turn
   runs (chat P6), /model keeps the rest of the draft (chat M9), "Send to thread" inserts a linked quote (chat D6),
   `G` stays in the reader (chat R11), offline machines connect on start (shell L9), empty machines stay listed

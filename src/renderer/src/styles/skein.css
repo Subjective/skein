@@ -16,6 +16,7 @@
   --mono-w: 350;
   --ease: 120ms ease;
   --sel: rgba(74, 163, 255, .3);   /* every selection: text, VISUAL, V-LINE rows */
+  --quote-hot: rgba(74, 163, 255, .14);   /* a quote chip under the pointer */
   color-scheme: dark;
 }
 [data-theme="light"] {
@@ -25,6 +26,7 @@
   --hover: rgba(0, 0, 0, .045); --active: rgba(0, 0, 0, .08);
   --line: rgba(0, 0, 0, .08); --line-2: rgba(0, 0, 0, .16);
   --fg: #1a1a1a; --fg-2: #4a4a4a; --fg-3: #707070; --fg-4: #adadad;
+  --quote-hot: rgba(11, 126, 245, .1);
   --blue: #0b7ef5; --amber: #b8770f; --red: #d43d4b; --green: #1b8f50; --claude: #c96442;
   --add-bg: rgba(27, 143, 80, .13); --del-bg: rgba(212, 61, 75, .12);
   --scrim: rgba(0, 0, 0, .18); --shadow: 0 12px 36px rgba(0, 0, 0, .14);
@@ -513,14 +515,24 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .appr.plan .ah { gap: 8px; }
 .appr.plan .ah .dim { font-weight: 400; font-size: 12px; }
 
-/* composer text layer: quoted selections are items in the text, drawn as chips behind it */
+/* composer text layer: the layer behind draws the words (the textarea's own are transparent, its caret and
+   selection still show), so a quoted selection can sit among them as blue text after a chat icon, as Cursor's.
+   The layer in front (.fk) holds only the icons, so a block cursor or a selection over a quote never hides one. */
 .taw { position: relative; }
 .taw textarea { position: relative; display: block; scrollbar-width: none; }
-.bk { position: absolute; inset: 0; padding: 4px 2px; overflow: hidden; pointer-events: none; color: transparent; font: 14.500px/1.500 var(--sans); white-space: pre-wrap; overflow-wrap: break-word; }
-.bk .tok { border-radius: 5px; background: rgba(74, 163, 255, .2); box-shadow: 0 0 0 1.500px rgba(74, 163, 255, .2); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
-.tokx { position: fixed; z-index: 30; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; background: var(--fg); color: var(--bg); }
+.comp .taw textarea { color: transparent; }
+:where(.comp .taw) textarea { caret-color: var(--fg); }   /* INSERT; Vim's own caret rules still win */
+.bk, .fk { position: absolute; inset: 0; padding: 4px 2px; overflow: hidden; pointer-events: none; color: var(--fg); font: 14.500px/1.500 var(--sans); white-space: pre-wrap; overflow-wrap: break-word; }
+.fk { z-index: 1; color: transparent; }
+.bk .tok { color: var(--blue); border-radius: 6px; transition: background var(--ease), box-shadow var(--ease); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.bk .tok.hot { background: var(--quote-hot); box-shadow: 0 0 0 2px var(--quote-hot); }
+.fk .tok { color: transparent; }
+.qi { position: relative; }
+.qi svg.i, .qtok svg.i { position: absolute; left: 0; top: 50%; width: 14px; height: 14px; margin-top: -7px; color: var(--blue); stroke-width: 1.800; }
+.tokx { position: fixed; z-index: 30; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; background: var(--fg); color: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, .25); animation: pop .16s cubic-bezier(.2, .9, .3, 1.3); }
 .tokx svg.i { width: 9px; height: 9px; stroke-width: 2.600; }
-.qtok { padding: 1px 4px; border-radius: 5px; background: rgba(74, 163, 255, .18); }
+/* a quote in a sent message: the same icon and blue words */
+.qtok { position: relative; padding-left: 17px; color: var(--blue); }
 
 /* editing a sent message: the normal composer, in place of the bubble */
 .m-edit { align-self: stretch; margin-top: 12px; padding: 0; background: none; border: 0; border-radius: 0; display: block; }
@@ -541,6 +553,10 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .comp { display: flex; flex-direction: column; gap: 4px; padding: 10px 10px 8px 14px; background: var(--comp); border: 1px solid var(--comp-line); border-radius: 22px; box-shadow: var(--comp-shadow); }
 .comp textarea { width: 100%; min-height: 30px; max-height: 180px; padding: 4px 2px; background: none; border: 0; outline: 0; resize: none; color: var(--fg); font: 14.500px/1.500 var(--sans); }
 .comp textarea::placeholder { color: var(--fg-3); }
+/* a subagent that takes no follow-ups: the composer's shape, grayed out, with the reason as its text */
+.comp.locked { background: var(--hover); box-shadow: none; cursor: not-allowed; }
+.comp.locked textarea { cursor: not-allowed; }
+.comp.locked .cf { opacity: .4; pointer-events: none; }
 .cf { display: flex; align-items: center; gap: 2px; margin-left: -6px; min-width: 0; }
 .cf .ib { border-radius: 50%; }
 .chip { height: 28px; min-width: 0; display: inline-flex; align-items: center; gap: 6px; padding: 0 9px; border-radius: 999px; color: var(--fg-2); font-size: 13px; white-space: nowrap; transition: background var(--ease), color var(--ease); }
