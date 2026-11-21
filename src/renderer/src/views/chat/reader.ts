@@ -16,7 +16,7 @@ import { yank } from '../../input/register';
 import { registerTab } from '../../input/surfaces';
 import { update } from '../../state/store';
 import { ReaderSearch } from '../../ui/search';
-import { rawLines } from './markdown';
+import { rawAt, rawLines } from './markdown';
 
 /** Keys a count repeats. */
 const COUNTED = new Set(['h', 'l', 'w', 'b', 'e', 'j', 'k', '{', '}', 'left', 'right', 'up', 'down']);
@@ -41,6 +41,8 @@ export const ROWS = '.tool > summary, .tool > .sum, .ag, .sc-link, .sc-anchor, .
 /** Rows of buttons: h / l move between the buttons, enter / space press one. */
 const KROWS = '.af, .m-acts';
 const BLOCKS = '[data-src], .ag, .sc-link, .sc-anchor';
+/** The margin reveal keeps between the cursor and the transcript's edges. */
+const MARGIN = 24;
 /** What bounds a selection: one message, a whole reply (everything up to the next message of yours) or one of
  * your bubbles. Code blocks, paragraphs and tool rows inside a reply are not bounds of their own. */
 export const SEL_BLOCK = '[data-read] > *';
@@ -53,6 +55,10 @@ export class Reader {
   root: HTMLElement | null = null;
   a: Pt | null = null;
   f: Pt | null = null;
+  /** Where the cursor was when the reader last let go of the keys. */
+  private mem: Pt | null = null;
+  /** The next draw leaves the scroll where it is ('view' entry). */
+  private still = false;
   row: HTMLElement | null = null;
   private bound: Element | null = null;
   private x: number | null = null;
@@ -116,11 +122,22 @@ export class Reader {
   }
 
   // ---------- entering and leaving ----------
-  /** From the keyboard: the last line above the composer, so k then j retrace the same lines. */
-  enter(root: HTMLElement, where: 'end' | 'top' | 'block' = 'end'): boolean {
+  /** From the keyboard. 'end': the last line above the composer, so k then j retrace the same lines. 'view': where
+   *  the reader's cursor was left if that is still on screen, else the bottom line on screen; it never scrolls (k from
+   *  the field below). 'back': where the cursor was left, scrolled to (leader [). */
+  enter(root: HTMLElement, where: 'end' | 'top' | 'block' | 'view' | 'back' = 'end'): boolean {
     this.root = root;
     const ns = this.texts(root);
     if (!ns.length) return false;
+    const mem = this.mem && this.mem.n.isConnected && root.contains(this.mem.n) && this.inside(this.mem.n) ? this.mem : null;
+    if (where === 'back' && mem) { this.begin(root, 'n', mem); return true; }
+    if (where === 'view') {
+      const rest = (p: Pt) => { this.still = true; this.begin(root, 'n', p); this.still = false; return true; };
+      const band = this.band(), seen = (r: DOMRect) => r.height > 0 && (!band || (r.top >= band.lo && r.bottom <= band.hi));
+      if (mem) { const r = document.createRange(); r.setStart(mem.n, mem.o); r.setEnd(mem.n, Math.min(mem.o + 1, mem.n.data.length)); if (seen(r.getBoundingClientRect())) return rest(mem); }
+      const p = band && this.lastSeen(ns, band, seen);
+      if (p) return rest(p);
+    }
     const n = where === 'top' ? ns[0] : ns[ns.length - 1];
     this.begin(root, 'n', { n, o: where === 'top' ? 0 : Math.max(0, n.data.trimEnd().length - 1) });
     if (where === 'end' && !this.row) this.key('0');
@@ -150,6 +167,7 @@ export class Reader {
   /** Stop drawing; the composer or something else takes the keys. */
   clear() {
     if (!this.on) return;
+    this.mem = this.f;   // where k from the field below (or leader [) comes back to
     HL?.delete('vcur');
     this.root?.querySelectorAll('.rowcur, .kcur').forEach(x => x.classList.remove('rowcur', 'kcur'));
     this.root?.classList.remove('rd', 'rv');
@@ -165,6 +183,41 @@ export class Reader {
   private alive() { return !!this.f && this.f.n.isConnected && !!this.root?.isConnected; }
 
   // ---------- painting ----------
+  /** The transcript's scrolling box. */
+  private scroller(): HTMLElement | null {
+    let sc: HTMLElement | null = this.root;
+    while (sc && !(sc.scrollHeight > sc.clientHeight && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+    return sc;
+  }
+  /** The part of the scrolling box a cursor rests in without reveal moving it (null when nothing scrolls). */
+  private band() { const sc = this.scroller(); if (!sc) return null; const b = sc.getBoundingClientRect(); return { lo: b.top + MARGIN, hi: b.bottom - MARGIN }; }
+  /** The start of the bottom line on screen. */
+  private lastSeen(ns: Text[], band: { lo: number; hi: number }, seen: (r: DOMRect) => boolean): Pt | null {
+    for (let i = ns.length - 1; i >= 0; i--) {
+      const n = ns[i], r = document.createRange(); r.selectNodeContents(n);
+      if (r.getBoundingClientRect().bottom < band.lo) return null;   // everything before is above the screen
+      const line = [...r.getClientRects()].reverse().find(seen); if (!line) continue;
+      const c = document.caretRangeFromPoint?.(line.left + 1, (line.top + line.bottom) / 2);
+      const o = c && c.startContainer === n ? c.startOffset : 0;
+      return { n, o: Math.min(Math.max(o, n.data.length - n.data.trimStart().length), n.data.length - 1) };
+    }
+    return null;
+  }
+  /** Bring the cursor into view. On the conversation's first or last line (gg, G) the transcript goes all the way to
+   *  its edge, padding and all: showing just the cursor's line leaves the top of the first message (or the last
+   *  reply's actions) a few pixels out of sight. Otherwise just enough, with a line of margin. */
+  private reveal(at: Element | Range) {
+    if (this.still) return;
+    const root = this.root, sc = this.scroller(); if (!root || !sc) return;
+    const ns = this.texts(root), f = this.f;
+    if (f && this.mode === 'n' && ns.length) {
+      if (f.n === ns[0] || this.row && this.row.contains(ns[0])) { sc.scrollTop = 0; return; }
+      if (f.n === ns[ns.length - 1] || this.row && this.row.contains(ns[ns.length - 1])) { sc.scrollTop = sc.scrollHeight; return; }
+    }
+    const r = at.getBoundingClientRect(), b = sc.getBoundingClientRect(), m = MARGIN;
+    if (r.top < b.top + m || r.height > b.height - 2 * m) sc.scrollTop += r.top - b.top - m;
+    else if (r.bottom > b.bottom - m) sc.scrollTop += r.bottom - b.bottom + m;
+  }
   draw() {
     const s = getSelection()!, { a, f, mode, root } = this; if (!f || !a || !root) return;
     const end = (p: Pt) => Math.min(p.o + 1, p.n.data.length);
@@ -176,7 +229,7 @@ export class Reader {
     if (this.row) {
       this.row.classList.add('rowcur'); HL?.delete('vcur'); s.removeAllRanges();
       if (this.row.matches(KROWS) && !this.row.querySelector('.kcur')) (this.row.querySelector('.primary') || this.row.querySelector('button'))?.classList.add('kcur');
-      this.row.scrollIntoView({ block: 'nearest' }); this.host.selection?.(null); update(x => { x.tick++; }); return;
+      this.reveal(this.row); this.host.selection?.(null); update(x => { x.tick++; }); return;
     }
     if (mode === 'n') { if (HL) s.removeAllRanges(); else s.setBaseAndExtent(f.n, f.o, f.n, end(f)); }
     else {
@@ -192,7 +245,7 @@ export class Reader {
         s.setBaseAndExtent(sn, so, fn, fo);
       }
     }
-    f.n.parentElement?.scrollIntoView({ block: 'nearest' });
+    { const c = document.createRange(); c.setStart(f.n, f.o); c.setEnd(f.n, end(f)); this.reveal(c); }
     if (HL) { const c = document.createRange(); c.setStart(f.n, f.o); c.setEnd(f.n, end(f)); HL.set('vcur', new Highlight(c)); }
     this.host.selection?.(mode === 'n' ? null : s.toString());
     update(x => { x.tick++; });
@@ -290,10 +343,21 @@ export class Reader {
     if (s.isCollapsed && (actionable || !root.contains(e.target as Node))) return;
     const c = caretAt(e.clientX, e.clientY);
     const at = c && c.startContainer.nodeType === 3 && this.inside(c.startContainer) && (c.startContainer as Text).data.trim() ? this.textAt(c.startContainer, c.startOffset) : null;
-    if (e.detail >= 3 && at) return this.begin(root, 'V', at);
+    // a triple click: the paragraph (or list item, heading, code block) under the pointer, as the browser shows it,
+    // in VISUAL; V would keep only the one wrapped line clicked, and the browser's own end runs into the next block
+    if (e.detail >= 3 && at) {
+      const para = at.n.parentElement?.closest('p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, td, th, .mt, summary');
+      const ns = para ? this.texts(para).filter(n => n.data.trim()) : [];
+      if (ns.length) {
+        const last = ns[ns.length - 1];
+        return this.begin(root, 'v', { n: last, o: Math.max(0, last.data.trimEnd().length - 1) }, { n: ns[0], o: ns[0].data.length - ns[0].data.trimStart().length });
+      }
+      return this.begin(root, 'V', at);
+    }
     if (!s.isCollapsed && s.anchorNode && root.contains(s.anchorNode)) {
       const fwd = !!(s.anchorNode.compareDocumentPosition(s.focusNode!) & Node.DOCUMENT_POSITION_FOLLOWING) || (s.anchorNode === s.focusNode && s.focusOffset >= s.anchorOffset);
-      const a = this.textAt(s.anchorNode, fwd ? s.anchorOffset : s.anchorOffset - 1), f = this.textAt(s.focusNode!, fwd ? s.focusOffset - 1 : s.focusOffset);
+      const a = this.textAt(s.anchorNode, fwd ? s.anchorOffset : s.anchorOffset - 1);
+      const f = this.textAt(s.focusNode!, fwd ? s.focusOffset - 1 : s.focusOffset);
       if (a && f && e.detail === 2 && fwd) while (f.o > 0 && f.n.data[f.o].trim() === '' && (f.n !== a.n || f.o > a.o)) f.o--;
       if (a && f) return this.begin(root, 'v', f, a);
     }
@@ -372,9 +436,8 @@ export class Reader {
     // on one of your messages, an editing key edits it (edit and resend)
     const mine = this.mode === 'n' && !this.row ? f.n.parentElement?.closest<HTMLElement>('.m-user.can-edit[data-ev]') : null;
     if (mine && ['i', 'a', 'I', 'A', 'c', 'C', 'd', 'D', 'x'].includes(k)) {
-      const box = mine.querySelector(':scope > .mt') || mine, pre = document.createRange(); pre.selectNodeContents(box);
-      if (box.contains(f.n)) pre.setEnd(f.n, f.o);
-      const offset = pre.toString().length;
+      const box = mine.querySelector<HTMLElement>(':scope > .mt') || mine;
+      const offset = box.contains(f.n) ? rawAt(box, box.dataset.md ?? box.textContent ?? '', f.n, f.o) : 0;
       this.clear(); getSelection()?.removeAllRanges();
       this.host.edit(mine.dataset.ev!, offset, k);
       return true;

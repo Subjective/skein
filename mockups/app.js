@@ -784,7 +784,7 @@ nnoremap C :chatall<CR>
       // The app notices the harness process in this pty and adopts it as a thread.
       const s = newThread(D.models[w][0].n, t.machine, t.dir);
       Object.assign(t, { kind: 'thread', sid: s.id, view: 'term', scrollback: t.lines }); S.cursor = s.id;
-      toast(`${ic(w)}<span><b>${HN[w]}</b> detected in this shell · added to the sidebar</span>`);
+      toast(`${ic(w)}<span><b>${HN[w]}</b> detected in this shell</span>`);
     } else if (w === 'clear') t.lines = [];
     else if (w === 'ls') t.lines.push({ text: 'README.md  bench  migrations  package.json  queue  sessions  ui' });
     else if (w === 'git') t.lines.push({ text: '## main...origin/main\n M sessions/restore.ts' });

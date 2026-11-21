@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ThreadEvent } from '@shared/types';
-import { mergeSnapshot } from './state';
+import { mergeSnapshot, outgoing, QI, syncQuotes, TK, tokenOf, withIcons } from './state';
 
 describe('mergeSnapshot', () => {
   it('a Codex first prompt shows once: the rollout line and the live prompt are one message', () => {
@@ -18,5 +18,29 @@ describe('mergeSnapshot', () => {
     const snap: ThreadEvent[] = [{ t: 'user', id: 'x', text: 'hi' }, { t: 'text', id: 'y', text: 'Hel' }];
     const pushed: ThreadEvent[] = [{ t: 'text', id: 'y', text: 'Hello' }];
     expect(mergeSnapshot(snap, pushed).map(e => e.id)).toEqual(['x', 'y']);
+  });
+});
+
+describe('quote chips', () => {
+  const q = { id: 'q1', text: 'Most of the time is spent in the profile', src: 'ev:t:e' };
+  it('a chip leads with the space its chat icon is drawn over, then the clipped words in quotes', () => {
+    expect(tokenOf(q)).toBe(`${TK}${QI}“Most of the time is spent in the profile”${TK}`);
+    expect(tokenOf({ ...q, text: 'x'.repeat(60) })).toBe(`${TK}${QI}“${'x'.repeat(39)}…”${TK}`);
+  });
+  it('sends the whole quote, without the icon space or the marks', () => {
+    const d = { text: `${tokenOf(q)} why?`, images: [], quotes: [q] };
+    expect(outgoing(d)).toBe('“Most of the time is spent in the profile” why?');
+  });
+  it('a draft saved before the icon still matches its quote and sends it', () => {
+    const old = `see ${TK}“Most of the time is spent in the profile”${TK} here`;
+    const text = withIcons(old);
+    expect(text).toBe(`see ${tokenOf(q)} here`);
+    expect(syncQuotes({ text, images: [], quotes: [q] })).toEqual([q]);
+    expect(withIcons(text)).toBe(text);
+  });
+  it('undoing a deleted chip brings its quote back', () => {
+    const text = `${tokenOf(q)} why?`;
+    expect(syncQuotes({ text: ' why?', images: [], quotes: [q] })).toEqual([]);
+    expect(syncQuotes({ text, images: [], quotes: [] })).toEqual([q]);
   });
 });

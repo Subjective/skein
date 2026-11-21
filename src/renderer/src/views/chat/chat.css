@@ -1,7 +1,6 @@
 /* Chat view: only what the mockup stylesheet (skein.css) does not already cover. */
 .send:disabled { opacity: .3; cursor: default; }
 .send:disabled:hover { opacity: .3; }
-.comp .bk .tok { color: transparent; }
 .prose h3, .prose h4, .prose h5 { margin: .8em 0 .4em; font-size: 14px; font-weight: 600; }
 .prose ul, .prose ol { margin: 0 0 .6em; padding-left: 1.4em; }
 .prose li + li { margin-top: .2em; }
@@ -9,6 +8,17 @@
 .prose pre.code { margin: 0 0 .6em; white-space: pre; overflow-x: auto; }
 .prose a { color: var(--blue); text-decoration: none; }
 .prose a:hover { text-decoration: underline; }
+/* tables: the reply's width, scrolling sideways when wider; hairlines and a header in the design tokens */
+.prose .tbl { margin: 0 0 .6em; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
+.prose table { border-collapse: collapse; font-size: 13px; line-height: 1.5; min-width: 100%; }
+.prose th, .prose td { padding: 6px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.prose th { font-weight: 600; color: var(--fg); background: var(--bg-2); white-space: nowrap; }
+.prose tbody tr:last-child td { border-bottom: 0; }
+.prose td + td, .prose th + th { border-left: 1px solid var(--line); }
+/* your message: the bubble's own size and spacing; the last block sits on the bubble's padding */
+.m-user .prose { font-size: inherit; line-height: inherit; }
+.m-user .prose > :last-child { margin-bottom: 0; }
+.m-user .prose pre.code { background: color-mix(in srgb, var(--bg) 35%, transparent); }
 .think-b { color: var(--fg-3); font-size: 13px; padding: 2px 0 6px 22px; white-space: pre-wrap; }
 .appr .plan-body { max-height: 320px; overflow: auto; padding: 8px 12px; border-radius: 10px; background: var(--bg-2); }
 .appr, .err-row, .mirror, .link-note, .m-edit { animation: fadeUp .16s ease both; }

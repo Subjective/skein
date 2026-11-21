@@ -13,7 +13,7 @@ import { bump, offsetsIn, saveDraft, syncQuotes, tabChat, tokenOf, type Quote } 
 import { termOf } from '../terminal/TerminalView';
 
 // ---- chat tabs on screen, so quotes can find their composer ----
-interface Live { thread: string; draft: string; composer: { current: ComposerHandle | null }; reader: () => Reader; /** Leader `[`: into the reader at the end. */ enter?: () => boolean }
+interface Live { thread: string; draft: string; composer: { current: ComposerHandle | null }; reader: () => Reader; /** Leader `[`: into the reader where its cursor was left, scrolled to (the end the first time). */ enter?: () => boolean }
 const live = new Map<string, Live>();
 export function registerChatTab(tabId: string, l: Live) { live.set(tabId, l); return () => { if (live.get(tabId) === l) live.delete(tabId); }; }
 export const liveTab = (tabId: string) => live.get(tabId);

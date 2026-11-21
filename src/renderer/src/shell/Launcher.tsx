@@ -1,6 +1,6 @@
 // What a new tab shows: one composer (the model picks the harness), where it runs, and the other tab kinds.
 // enter starts the thread with the prompt; an empty enter just opens the harness.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Harness, ThreadMeta } from '@shared/types';
 import { api } from '../api';
 import * as A from '../state/actions';
@@ -24,6 +24,14 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   const [draft, setDraft] = useState<Draft>(blank);
   const comp = useRef<ComposerHandle>(null);
   useEffect(() => { launcherFocus.set(t.id, () => comp.current?.focus(true)); return () => { launcherFocus.delete(t.id); }; }, [t.id]);
+  // back from a popup or dialog (the model picker, a menu, a confirm): the keys go back to the composer, in the mode
+  // it had, as in a thread (rule 15)
+  const was = useRef(focused);
+  useLayoutEffect(() => {
+    const back = focused && !was.current; was.current = focused;
+    const el = document.activeElement;
+    if (back && (!el || el === document.body || el.closest('.comp'))) comp.current?.focus();
+  });
   const m = machine(t.machine) || s.machines[0];
   const h = harnessOf(t);
   const missing = m && !m.has.includes(h);

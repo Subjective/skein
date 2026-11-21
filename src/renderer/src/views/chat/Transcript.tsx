@@ -7,7 +7,7 @@ import { api } from '../../api';
 import { machine, S, toast } from '../../state/store';
 import { Button, cx, Icon, IconButton, Spinner } from '../../ui/primitives';
 import { harnessName } from '../../shell/meta';
-import { Inline, Markdown } from './markdown';
+import { Markdown } from './markdown';
 import { INSTALL } from './options';
 import { answer, pending, plain } from './state';
 
@@ -106,7 +106,8 @@ function Event({ e, c, all }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEve
         <div className={cx('m-user', c.onEdit && 'can-edit')} data-user data-ev={e.id} data-src={src} title={c.onEdit ? 'Click to edit and resend' : undefined}
           onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img')) return; c.onEdit(e.id); }}>
           {e.images?.map((u, i) => <img key={i} className="m-img" src={u} alt="" data-zoom onClick={ev => { ev.stopPropagation(); openLightbox(u); }} />)}
-          {e.text && <div className="mt"><Inline text={e.text} /></div>}
+          {/* your words as you wrote them: line breaks kept, Markdown (lists, code, bold, links) as in a reply */}
+          {e.text && <div className="mt prose" data-md={e.text}><Markdown text={e.text} /></div>}
         </div>
       );
     case 'text': {

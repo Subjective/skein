@@ -148,9 +148,14 @@ const threadOf = (p: unknown): string | undefined => {
 /** Approval policy and sandbox for a permission id from shared/models. */
 export function codexPerm(id: string | undefined) {
   switch (id) {
-    case 'read-only': return { approvalPolicy: 'on-request', sandbox: 'read-only', sandboxPolicy: { type: 'readOnly', networkAccess: false } };
-    case 'full-access': return { approvalPolicy: 'never', sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' } };
-    case 'auto': return { approvalPolicy: 'on-request', sandbox: 'workspace-write', sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false } };
+    case 'read-only': return { approvalPolicy: 'on-request', sandbox: 'read-only', sandboxPolicy: { type: 'readOnly', networkAccess: false }, approvalsReviewer: 'user' };
+    case 'full-access': return { approvalPolicy: 'never', sandbox: 'danger-full-access', sandboxPolicy: { type: 'dangerFullAccess' }, approvalsReviewer: 'user' };
+    case 'auto': case 'auto-review': return {
+      approvalPolicy: 'on-request', sandbox: 'workspace-write',
+      sandboxPolicy: { type: 'workspaceWrite', writableRoots: [], networkAccess: false, excludeTmpdirEnvVar: false, excludeSlashTmp: false },
+      // who answers the approval requests: you, or Codex's auto-review ("Approve for me")
+      approvalsReviewer: id === 'auto-review' ? 'auto_review' : 'user',
+    };
     default: return null;
   }
 }
@@ -253,7 +258,7 @@ export class CodexDriver implements ChatDriver {
           cwd: expand(this.m, t.dir),
           ...(modelId('codex', t.model) ? { model: modelId('codex', t.model) } : {}),
           ...(effortId(t.effort) ? { effort: effortId(t.effort) } : {}),
-          ...(perm ? { approvalPolicy: perm.approvalPolicy, sandboxPolicy: perm.sandboxPolicy } : {}),
+          ...(perm ? { approvalPolicy: perm.approvalPolicy, approvalsReviewer: perm.approvalsReviewer, sandboxPolicy: perm.sandboxPolicy } : {}),
         });
         this.beginTurn(r.turn.id);
       }

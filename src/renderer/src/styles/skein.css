@@ -15,6 +15,8 @@
   --mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono", Consolas, monospace;
   --mono-w: 350;
   --ease: 120ms ease;
+  --sel: rgba(74, 163, 255, .3);   /* every selection: text, VISUAL, V-LINE rows */
+  --quote-hot: rgba(74, 163, 255, .14);   /* a quote chip under the pointer */
   color-scheme: dark;
 }
 [data-theme="light"] {
@@ -24,6 +26,7 @@
   --hover: rgba(0, 0, 0, .045); --active: rgba(0, 0, 0, .08);
   --line: rgba(0, 0, 0, .08); --line-2: rgba(0, 0, 0, .16);
   --fg: #1a1a1a; --fg-2: #4a4a4a; --fg-3: #707070; --fg-4: #adadad;
+  --quote-hot: rgba(11, 126, 245, .1);
   --blue: #0b7ef5; --amber: #b8770f; --red: #d43d4b; --green: #1b8f50; --claude: #c96442;
   --add-bg: rgba(27, 143, 80, .13); --del-bg: rgba(212, 61, 75, .12);
   --scrim: rgba(0, 0, 0, .18); --shadow: 0 12px 36px rgba(0, 0, 0, .14);
@@ -36,7 +39,7 @@ body { background: var(--bg); color: var(--fg); font: 13px/1.45 var(--sans); -we
 button { font: inherit; color: inherit; border: 0; background: none; padding: 0; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--line-2); outline-offset: 1px; }
 input:focus-visible, textarea:focus-visible { outline: 0; }
-::selection { background: rgba(74, 163, 255, .3); }
+::selection { background: var(--sel); }
 * { scrollbar-width: thin; scrollbar-color: var(--active) transparent; }
 
 svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.600; stroke-linecap: round; stroke-linejoin: round; }
@@ -88,6 +91,10 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 #side { position: relative; background: var(--side); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
 .side-resize { position: absolute; inset: 0 -4px 0 auto; width: 8px; z-index: 3; cursor: col-resize; touch-action: none; }
 .side-resize:hover::after, .side-resize:active::after { content: ""; position: absolute; inset: 0 3px; background: var(--fg-3); }
+/* the file tree's left edge, the same handle as the sidebar's (ui/resize.ts) */
+.tree-resize { position: relative; flex: none; width: 0; z-index: 3; }
+.tree-resize::before { content: ""; position: absolute; inset: 0 -4px; cursor: col-resize; touch-action: none; }
+.tree-resize:hover::after, .tree-resize:active::after { content: ""; position: absolute; inset: 0 -1px; background: var(--fg-3); }
 .s-top { height: 40px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; }
 .s-nav { padding: 6px 8px 2px; }
 .nav { width: 100%; height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; font-size: 13.500px; transition: background var(--ease); }
@@ -265,11 +272,15 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 /* ---------- chat view ---------- */
 .chat { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
 .thread { flex: 1; min-height: 0; overflow: auto; padding: 20px 0 12px; }
+/* text running under the composer fades out over the last 36px instead of stopping at a hard edge (the padding keeps
+   the last line clear of it when scrolled to the end); a mask, so it
+   works on any theme's background (the scrollbar fades with it, only there) */
+.chat > .thread { padding-bottom: 36px; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 36px), transparent); }
 .col { width: min(740px, calc(100% - 48px)); margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
-.m-user { align-self: flex-end; max-width: 84%; margin-top: 12px; padding: 9px 15px; border-radius: 18px; background: var(--bubble); font-size: 14px; line-height: 1.550; }
+.m-user { align-self: flex-end; max-width: 84%; overflow-wrap: anywhere; margin-top: 12px; padding: 9px 15px; border-radius: 18px; background: var(--bubble); font-size: 14px; line-height: 1.550; }
 .m-user:first-child { margin-top: 0; }
 .m-img { display: block; max-width: min(260px, 100%); border-radius: 10px; margin: 4px 0 8px; cursor: zoom-in; }
-.prose { font-size: 14px; line-height: 1.650; }
+.prose { font-size: 14px; line-height: 1.650; overflow-wrap: anywhere; }   /* a long link or path breaks instead of running out of the column */
 .prose p { margin: 0 0 .600em; } .prose p:last-child { margin: 0; }
 .prose code, .m-user code, .tool code { font: var(--mono-w) 12.500px var(--mono); background: var(--code); padding: 1.500px 5px; border-radius: 5px; }
 .tool { font-size: 13px; }
@@ -340,7 +351,7 @@ textarea.vn::selection { background: var(--fg); color: var(--bg); }
 /* nothing to select (empty composer, empty line): the caret itself is the block */
 textarea.vn.hollow { caret-color: var(--fg); caret-shape: block; }
 /* VISUAL in a composer */
-textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit; }
+textarea.vn.vv::selection { background: var(--sel); color: inherit; }
 
 /* side chats: fork a thread at a message; opens as a popup, docks as a tab */
 .m-asst { position: relative; }
@@ -395,6 +406,11 @@ textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit;
 .eff .et span { position: absolute; transform: translateX(-50%); }
 .eff .et span:first-child { transform: translateX(-7px); }
 .eff .et span:last-child { transform: translateX(calc(-100% + 7px)); }
+/* another model's levels (the one under the cursor): stops and labels slide to their new places, new ones fade in */
+.eff .stp, .eff .et span { transition: left var(--ease), transform var(--ease), color var(--ease); animation: eff-in var(--ease) both; }
+@keyframes eff-in { from { opacity: 0; } }
+.eff.pv .thumb { background: var(--pop); box-shadow: 0 0 0 2px var(--fg), 0 0 0 5px var(--pop); }   /* a preview: hollow until the model is picked */
+.eff.pv .fill { background: var(--fg-3); }
 .mhint { display: flex; gap: 14px; font-size: 11.500px; color: var(--fg-3); }
 .mhint span { display: inline-flex; align-items: center; gap: 4px; }
 .mx:last-child { padding-bottom: 5px; }
@@ -448,7 +464,7 @@ textarea.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit;
 /* reader mode: Vim keys over read-only text; the block cursor is one selected character */
 .vim.vis { background: var(--blue); color: #fff; }
 .rd ::selection { background: var(--fg); color: var(--bg); }
-.rd.rv ::selection { background: rgba(74, 163, 255, .38); color: inherit; }
+.rd.rv ::selection { background: var(--sel); color: inherit; }
 /* the cursor inside a visual selection: the end that moves */
 ::highlight(vcur) { background-color: #ececec; color: #212121; }
 [data-theme="light"] ::highlight(vcur) { background-color: #1a1a1a; color: #ffffff; }
@@ -488,14 +504,24 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .appr.plan .ah { gap: 8px; }
 .appr.plan .ah .dim { font-weight: 400; font-size: 12px; }
 
-/* composer text layer: quoted selections are items in the text, drawn as chips behind it */
+/* composer text layer: the layer behind draws the words (the textarea's own are transparent, its caret and
+   selection still show), so a quoted selection can sit among them as blue text after a chat icon, as Cursor's.
+   The layer in front (.fk) holds only the icons, so a block cursor or a selection over a quote never hides one. */
 .taw { position: relative; }
 .taw textarea { position: relative; display: block; scrollbar-width: none; }
-.bk { position: absolute; inset: 0; padding: 4px 2px; overflow: hidden; pointer-events: none; color: transparent; font: 14.500px/1.500 var(--sans); white-space: pre-wrap; overflow-wrap: break-word; }
-.bk .tok { border-radius: 5px; background: rgba(74, 163, 255, .2); box-shadow: 0 0 0 1.500px rgba(74, 163, 255, .2); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
-.tokx { position: fixed; z-index: 30; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; background: var(--fg); color: var(--bg); }
+.comp .taw textarea { color: transparent; }
+:where(.comp .taw) textarea { caret-color: var(--fg); }   /* INSERT; Vim's own caret rules still win */
+.bk, .fk { position: absolute; inset: 0; padding: 4px 2px; overflow: hidden; pointer-events: none; color: var(--fg); font: 14.500px/1.500 var(--sans); white-space: pre-wrap; overflow-wrap: break-word; }
+.fk { z-index: 1; color: transparent; }
+.bk .tok { color: var(--blue); border-radius: 6px; transition: background var(--ease), box-shadow var(--ease); -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.bk .tok.hot { background: var(--quote-hot); box-shadow: 0 0 0 2px var(--quote-hot); }
+.fk .tok { color: transparent; }
+.qi { position: relative; }
+.qi svg.i, .qtok svg.i { position: absolute; left: 0; top: 50%; width: 14px; height: 14px; margin-top: -7px; color: var(--blue); stroke-width: 1.800; }
+.tokx { position: fixed; z-index: 30; width: 16px; height: 16px; display: grid; place-items: center; border-radius: 50%; background: var(--fg); color: var(--bg); box-shadow: 0 1px 3px rgba(0, 0, 0, .25); animation: pop .16s cubic-bezier(.2, .9, .3, 1.3); }
 .tokx svg.i { width: 9px; height: 9px; stroke-width: 2.600; }
-.qtok { padding: 1px 4px; border-radius: 5px; background: rgba(74, 163, 255, .18); }
+/* a quote in a sent message: the same icon and blue words */
+.qtok { position: relative; padding-left: 17px; color: var(--blue); }
 
 /* editing a sent message: the normal composer, in place of the bubble */
 .m-edit { align-self: stretch; margin-top: 12px; padding: 0; background: none; border: 0; border-radius: 0; display: block; }
@@ -597,6 +623,7 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .menu { position: fixed; z-index: 50; max-height: min(420px, 70vh); display: flex; flex-direction: column; padding: 5px; background: var(--pop); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow); font-size: 13px; }
 .menu.none { display: none; }
 .m-l { overflow: auto; min-height: 0; }
+.m-pin { flex: none; }   /* rows that stay in view under a list that scrolls */
 .m-s { display: flex; align-items: center; gap: 9px; padding: 6px 9px 9px; margin-bottom: 5px; border-bottom: 1px solid var(--line); color: var(--fg-3); }
 .m-s input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--fg); font: 14px var(--sans); }
 .m-s input::placeholder { color: var(--fg-3); }
@@ -609,6 +636,7 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .mh { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: 12.500px; }
 .mr { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 7px; color: var(--fg-3); }
 .mr svg.i { width: 14px; height: 14px; }
+.mr .src { font-size: 11px; color: var(--fg-4); }   /* where a / row comes from, while typing (Skein, Skill) */
 /* Composer pickers inherit the same corner sizes as other menus. */
 .menu.composer-menu { border-color: var(--line); box-shadow: 0 3px 14px rgb(0 0 0 / 8%); }
 .composer-menu .mi:not(.head) { min-height: 32px; padding-inline: 10px; }
@@ -623,6 +651,9 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .menu.cmd .ml, .menu.cmd .m-s input { font: 12.500px var(--mono); }
 .menu.cmd .ml { min-width: 64px; }
 .menu.cmd .m-s { order: 2; margin: 5px 0 0; padding: 9px 9px 5px; border-bottom: 0; border-top: 1px solid var(--line); }
+.mach .ml { display: inline-flex; align-items: center; gap: 7px; }
+.mach .mn { overflow: hidden; text-overflow: ellipsis; }
+.mach .ml .dot { flex: none; }
 .mach .has { display: grid; }
 .mach .has svg.i { width: 13px; height: 13px; color: var(--fg-2); }
 .mach .has svg.i-claude { color: var(--claude); }
@@ -728,7 +759,7 @@ body.alt .tx .i-popout { width: 12px; height: 12px; }
 .term input.vn { caret-color: transparent; }
 .term input.vn::selection { background: var(--fg); color: var(--bg); }
 .term input.vn.hollow { caret-color: var(--fg); caret-shape: block; }
-.term input.vn.vv::selection { background: rgba(74, 163, 255, .38); color: inherit; }
+.term input.vn.vv::selection { background: var(--sel); color: inherit; }
 
 /* subagents: a row per subagent in the thread; each opens its transcript in a popup */
 .ag-list { display: flex; flex-direction: column; margin: 2px 0 6px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
@@ -1024,7 +1055,7 @@ button.cb { padding: 0; border: 0; background: none; color: inherit; cursor: poi
 button.cb.on { background: var(--fg); color: var(--bg); }
 .cbody { flex: 1; min-height: 0; display: flex; }
 .cbody > .tool-b { flex: 1; min-width: 0; }
-.ctree { width: 236px; flex: none; overflow: auto; padding: 4px 8px 12px; border-left: 1px solid var(--line); font-size: 12.500px; }
+.ctree { position: relative; width: var(--tree-width, 236px); flex: none; overflow: auto; padding: 4px 8px 12px; border-left: 1px solid var(--line); font-size: 12.500px; }
 @container (max-width: 620px) { .ctree { display: none; } }
 .tq { height: 28px; display: flex; align-items: center; gap: 6px; margin: 2px 0 6px; padding: 0 8px; border-radius: 7px; background: var(--hover); color: var(--fg-3); }
 .tq input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: inherit; }

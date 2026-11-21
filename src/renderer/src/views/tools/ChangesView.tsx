@@ -26,6 +26,9 @@ import { baseName, langOf, tokenize, type HlState } from './highlight';
 import { openFile } from './open';
 import { ctxOf, refreshNow, turnFor, useRepo, viewState } from './repo';
 import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
+import { dragEdge, TREE_EDGE } from '../../ui/resize';
+
+const resizeTree = dragEdge(TREE_EDGE);
 
 const SCOPES: { k: Exclude<DiffScope, 'commits'>; label: string; icon: string }[] = [
   { k: 'turn', label: 'Last agent turn', icon: 'retry' },
@@ -493,7 +496,8 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
               );
             })}
         </div>
-        {side.show && (
+        {side.show && (<>
+          <div className="tree-resize" title="Drag to resize" onPointerDown={resizeTree} />
           <aside className="ctree" aria-label="Changed files">
             <label className="tq"><Icon name="search" size="sm" />
               <VimField ref={tq} tabId={t.id} value={v.tq} onChange={x => { v.tq = x.replace(/\n/g, ''); update(); }} placeholder="Search files" className="tq-f"
@@ -519,7 +523,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
             ))}
             {q && !shown.length && <div className="tf none">No matching files</div>}
           </aside>
-        )}
+        </>)}
       </div>
       {tsel.bar}
     </div>

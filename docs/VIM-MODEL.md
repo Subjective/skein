@@ -48,7 +48,11 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
    their own keys, again the same both ways: `{` `}` by block, `[[` `]]` by your own messages, `gg` to the top.
 7. **Edges lead somewhere.** `k` on a field's first line moves into the reader above it, and so do `[[` and `{`
    from a composer (`{` only once there is no blank line above the cursor in the composer itself); `j` past a
-   reader's last line returns to the field. Lists stop at their ends; they do not wrap.
+   reader's last line returns to the field. Lists stop at their ends; they do not wrap. `k` (or up) from a field
+   never scrolls the reader above it: the cursor lands where the reader left it if that is still on screen, else on
+   the bottom line on screen. Leader `[` goes back to where the reader left its cursor, scrolling to it (the
+   conversation's last line the first time). The same holds for every field under a reader: the composer, a side
+   chat's and a subagent popup's.
 8. **A visual selection stays inside the message it started in.** In a thread that is one whole reply (everything
    between two of your messages: prose, code blocks, tool rows and their output together) or one of your bubbles;
    paragraphs, list items and code blocks are not bounds of their own, so text and code select together. In a
