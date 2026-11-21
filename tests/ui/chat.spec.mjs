@@ -1402,6 +1402,7 @@ await test('model picker: hovering a model previews every control that depends o
 
 await test('reader: a double- or triple-click drag that ends past a paragraph keeps its selection in VISUAL', async p => {
   await openChat(p, 'Fix session-restore race');
+  await openAll(p);
   const para = p.locator('.pane.focus .m-asst p').first();
   const drag = async (clicks, dx, dy) => {
     await p.evaluate(() => getSelection().removeAllRanges()); await p.keyboard.press('Escape');
