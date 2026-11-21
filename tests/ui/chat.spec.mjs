@@ -1300,3 +1300,116 @@ await test('new thread: after the model or permissions picker closes, the compos
   await p.keyboard.press('Escape');
   await back('permissions closed with esc');
 });
+
+// ---------- quote chips: a chat icon and blue words, as Cursor's (Josh, 2026-11-21) ----------
+async function quoteFirst(p) {
+  await openChat(p, 'Tidy PowerShell profile');
+  await p.evaluate(() => {
+    const el = document.querySelector('.pane.focus .m-asst p').firstChild; const r = document.createRange();
+    r.setStart(el, 0); r.setEnd(el, 20); getSelection().removeAllRanges(); getSelection().addRange(r);
+  });
+  await p.keyboard.press(`${mod}+l`);
+  await settle(p);
+}
+/** The chip as drawn: its colour and background, where its icon sits against its words, and whether the icon is in front of the textarea. */
+const chipLook = p => p.evaluate(() => {
+  const comp = document.querySelector('.pane.focus .compw'), tok = comp.querySelector('.bk .tok'), ta = comp.querySelector('textarea');
+  const icon = comp.querySelector('.fk .qi svg'), words = tok.getBoundingClientRect(), ib = icon?.getBoundingClientRect(), cs = getComputedStyle(tok);
+  return {
+    color: cs.color, blue: getComputedStyle(document.documentElement).getPropertyValue('--blue').trim(), bg: cs.backgroundColor, hot: tok.classList.contains('hot'),
+    textarea: getComputedStyle(ta).color, icon: !!icon && getComputedStyle(icon).color === cs.color,
+    iconIn: !!ib && ib.left >= words.left - 1 && ib.right <= words.left + 22 && ib.top >= words.top - 2 && ib.bottom <= words.bottom + 2,
+    front: !!icon && ta.compareDocumentPosition(icon.closest('.fk')) === Node.DOCUMENT_POSITION_FOLLOWING && Number(getComputedStyle(icon.closest('.fk')).zIndex) > 0,
+  };
+});
+const rgb = hex => { const n = parseInt(hex.slice(1), 16); return `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`; };
+
+await test('quote chip: a chat icon, then the words in blue with no pill (dark and light)', async p => {
+  await quoteFirst(p);
+  for (const theme of ['dark', 'light']) {
+    await p.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
+    await settle(p, 60);
+    const c = await chipLook(p);
+    assert.equal(c.color, rgb(c.blue), `${theme}: the words are blue`);
+    assert.equal(c.bg, 'rgba(0, 0, 0, 0)', `${theme}: no pill while idle`);
+    assert.equal(c.textarea, 'rgba(0, 0, 0, 0)', 'the layer behind draws the words, not the textarea');
+    assert.ok(c.icon && c.iconIn, `${theme}: the blue chat icon sits at the chip's start`);
+    assert.ok(c.front, 'the icon is in front of the textarea');
+  }
+  const v = await composer(p).inputValue();
+  assert.ok(v.startsWith('⁣  “'), 'the icon holds its own space in the text');
+});
+
+await test('quote chip: typed words stay the normal colour, and INSERT shows the caret', async p => {
+  await quoteFirst(p);
+  await p.keyboard.type('why');
+  const [plain, caret] = await p.evaluate(() => {
+    const bk = document.querySelector('.pane.focus .compw .bk'), ta = document.querySelector('.pane.focus .compw textarea');
+    return [getComputedStyle(bk).color === getComputedStyle(document.body).color, getComputedStyle(ta).caretColor];
+  });
+  assert.ok(plain, 'words outside the chip use --fg');
+  assert.notEqual(caret, 'rgba(0, 0, 0, 0)', 'the INSERT caret still shows');
+});
+
+await test('quote chip: hover gives it a soft fill and the x; leaving takes both away', async p => {
+  await quoteFirst(p);
+  const tok = await p.locator('.pane.focus .compw .bk .tok').boundingBox();
+  await p.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2);
+  await p.locator('.tokx').waitFor();
+  await settle(p, 200);
+  let c = await chipLook(p);
+  assert.ok(c.hot && c.bg !== 'rgba(0, 0, 0, 0)', 'hovered: filled');
+  assert.ok(c.iconIn, 'the icon stays put');
+  await p.mouse.move(tok.x + tok.width / 2, tok.y - 150);
+  await settle(p, 200);
+  c = await chipLook(p);
+  assert.ok(!c.hot && c.bg === 'rgba(0, 0, 0, 0)', 'left: plain again');
+  assert.equal(await p.locator('.tokx').count(), 0);
+});
+
+await test('quote chip: the NORMAL block and VISUAL cover it whole, and its icon still shows', async p => {
+  await quoteFirst(p);
+  const end = (await composer(p).inputValue()).indexOf('⁣', 1) + 1;
+  const sel = () => composer(p).evaluate(t => [t.selectionStart, t.selectionEnd]);
+  await keys(p, 'Escape 0');
+  assert.deepEqual(await sel(), [0, end], 'NORMAL: the block is the whole chip');
+  assert.ok((await chipLook(p)).front, 'NORMAL: the icon is drawn over the block');
+  await keys(p, 'v l');
+  assert.equal(await mode(p), 'VISUAL');
+  const [a, b] = await sel();
+  assert.ok(a === 0 && b > end, 'VISUAL: the selection takes the chip and goes on');
+  const c = await chipLook(p);
+  assert.ok(c.front && c.iconIn, 'VISUAL: the icon still shows');
+  assert.equal(c.color, rgb(c.blue), 'VISUAL: the words stay blue under the selection');
+});
+
+await test('quote chip: removed from the keyboard, icon and all (x in NORMAL, d in VISUAL)', async p => {
+  await quoteFirst(p);
+  await p.keyboard.type('why');
+  await keys(p, 'Escape 0 x');
+  assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 0);
+  assert.equal(await p.locator('.pane.focus .compw .fk').count(), 0, 'no icon left behind');
+  await keys(p, 'u');
+  assert.equal(await p.locator('.pane.focus .compw .fk .qi svg').count(), 1, 'undo brings the chip and its icon back');
+  const tok = await p.locator('.pane.focus .compw .bk .tok').boundingBox();
+  await p.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2);
+  await p.locator('.tokx').waitFor();   // still a quote (it lights up its source), not just its words
+  await p.mouse.move(tok.x, tok.y - 150);
+  await keys(p, '0 v d');
+  assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 0, 'VISUAL d takes it whole');
+  assert.ok((await composer(p).inputValue()).endsWith('why'));
+});
+
+await test('quote chip: two chips each get an icon, in order', async p => {
+  await quoteFirst(p);
+  await p.evaluate(() => {
+    const el = document.querySelectorAll('.pane.focus .m-asst p')[1]?.firstChild ?? document.querySelector('.pane.focus .m-asst p').firstChild; const r = document.createRange();
+    r.setStart(el, 0); r.setEnd(el, Math.min(12, el.length)); getSelection().removeAllRanges(); getSelection().addRange(r);
+  });
+  await p.keyboard.press(`${mod}+l`);
+  await settle(p);
+  const xs = await p.evaluate(() => [...document.querySelectorAll('.pane.focus .compw .fk .qi svg')].map(s => s.getBoundingClientRect().left));
+  const ts = await p.evaluate(() => [...document.querySelectorAll('.pane.focus .compw .bk .tok')].map(s => s.getBoundingClientRect().left));
+  assert.equal(xs.length, 2);
+  assert.ok(Math.abs(xs[0] - ts[0]) < 3 && Math.abs(xs[1] - ts[1]) < 3, 'each icon at its own chip');
+});
