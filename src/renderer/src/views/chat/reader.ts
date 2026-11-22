@@ -444,6 +444,12 @@ export class Reader {
           const bd = row.closest(SEL_BLOCK), p = bd && this.edge(bd, true); if (!p) return true; this.f = p;
         }
       }
+      if (row.matches('.sc-link')) {   // a reply's side chat links sit on one line: h / l (w / b / e, 0 / $) step along them
+        const ls = [...row.parentElement!.querySelectorAll<HTMLElement>(':scope > .sc-link')], i = ls.indexOf(row);
+        const d = ['l', 'right', 'w', 'e'].includes(k) ? 1 : ['h', 'left', 'b'].includes(k) ? -1 : 0;
+        const to = d ? i + d : k === '0' || k === 'home' ? 0 : k === '$' || k === 'end' ? ls.length - 1 : null;
+        if (to != null) { const p = ls[Math.max(0, Math.min(ls.length - 1, to))]; const q = p !== row && this.firstText(p); if (q) { this.f = this.a = q; this.x = null; this.draw(); } return true; }
+      }
       if (k === 'l' || k === 'right') { if (det) det.open = true; this.draw(); return true; }
       if (k === 'h' || k === 'left') { if (det) det.open = false; this.draw(); return true; }
       if (k === 'enter' || k === 'o') {

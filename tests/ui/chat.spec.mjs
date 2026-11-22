@@ -292,6 +292,36 @@ await test('side chat: link opens it; Send to thread quotes the answer back', as
   assert.equal(await p.locator('.pane .compw .bk .tok').count(), 1, 'drawn as a chip');
 });
 
+await test('side chat links on one reply: h / l move the cursor between them; enter opens one', async p => {
+  await openChat(p, 'Fix session-restore race');
+  // a second side chat from the same reply
+  await p.evaluate(async () => {
+    const { api, S } = window.__skein, at = S.threads.find(t => t.id === 's1').parent.at;
+    const t = await api.threads.create({ harness: 'claude', machine: 'local', dir: '~/projects/skein', view: 'chat', side: true, parent: { id: 't1', at } });
+    await api.threads.update(t.id, { title: 'Second side chat' });
+  });
+  const links = p.locator('.pane.focus .sc-links').first().locator('.sc-link');
+  await links.nth(1).waitFor();
+  await composer(p).press('Escape');
+  await keys(p, 'g g');
+  const on = () => p.evaluate(() => document.querySelector('.pane.focus .sc-link.rowcur')?.textContent ?? null);
+  for (let i = 0; i < 12 && !(await on()); i++) await keys(p, 'j');
+  const [first, second] = await links.allTextContents();
+  assert.ok([first, second].includes(await on()), 'j lands on a link');
+  await keys(p, '0');
+  assert.equal(await on(), first, '0 goes to the first');
+  await keys(p, 'l');
+  assert.equal(await on(), second, 'l moves to the next one');
+  await keys(p, 'l');
+  assert.equal(await on(), second, 'and stops at the last');
+  await keys(p, 'h');
+  assert.equal(await on(), first, 'h moves back');
+  await keys(p, '$');
+  assert.equal(await on(), second, '$ goes to the last');
+  await keys(p, 'Enter');
+  await p.locator('.peek.focus .sc-anchor').waitFor();
+});
+
 await test('/sidechats offers New side chat; it opens a side chat popup in INSERT', async p => {
   await openChat(p, 'Add timestamps to chat rows');
   await composer(p).pressSequentially('/sidech');
