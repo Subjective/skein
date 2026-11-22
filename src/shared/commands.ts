@@ -35,12 +35,26 @@ export const CODEX_COMMANDS: HarnessCommand[] = [
   c('/mention', 'Attach a file'), c('/init', 'Create AGENTS.md'), c('/status', 'Thread and account status'),
 ];
 
+/** The commands the / menu lists first, in this order, with short hints of ours (as Codex's list above): the ones the
+ *  harness lists, wherever it puts them (Claude Code counts /init and /code-review as skills). The harness's other
+ *  built-ins follow under More. */
+export const CORE: Record<Harness, { name: string; hint: string }[]> = {
+  claude: [
+    { name: 'clear', hint: 'Start a new conversation' }, { name: 'compact', hint: 'Summarise to free up context' },
+    { name: 'model', hint: 'Switch model and effort' }, { name: 'effort', hint: 'Set the effort level' }, { name: 'plan', hint: 'Plan before editing' },
+    { name: 'resume', hint: 'Resume a past thread' }, { name: 'code-review', hint: 'Review the current diff' },
+    { name: 'context', hint: 'Show context usage' }, { name: 'usage', hint: 'Cost and plan limits' }, { name: 'permissions', hint: 'Edit tool permissions' },
+    { name: 'mcp', hint: 'Manage MCP servers' }, { name: 'init', hint: 'Create CLAUDE.md' }, { name: 'status', hint: 'Thread and account status' },
+  ],
+  codex: CODEX_COMMANDS.map(x => ({ name: x.name, hint: x.hint ?? '' })),
+};
+
 /** The fallback lists, for when the harness can't be asked. */
 export const COMMANDS: Record<Harness, { commands: HarnessCommand[]; skills: HarnessCommand[] }> = {
   claude: {
     commands: [
       c('/clear', 'Start a fresh conversation'), c('/compact', 'Summarise to free up context'), c('/model', 'Switch model'),
-      c('/plan', 'Plan before editing'), c('/resume', 'Resume a past thread'), c('/review', 'Review the current diff'),
+      c('/plan', 'Plan before editing'), c('/resume', 'Resume a past thread'),
       c('/init', 'Create CLAUDE.md'), c('/mcp', 'Manage MCP servers'), c('/permissions', 'Edit tool permissions'), c('/status', 'Thread and account status'),
     ],
     skills: [c('/code-review', 'Review the current diff for bugs'), c('/simplify', 'Clean up the changed code'), c('/security-review', 'Security review of pending changes')],

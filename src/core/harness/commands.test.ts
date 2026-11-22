@@ -24,6 +24,16 @@ describe('harness commands', () => {
     expect(r.skills).toEqual([{ cmd: '/deploy', name: 'deploy', hint: 'Ship it', source: 'custom' }]);
   });
 
+  it('puts Claude Code\'s own skills (reloadSkills) under Skills and leaves out removed commands', () => {
+    const r = claudeCommands([
+      { name: 'compact', description: 'Free up context', argumentHint: '', builtin: true },
+      { name: 'simplify', description: 'Clean up', argumentHint: '', builtin: true },
+      { name: 'agents', description: '(removed) Ask Claude to manage subagents', argumentHint: '', builtin: true },
+    ], ['simplify', 'not-a-command']);
+    expect(r.commands.map(c => c.name)).toEqual(['compact']);
+    expect(r.skills.map(c => c.name)).toEqual(['simplify']);
+  });
+
   it('lists Codex skills as $name with its built-in commands, disabled ones left out', () => {
     const r = codexCommands([
       { name: 'pdf', description: 'Long', interface: { shortDescription: 'Read PDFs' }, path: '/s/pdf/SKILL.md', scope: 'system', enabled: true },
@@ -55,6 +65,15 @@ describe('harness commands', () => {
     await cmds.get(local, 'claude', '/tmp');
     await cmds.get(local, 'claude', '/');
     expect(cwds).toEqual(['/tmp', '/']);
+  });
+
+  it('asks the same query for Claude Code\'s skills and lists them under Skills', async () => {
+    const q: QueryFn = () => ({
+      initializationResult: async () => ({ commands: [{ name: 'compact', description: '', argumentHint: '', builtin: true }, { name: 'simplify', description: '', argumentHint: '', builtin: true }] }),
+      reloadSkills: async () => ({ skills: [{ name: 'simplify', description: '', argumentHint: '' }] }), close: () => {},
+    }) as unknown as Query;
+    const r = await harnessCommands(async () => q, {} as CodexServers, '/home/me').get(local, 'claude', '/tmp');
+    expect([r.commands.map(c => c.name), r.skills.map(c => c.name)]).toEqual([['compact'], ['simplify']]);
   });
 
   it('falls back to the bundled lists when the harness can\'t be asked', async () => {

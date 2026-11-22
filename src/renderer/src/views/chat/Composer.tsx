@@ -127,14 +127,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const items = useMemo((): MenuItem<string>[] => {
     if (!pop) return [];
     if (pop.kind === 'slash') {
-      // nothing typed: three sections, the harness's commands, Skein's own (side chats, subagents) and the skills.
-      // Typing: one list of what matches, each row tagged with where it comes from (Josh, 2026-11-20)
+      // nothing typed: sections, as Codex's menu: the harness's everyday commands, Skein's own (side chats, subagents),
+      // the skills, then the harness's other built-ins under More. Typing: one list of what matches, each row tagged
+      // with where it comes from (Josh, 2026-11-20)
       const hit = (c: Slash) => slashHit(c, pop.q) && !(p.bare && c.cmd === '/model');
       const typed = pop.q.replace(/^[/$]/, '') !== '';
       const row = (tag?: string) => (c: Slash): MenuItem<string> => ({ label: c.cmd, display: c.display, hint: c.hint, icon: <Icon name={c.icon} />, data: c.cmd, ...(typed && tag ? { right: <span className="src">{tag}</span> } : {}) });
-      const cmds = slashes.commands.filter(hit), ours = (!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : []).filter(hit), skills = slashes.skills.filter(hit);
+      const cmds = slashes.commands.filter(hit), ours = (!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : []).filter(hit), skills = slashes.skills.filter(hit), more = slashes.more.filter(hit);
       const part = (label: string, xs: Slash[], tag?: string): MenuItem<string>[] => (xs.length ? [...(typed ? [] : [{ head: true, label }]), ...xs.map(row(tag))] : []);
-      return [...part(harnessName(h), cmds), ...part('Skein', ours, 'Skein'), ...part('Skills', skills, 'Skill')];
+      return typed ? [...part('', [...cmds, ...more]), ...part('', ours, 'Skein'), ...part('', skills, 'Skill')]
+        : [...part(harnessName(h), cmds), ...part('Skein', ours), ...part('Skills', skills), ...part('More', more)];
     }
     const base = pop.q.slice(atDir.length).toLowerCase();
     if (files.dir !== atDir) return [];
