@@ -9,7 +9,7 @@ import { extname, join } from 'node:path';
 import type { CanUseTool, Options, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatSend } from '../../../shared/api';
 import { effortId, modelId, permId } from '../../../shared/models';
-import type { ApprovalRequest, Machine, ThreadEvent, ThreadMeta } from '../../../shared/types';
+import type { ApprovalRequest, Machine, Queued, ThreadEvent, ThreadMeta } from '../../../shared/types';
 import type { ChatDriver, ChatHost } from '../../chat';
 import { spawnOn } from '../../exec';
 import { log } from '../../log';
@@ -117,6 +117,9 @@ export class ClaudeDriver implements ChatDriver {
   async send(msg: ChatSend): Promise<void> {
     // Claude Code takes no messages for a subagent from outside it (its popup's composer says so)
     if (msg.sub) throw new Error("Follow-ups aren't available for this subagent");
+    // queued: Skein keeps it (Claude Code's own queue can't be listed, reordered or edited, and merges what waits
+    // into one turn) and sends it when this turn ends, as a turn of its own
+    if (msg.queue && this.running) { this.setQueue([...this.queue, { id: randomUUID(), text: msg.text, ...(msg.images?.length ? { images: msg.images } : {}) }]); return; }
     let text = msg.text, images = msg.images;
     let rewind = msg.rewind;
     if (msg.retry) {
@@ -142,9 +145,34 @@ export class ClaudeDriver implements ChatDriver {
     this.sentText.set(uuid, text);
     const content = [...imageBlocks(images), ...(text ? [{ type: 'text' as const, text }] : [])];
     this.ev({ t: 'user', id: uuid, text, ...(images?.length ? { images } : {}), at: Date.now() });
+    // a turn you start resumes a paused queue: it goes on when this turn ends (as Codex's does)
+    if (this.t.queuePaused) this.setQueue(this.queue, false);
     if (!this.running) this.startTurn(uuid);
     this.inbox!.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, uuid: uuid as SDKUserMessage['uuid'] } as SDKUserMessage);
   }
+
+  // ---- the queue (ThreadMeta.queue) ----
+  private get queue(): Queued[] { return this.t.queue ?? []; }
+  private setQueue(queue: Queued[], paused = this.t.queuePaused) { this.host.update(this.id, { queue, queuePaused: queue.length > 0 && !!paused }); }
+  /** The turn ended: the next one starts, unless a stop or an error paused the queue. */
+  private nextQueued() {
+    const [head, ...rest] = this.queue;
+    if (!head || this.t.queuePaused || this.running) return;
+    this.setQueue(rest);
+    void this.send({ text: head.text, images: head.images });
+  }
+  async steerQueued(id: string): Promise<void> {
+    const m = this.queue.find(x => x.id === id); if (!m) return;
+    this.setQueue(this.queue.filter(x => x !== m), this.running && this.t.queuePaused);
+    await this.send({ text: m.text, images: m.images });
+  }
+  async dropQueued(id: string): Promise<void> { this.setQueue(this.queue.filter(x => x.id !== id)); }
+  async editQueued(id: string, text: string): Promise<void> { this.setQueue(this.queue.map(x => (x.id === id ? { ...x, text } : x))); }
+  async orderQueue(ids: string[]): Promise<void> {
+    const q = this.queue, by = new Map(q.map(x => [x.id, x]));
+    this.setQueue([...ids.flatMap(i => by.get(i) ?? []), ...q.filter(x => !ids.includes(x.id))]);
+  }
+  async resumeQueue(): Promise<void> { this.setQueue(this.queue, false); this.nextQueued(); }
 
   async interrupt(): Promise<void> {
     this.interrupted = true;
@@ -260,6 +288,7 @@ export class ClaudeDriver implements ChatDriver {
       this.fold?.settleRunning('failed');
       this.ev({ t: 'error', id: 'e-' + randomUUID(), kind: kind === 'other' ? 'crash' : kind, text: tidy(text, 600) });
       this.status('error');
+      if (this.queue.length) this.setQueue(this.queue, true);
     } else if (this.running) this.status('idle');
     this.endTurn();
   }
@@ -297,6 +326,9 @@ export class ClaudeDriver implements ChatDriver {
         this.host.update(this.id, { status: r.is_error ? 'error' : 'idle', updatedAt: Date.now(), ...ctx });
         this.contextUsage();
         this.endTurn();
+        // a stop or a failed turn pauses the queue (as Codex does); otherwise the next one starts
+        if (this.queue.length && (this.interrupted || r.is_error || r.subtype !== 'success')) this.setQueue(this.queue, true);
+        else this.nextQueued();
         return;
       }
       case 'auth_status':

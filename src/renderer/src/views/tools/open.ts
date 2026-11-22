@@ -17,14 +17,15 @@ export function openTool(kind: 'changes' | 'files' | 'browser', from: Tab = A.cu
   if (hit?.pane) { A.activate(hit.pane.id, hit.tab.id); return; }
   if (hit) { update(() => { ws().pf = hit.tab.id; }); return; }
   const t = mkTab(kind, { machine: c.machine, dir: c.dir, thread: from.thread });
-  A.openBeside(t);
+  A.openBeside(t, { from });
 }
 
 /** Open `path` (relative to `ctx.dir`). From an open file it moves that tab (with history); otherwise an open
- *  tab for the file is reused, or it opens beside (the pane to the right, else a new split). */
-export function openFile(ctx: Ctx, path: string, o: { line?: number; col?: number; from?: Tab; newTab?: boolean } = {}) {
+ *  tab for the file is reused, a launcher on screen becomes the file, or it opens where state/layout placeFor says:
+ *  a tab in a pane that shows files, else beside the thread. `split` opens it in a new split to the right. */
+export function openFile(ctx: Ctx, path: string, o: { line?: number; col?: number; from?: Tab; newTab?: boolean; split?: boolean } = {}) {
   const from = o.from;
-  if (from?.kind === 'file' && !o.newTab && from.dir === ctx.dir) {
+  if (from?.kind === 'file' && !o.newTab && !o.split && from.dir === ctx.dir) {
     const nav = fileNav(from);
     const cur = nav.hist[nav.hi];
     if (cur.path === path) { nav.goto = { line: o.line || 1, col: o.col }; update(); return; }
@@ -35,16 +36,21 @@ export function openFile(ctx: Ctx, path: string, o: { line?: number; col?: numbe
     A.save();
     return;
   }
-  const hit = allTabs(ws()).find(x => x.tab.kind === 'file' && x.tab.path === path && x.tab.dir === ctx.dir && (x.tab.machine || 'local') === ctx.machine);
+  const hit = o.split ? undefined : allTabs(ws()).find(x => x.tab.kind === 'file' && x.tab.path === path && x.tab.dir === ctx.dir && (x.tab.machine || 'local') === ctx.machine);
   const t = hit?.tab || mkTab('file', { machine: ctx.machine, dir: ctx.dir, path, thread: from?.thread });
   fileNav(t).goto = { line: o.line || 1, col: o.col };
   if (hit?.pane) { A.activate(hit.pane.id, t.id); return; }
   if (hit) { update(() => { ws().pf = t.id; }); return; }
-  // a launcher on screen becomes the file; otherwise it opens beside (the pane to the right, or a new split)
   const g = A.focusedPane(), a = g.tabs.find(x => x.id === g.active);
-  if (a?.kind === 'new' && !ws().pf) { update(s => { g.tabs[g.tabs.indexOf(a)] = t; g.active = t.id; s.sideFocus = false; s.tick++; }); A.save(); return; }
-  A.openBeside(t);
+  if (!o.split && a?.kind === 'new' && !ws().pf) { update(s => { g.tabs[g.tabs.indexOf(a)] = t; g.active = t.id; s.sideFocus = false; s.tick++; }); A.save(); return; }
+  A.openBeside(t, { from, split: o.split });
 }
+
+/** The keys that open a file in a new split from a list (Files, Changes), as the sidebar opens a thread in one:
+ *  shift-enter or O. ctrl-p takes shift-enter (ui/Menu altPick). */
+export const splitKey = (k: string) => k === 'shift-enter' || k === 'O';
+/** The click that does, as in the sidebar: a click with any modifier. */
+export const splitClick = (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }) => e.shiftKey || e.altKey || e.ctrlKey || e.metaKey;
 
 export function saveFile() { if (!tabHook(A.currentTab().id, 'save')) toast('Nothing to save here'); }
 

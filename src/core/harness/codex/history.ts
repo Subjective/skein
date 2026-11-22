@@ -13,6 +13,9 @@ export interface CodexHistory {
   turnOf: Map<string, string>;
 }
 
+/** The note on a turn that continued an interrupted one (started with no input). */
+export const continuedId = (turn: string) => 'c-' + turn;
+
 const empty = (): CodexHistory => ({ events: [], turnOf: new Map() });
 
 /** A thread's turns, oldest first, as chat events. */
@@ -20,7 +23,11 @@ export function turnEvents(turns: Turn[]): CodexHistory {
   const events: ThreadEvent[] = [], turnOf = new Map<string, string>();
   const put = (e: ThreadEvent, turn: string) => { events.push(e); turnOf.set(e.id, turn); };
   const subs = new Map<string, number>();   // sub-agent thread id → its sub event's index
+  let stopped = false;
   for (const turn of turns) {
+    // a turn after a stop with work but no message of yours continued it (a turn that failed at once has neither)
+    if (stopped && turn.items.length && !turn.items.some(i => i.type === 'userMessage')) put({ t: 'notice', id: continuedId(turn.id), text: 'Continued' }, turn.id);
+    stopped = turn.status === 'interrupted';
     for (const item of turn.items) {
       for (const e of itemEvents(item)) { if (e.t === 'sub' && e.agent) subs.set(e.agent, events.length); put(e, turn.id); }
       // a later wait or close reports how the sub-agent ended

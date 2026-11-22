@@ -76,7 +76,15 @@ export interface ThreadMeta {
   /** When a process outside Skein (the harness in another terminal) last took this thread: Skein follows its
    *  transcript and doesn't send to it until you take over (one writer per session). 0 or absent: Skein may drive. */
   external?: number;
+  /** Messages sent while a turn ran, waiting for it to end; each starts a turn of its own, in order. Codex keeps
+   *  them itself (thread/queue/*); Claude Code's are Skein's. */
+  queue?: Queued[];
+  /** The queue waits: the turn was stopped, so nothing more starts until you resume (Codex's own behaviour). */
+  queuePaused?: boolean;
 }
+
+/** A queued message: its own id, the text and images it will send. */
+export interface Queued { id: string; text: string; images?: string[] }
 
 /** What a tool step did, whatever the harness called it: the chat view's icons, verbs and run summaries go by this.
  *  Claude names each kind of step as its own tool; Codex runs most of them as shell commands and tags what each one does. */
@@ -126,6 +134,12 @@ export interface Settings {
   /** How much of an agent's steps a turn shows (absent: compact). */
   density?: Density;
   termFontSize?: number;
+  /** What enter does while a turn runs: queue the message for after it (absent), or steer the turn now.
+   *  mod-enter does the other. */
+  followUp?: 'queue' | 'steer';
+  /** The open file's ⋯ menu: line numbers (on unless false) and word wrap. */
+  fileNumbers?: boolean;
+  fileWrap?: boolean;
 }
 
 export type Density = 'compact' | 'balanced' | 'detailed';

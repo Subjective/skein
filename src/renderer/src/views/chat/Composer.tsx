@@ -37,7 +37,12 @@ export interface ComposerProps {
   onDraft(d: Draft): void;
   placeholder?: string;
   running?: boolean;
-  onSend(): void;
+  /** `alt`: mod-enter, which does the other of queue and steer while a turn runs. */
+  onSend(alt?: boolean): void;
+  /** The text got the keys (a click, or focus from elsewhere). */
+  onFocus?(): void;
+  /** Codex: a stop interrupted the last turn, so with nothing typed send (enter, the ▶ button) continues it. */
+  canContinue?: boolean;
   onStop?(): void;
   /** Our own / commands: /model is handled here; the rest go to the view. */
   onCommand?(cmd: string, anchor: DOMRect): void;
@@ -127,14 +132,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const items = useMemo((): MenuItem<string>[] => {
     if (!pop) return [];
     if (pop.kind === 'slash') {
-      // nothing typed: three sections, the harness's commands, Skein's own (side chats, subagents) and the skills.
-      // Typing: one list of what matches, each row tagged with where it comes from (Josh, 2026-11-20)
+      // nothing typed: sections, as Codex's menu: the harness's everyday commands, Skein's own (side chats, subagents),
+      // the skills, then the harness's other built-ins under More. Typing: one list of what matches, each row tagged
+      // with where it comes from (Josh, 2026-11-20)
       const hit = (c: Slash) => slashHit(c, pop.q) && !(p.bare && c.cmd === '/model');
       const typed = pop.q.replace(/^[/$]/, '') !== '';
       const row = (tag?: string) => (c: Slash): MenuItem<string> => ({ label: c.cmd, display: c.display, hint: c.hint, icon: <Icon name={c.icon} />, data: c.cmd, ...(typed && tag ? { right: <span className="src">{tag}</span> } : {}) });
-      const cmds = slashes.commands.filter(hit), ours = (!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : []).filter(hit), skills = slashes.skills.filter(hit);
+      const cmds = slashes.commands.filter(hit), ours = (!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : []).filter(hit), skills = slashes.skills.filter(hit), more = slashes.more.filter(hit);
       const part = (label: string, xs: Slash[], tag?: string): MenuItem<string>[] => (xs.length ? [...(typed ? [] : [{ head: true, label }]), ...xs.map(row(tag))] : []);
-      return [...part(harnessName(h), cmds), ...part('Skein', ours, 'Skein'), ...part('Skills', skills, 'Skill')];
+      return typed ? [...part('', [...cmds, ...more]), ...part('', ours, 'Skein'), ...part('', skills, 'Skill')]
+        : [...part(harnessName(h), cmds), ...part('Skein', ours), ...part('Skills', skills), ...part('More', more)];
     }
     const base = pop.q.slice(atDir.length).toLowerCase();
     if (files.dir !== atDir) return [];
@@ -289,6 +296,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     else if (open && menu.current && ['up', 'down', 'ctrl-n', 'ctrl-p', 'ctrl-j', 'ctrl-k', 'tab', 'shift-tab', 'enter'].includes(k)) return menu.current.key(k === 'tab' || k === 'shift-tab' ? 'enter' : k, { key: '', code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
     if (open && k === 'esc') { setPop(null); return false; }   // the field goes to NORMAL too
     if (k === 'esc' && mode === 'NORMAL' && escStop()) return true;
+    if (!open && (k === 'mod-enter' || k === 'ctrl-enter' || k === 'cmd-enter')) { if (!ourCommand()) props.current.onSend(true); return true; }
     if (mode === 'NORMAL' && props.current.onNormalKey?.(k)) return true;
     // NORMAL has no paste event (the keys don't type): ctrl-v / cmd-v still attach an image on the clipboard
     if (mode === 'NORMAL' && (k === 'ctrl-v' || k === 'cmd-v')) { void pasteFromClipboard(); return true; }
@@ -374,7 +382,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const th = p.thread, ctx = th.ctx;
   const hasText = !!p.draft.text.trim() || p.draft.images.length > 0;
   return (
-    <div ref={box} className={cx('comp', p.className)} onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+    <div ref={box} className={cx('comp', p.className)} onFocus={() => p.onFocus?.()} onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
       onDrop={e => { const fs = clipImages(e.dataTransfer); if (fs.length) { e.preventDefault(); addFiles(fs); } }}>
       {p.draft.images.length > 0 && (
         <div className="atts">{p.draft.images.map((src, i) => (
@@ -401,7 +409,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <span className={cx('ring', fill(ctx))} style={{ ['--p' as string]: ctx }} />
           </button>
         )}
-        <SendButton stop={p.running && !hasText} armed={armed} disabled={!p.running && !hasText} onClick={() => { if (armed) { disarm(false); p.onStop?.(); return; } if (p.running && !hasText) p.onStop?.(); else p.onSend(); }} />
+        <SendButton stop={p.running && !hasText} armed={armed} play={!p.running && !hasText && p.canContinue} disabled={!p.running && !hasText && !p.canContinue} onClick={() => { if (armed) { disarm(false); p.onStop?.(); return; } if (p.running && !hasText) p.onStop?.(); else p.onSend(); }} />
       </div>
       {hot && createPortal(<button ref={tokx} type="button" className="tokx" title="Remove" aria-label="Remove quote" style={{ left: hot.right - 4, top: hot.top - 9 }}
         onMouseDown={e => { e.preventDefault(); e.stopPropagation(); dropQuote(hot.i); }}><Icon name="x" /></button>, document.body)}

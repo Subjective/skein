@@ -902,9 +902,6 @@ textarea.vn.hollow.drawn { caret-color: transparent; }
 .ed { flex: none; display: flex; margin: 0 -14px; min-height: 100%; }
 .ed-n { flex: none; width: 48px; margin: 0; padding: 0 10px 0 0; text-align: right; color: var(--fg-4); font: var(--mono-w) 12px/1.650 var(--mono); user-select: none; }
 .file-ed { padding: 0 14px 0 0; font: var(--mono-w) 12px/1.650 var(--mono); white-space: pre; overflow: hidden; }
-.tool-h .mod { display: none; }
-.tool-h.dirty .mod { display: inline-flex; }
-.tool-h span.mod { margin-left: 8px; font-size: 12px; }
 .tab.dirty .t::after { content: " \2022"; color: var(--fg-3); }
 
 /* sidebar section headings fold on click: a chevron appears on hover, and stays (turned) while folded */
@@ -966,6 +963,38 @@ button[aria-expanded="true"] > .i-down { transform: rotate(180deg); }
 /* G4: who drives a Claude Code thread */
 .seg button.drv { position: relative; }
 .seg button.drv::after { content: ""; position: absolute; right: 4px; top: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--claude); }
+/* the queue (views/chat/QueueTray): messages waiting for the running turn, tucked under the composer's top edge */
+.qtray { position: relative; z-index: 0; margin: 0 16px -34px; padding: 4px 4px 26px; border: 1px solid var(--comp-line); border-bottom: 0; border-radius: 16px 16px 0 0; background: var(--bg-2); animation: fadeUp .18s ease; }
+.qtray + .comp { position: relative; z-index: 1; }
+.qrows { max-height: 186px; overflow-y: auto; }
+.qhead { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 4px 0 10px; color: var(--fg-3); font-size: 12.500px; }
+.qhead svg.i { width: 13px; height: 13px; }
+.qhead .btn.sm { height: 24px; }
+.qrow { position: relative; display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 4px 0 22px; border-radius: 10px; color: var(--fg); font-size: 13.500px; cursor: default; transition: background var(--ease); }
+.qrow:hover, .qrow.cur { background: var(--hover); }
+.qtray.kb .qrow.cur { background: var(--active); }
+.qrow.dragging { opacity: .4; }
+.qrow.over::before { content: ""; position: absolute; left: 10px; right: 10px; top: -1px; height: 2px; border-radius: 1px; background: var(--blue); }
+.qgrip { position: absolute; left: 4px; display: grid; place-items: center; width: 14px; height: 24px; color: var(--fg-4); opacity: 0; cursor: grab; transition: opacity var(--ease); }
+.qgrip svg.i { width: 14px; height: 14px; }
+.qrow:hover .qgrip { opacity: 1; }
+.qic { flex: none; width: 15px; height: 15px; color: var(--fg-3); }
+.qtext { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.qimgs { display: inline-flex; gap: 3px; flex: none; }
+.qimgs img { width: 22px; height: 22px; border-radius: 5px; object-fit: cover; border: 1px solid var(--line); }
+.qact { display: inline-flex; align-items: center; gap: 2px; flex: none; opacity: 0; transition: opacity var(--ease); }
+.qrow:hover .qact, .qact.on { opacity: 1; }
+.qsteer { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px; border-radius: 6px; color: var(--fg-3); font-size: 12.500px; transition: background var(--ease), color var(--ease); }
+.qsteer:hover { background: var(--hover); color: var(--fg); }
+.qsteer svg.i { width: 14px; height: 14px; }
+.qact .ib { width: 24px; height: 24px; border-radius: 6px; }
+.qact .ib svg.i { width: 14px; height: 14px; }
+.qtray.kb .qact .rng { outline: 2px solid var(--fg-3); outline-offset: 0; color: var(--fg); }
+.qrow.editing { padding-top: 4px; padding-bottom: 4px; align-items: flex-start; background: var(--active); }
+.qrow.editing .qic { margin-top: 6px; }
+.qedit { flex: 1; min-width: 0; }
+.qedit textarea { width: 100%; min-height: 26px; max-height: 120px; padding: 3px 0; background: none; border: 0; outline: 0; resize: none; color: var(--fg); font: 13.500px/1.500 var(--sans); }
+.qrow.editing .qact { margin-top: 1px; }
 .mirror, .link-note { display: flex; align-items: center; gap: 9px; padding: 9px 10px 9px 14px; border: 1px solid var(--comp-line); border-radius: 22px; background: var(--comp); color: var(--fg-2); font-size: 13px; animation: fadeUp .18s ease; }
 .mirror svg.i { color: var(--fg-3); }
 .mirror .btn.sm { margin-left: 0; }

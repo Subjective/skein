@@ -51,6 +51,11 @@ export interface ChatSend {
   sub?: string;
   /** Run the last turn again (Restart after a crash, Retry now after a rate limit). `text` is empty. */
   retry?: boolean;
+  /** While a turn runs: wait in the thread's queue for it to end (true), or steer it now (absent). */
+  queue?: boolean;
+  /** Codex only: continue the turn a stop interrupted (`text` empty), a turn with no new message. Claude Code has no
+   *  such call, so its chat doesn't offer it. */
+  resume?: boolean;
 }
 
 export interface NewThread {
@@ -124,6 +129,8 @@ export interface SkeinApi {
     settings(): Promise<Settings>;
     setSettings(patch: Partial<Settings>): Promise<Settings>;
     openExternal(url: string): Promise<void>;
+    /** Show a file on this computer in Finder / File Explorer (~ allowed). */
+    reveal(path: string): Promise<void>;
     notify(title: string, body: string, thread?: string): Promise<void>;
   };
   machines: {
@@ -171,6 +178,13 @@ export interface SkeinApi {
     /** A chat view showing the thread opened (true) or closed (false): its transcript is followed live meanwhile
      *  (new entries arrive as 'chat' pushes, whoever writes them). */
     follow(thread: string, on: boolean): void;
+    /** The thread's queue (ThreadMeta.queue): send one into the running turn now, drop or rewrite one, put them in
+     *  this order, or start the next after a stop paused it. */
+    steerQueued(thread: string, id: string): Promise<void>;
+    dropQueued(thread: string, id: string): Promise<void>;
+    editQueued(thread: string, id: string, text: string): Promise<void>;
+    orderQueue(thread: string, ids: string[]): Promise<void>;
+    resumeQueue(thread: string): Promise<void>;
   };
   pty: {
     spawn(spec: PtySpec): Promise<string>;
@@ -212,6 +226,9 @@ export interface SkeinApi {
     snapshot(machine: string, root: string): Promise<string>;
     /** Tracked and untracked files, ignored ones left out. Paths relative to the root, with /. */
     files(machine: string, root: string): Promise<string[]>;
+    /** The file's page on the remote's website (GitHub, GitLab, Bitbucket), at the upstream branch, else the
+     *  default branch. null when there is no remote or its host is not one of those. */
+    webUrl(machine: string, root: string, path: string): Promise<string | null>;
   };
   browser: {
     /** Forward a port on an SSH machine to this computer (`ssh -N -L`), so a Browser tab can load the remote's
@@ -253,14 +270,14 @@ export type SkeinBridge = SkeinApi & { on(fn: (e: SkeinEvent) => void): () => vo
 
 export const FIRE_AND_FORGET = new Set(['pty.write', 'pty.resize', 'pty.kill', 'browser.keys', 'chat.follow']);
 export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
-  app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'notify'],
+  app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'reveal', 'notify'],
   machines: ['list', 'add', 'remove', 'connect', 'answer', 'sshHosts'],
   fs: ['list', 'read', 'write', 'resolve', 'find'],
   threads: ['list', 'discover', 'create', 'update', 'history', 'sub', 'move'],
-  chat: ['send', 'interrupt', 'answer', 'drive', 'follow'],
+  chat: ['send', 'interrupt', 'answer', 'drive', 'follow', 'steerQueued', 'dropQueued', 'editQueued', 'orderQueue', 'resumeQueue'],
   pty: ['spawn', 'write', 'resize', 'kill', 'adopt'],
   images: ['toInbox'],
-  git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files'],
+  git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files', 'webUrl'],
   browser: ['forward', 'keys'],
   harness: ['options', 'commands'],
 };

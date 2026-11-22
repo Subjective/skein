@@ -12,12 +12,14 @@ import { machine, S, thread, toast, update, useApp, ws } from '../../state/store
 import * as A from '../../state/actions';
 import { Button, cx, Dot, Icon, Spinner } from '../../ui/primitives';
 import { harnessName, setSubNames } from '../../shell/meta';
+import { openMenu, setSetting } from '../../shell/overlays';
 import { clipImages, Composer, LockedComposer, type ComposerHandle } from './Composer';
 import { onText, Reader, SEL_BLOCK, selectable } from './reader';
 import { Ticks } from './Ticks';
 import { fixError, Transcript, type TranscriptCtx } from './Transcript';
 import { DENSITY, DENSITY_NAME } from './options';
 import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, startChat, tabChat, tokenOf, ultraFor, useChat, type Draft } from './state';
+import { QueueTray, type QueueTrayHandle } from './QueueTray';
 import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, quoteToTab, registerChatTab, subList } from './threads';
 import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
@@ -97,6 +99,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const takeOver = () => void api.threads.update(th.id, { external: 0 });
   mirrorRef.current = outside ? takeOver : mirror && !taking ? () => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); } : null;
   const [sel, setSel] = useState<string | null>(null);
+  const qref = useRef<number | null>(null);   // the queue row with the keys (QueueTray), for rule 15's place / restore
   const since = useRef(Date.now());
   useEffect(() => { if (running) since.current = Date.now(); }, [running]);
   // the transcript is followed live while the chat shows it, whoever writes it (another terminal, Skein's own)
@@ -106,12 +109,14 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   // position) and puts it back when it closes
   useEffect(() => registerHooks(t.id, {
     place: () => {
+      if (qref.current != null) return { q: qref.current };
       if (reader.on && reader.root && reader.f) return { root: reader.root, f: { ...reader.f } };
       const s = composer.current?.field()?.state();
       return s ? { ins: s.mode === 'INSERT', pos: s.pos } : null;
     },
     restore: (pl: unknown) => {
-      const r = pl as { root?: HTMLElement; f?: { n: Text; o: number }; ins?: boolean; pos?: number } | null;
+      const r = pl as { root?: HTMLElement; f?: { n: Text; o: number }; ins?: boolean; pos?: number; q?: number } | null;
+      if (r?.q != null) { (document.activeElement as HTMLElement | null)?.blur(); setQcur(r.q); return; }
       if (r?.root && r.f && r.root.isConnected && r.f.n.isConnected) { reader.begin(r.root, 'n', r.f); return; }
       const c = composer.current, f = c?.field(); if (!c || !f) { idle(); return; }
       const pos = Math.min(r?.pos ?? f.state().text.length, f.state().text.length);
@@ -188,7 +193,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     // back to the thread from a side chat's anchor line comes up in NORMAL (the mockup's D3); a thread opened from
     // the sidebar still opens ready to type (VIM-MODEL: the composer is a Field, INSERT)
     const by = recentMouse(), listed = !!by?.closest?.('.sc-anchor');
-    if (focused && !wasFocused.current && !reader.on) { if (composer.current) composer.current.focus(listed ? false : undefined); else idle(); }
+    if (focused && !wasFocused.current && !reader.on && qref.current == null) { if (composer.current) composer.current.focus(listed ? false : undefined); else idle(); }
     if (!focused && wasFocused.current) {
       const el = document.activeElement as HTMLElement | null;
       if (el && scroller.current?.parentElement?.contains(el)) el.blur();
@@ -204,12 +209,14 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
 
   // ---- sending ----
   const setDraft = (d: Draft) => { tc.draft = d; bump(); };
-  const send = () => {
+  // while a turn runs, enter queues (or steers, by the setting) and mod-enter does the other; subagents only steer
+  const send = (alt?: boolean) => {
     const d = tc.draft, text = outgoing(d);
-    if (!text && !d.images.length) return;
+    if (!text && !d.images.length) { if (canContinue) { stick.current = true; void api.chat.send(th.id, { text: '', resume: true, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) }); } return; }
     stick.current = true;
+    const queue = running && t.kind !== 'sub' && ((S.settings.followUp ?? 'queue') === 'queue') !== !!alt;
     const sent = t.kind === 'sub' ? api.chat.send(th.id, { text, images: d.images, sub: t.sub })
-      : api.chat.send(th.id, { text, images: d.images, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) });
+      : api.chat.send(th.id, { text, images: d.images, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th), ...(queue ? { queue } : {}) });
     // refused (the terminal is mid-turn, another process has the thread): the message comes back to the composer
     void sent.catch(e => {
       if (!outgoing(tc.draft) && !tc.draft.images.length) { tc.draft = d; bump(); }
@@ -219,6 +226,35 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     saveDraft(key, '');
   };
   const stop = () => void api.chat.interrupt(th.id);
+  // Codex: the last turn was stopped, so with nothing typed send continues it (Codex's ▶; Claude Code has no such call)
+  const canContinue = th.harness === 'codex' && t.kind !== 'sub' && !running && events.filter(e => e.t !== 'worked').at(-1)?.t === 'interrupted';
+
+  // ---- the queue: messages waiting for the running turn (QueueTray) ----
+  const queue = t.kind === 'sub' ? [] : th.queue ?? [];
+  const [qcur, setQcur] = useState<number | null>(null);
+  qref.current = qcur;
+  const tray = useRef<QueueTrayHandle>(null);
+  useEffect(() => { if (qcur != null && qcur >= queue.length) setQcur(queue.length ? queue.length - 1 : null); }, [queue.length, qcur]);
+  useEffect(() => { if (qcur != null && queue.length === 0) composer.current?.focus(false); }, [queue.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toQueue = () => { if (!queue.length) return false; (document.activeElement as HTMLElement | null)?.blur(); setQcur(queue.length - 1); return true; };
+  const dropQueued = (id: string) => {
+    const i = queue.findIndex(x => x.id === id), m = queue[i]; if (!m) return;
+    void api.chat.dropQueued(th.id, id);
+    toast('Removed from the queue', { icon: 'trash', action: { label: 'Undo', run: () => void api.chat.send(th.id, { text: m.text, images: m.images, queue: true }).then(() => {
+      const now = thread(th.id)?.queue ?? [], back = now.at(-1); if (!back) return;
+      const ids = now.slice(0, -1).map(x => x.id); ids.splice(i, 0, back.id); void api.chat.orderQueue(th.id, ids);
+    }) } });
+  };
+  const queueMenu = (id: string, anchor: DOMRect) => {
+    const i = queue.findIndex(x => x.id === id), m = queue[i]; if (!m) return;
+    const steer = (S.settings.followUp ?? 'queue') === 'steer';
+    openMenu<() => void>({ anchor, place: 'top-end', items: [
+      { label: 'Edit message', icon: <Icon name="pencil" />, kbd: 'e', data: () => requestAnimationFrame(() => tray.current?.edit(id)) },
+      { label: 'Move to top', icon: <Icon name="up" />, dis: i === 0, data: () => void api.chat.orderQueue(th.id, [id, ...queue.filter(x => x.id !== id).map(x => x.id)]) },
+      { label: 'Open in side chat', icon: <Icon name="chat" />, dis: !!th.side, data: () => void newSide(th, lastText()).then(sid => { void api.chat.dropQueued(th.id, id); openSide(sid); void api.chat.send(sid, { text: m.text, images: m.images }); }) },
+      { label: steer ? 'Turn on queueing' : 'Turn off queueing', hint: steer ? 'Enter queues while a turn runs' : 'Enter steers while a turn runs', icon: <Icon name="queue" />, data: () => void setSetting({ followUp: steer ? 'queue' : 'steer' }) },
+    ], onPick: it => it.data?.() });
+  };
 
   // ---- edit and resend (G8) ----
   const startEdit = (id: string, offset?: number, key?: string) => {
@@ -456,10 +492,18 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
                 <Button small variant="primary" title="Continue here. The terminal picks up what you send when you open it again" onClick={() => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); }}>Take back</Button></>}
           </div>
         ) : locked ? <LockedComposer note="Follow-ups aren't available for this subagent" /> : (
+          <>
+          <QueueTray ref={tray} tabId={t.id} items={queue} paused={th.queuePaused} running={!!running} cursor={focused ? qcur : null} onCursor={setQcur}
+            onLeaveDown={() => { setQcur(null); composer.current?.focus(false); }}
+            onLeaveUp={() => { setQcur(null); if (!read.current || !reader.enter(read.current, 'view')) composer.current?.focus(false); }}
+            onSteer={id => void api.chat.steerQueued(th.id, id)} onDrop={dropQueued} onEdit={(id, text) => void api.chat.editQueued(th.id, id, text)}
+            onOrder={ids => void api.chat.orderQueue(th.id, ids)} onResume={() => void api.chat.resumeQueue(th.id)} onMenu={queueMenu} />
           <Composer ref={composer} tabId={t.id} persist={key} thread={th} draft={tc.draft} onDraft={setDraft} running={!!running && t.kind !== 'sub'} onSend={send} onStop={stop}
             placeholder={t.kind === 'sub' ? `Message ${sub?.name || 'subagent'}` : th.side ? 'Ask in this side chat' : undefined}
             showContext={!th.side && t.kind !== 'sub'} bare={t.kind === 'sub'} onCommand={onCommand} onLeave={() => { if (ws().pf === t.id) A.closeFocusedPopup(); else { (document.activeElement as HTMLElement | null)?.blur(); idle(); } }}
-            onLeaveUp={() => { if (read.current && !reader.enter(read.current, 'view')) composer.current?.focus(false); }} onNormalKey={onNormalKey} />
+            onLeaveUp={() => { if (toQueue()) return; if (read.current && !reader.enter(read.current, 'view')) composer.current?.focus(false); }} onNormalKey={onNormalKey}
+            onFocus={() => setQcur(null)} canContinue={canContinue} />
+          </>
         )}
         {t.kind === 'sub' && sub && (
           <div className="under"><span className="u" title="Subagent of this thread"><Icon name={th.harness} />{th.title}</span><span className="sp" />

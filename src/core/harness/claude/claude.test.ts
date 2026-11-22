@@ -153,6 +153,55 @@ describe('Claude driver', () => {
     await d.release();
   });
 
+  it('keeps a queue: each waits for the turn before it, can be edited, reordered, steered, and a stop pauses it', async () => {
+    const got: string[] = [];
+    let open: (() => void)[] = [];
+    const sdk = fakeSdk(async function* (m) {
+      const c = (m.message as { content: { type: string; text?: string }[] }).content;
+      got.push(c.find(x => x.type === 'text')?.text ?? '');
+      await new Promise<void>(r => open.push(r));   // the turn runs until the test lets it end
+      yield sdk.interrupted ? ({ type: 'result', subtype: 'error_during_execution', duration_ms: 10, is_error: true, errors: ['interrupted'] } as never) : result(10);
+    });
+    const end = async () => { await until(() => open.length > 0); const f = open; open = []; f.forEach(r => r()); };
+    const h = fakeHost([{ id: 't1', sessionId: '33333333-3333-3333-3333-333333333333' }]);
+    const d = new ClaudeDriver('t1', h.host, async () => sdk.query);
+    const texts = () => h.thread('t1').queue?.map(x => x.text);
+    await d.send({ text: 'one' });
+    await until(() => h.thread('t1').status === 'running');
+    await d.send({ text: 'two', queue: true });
+    await d.send({ text: 'three', queue: true });
+    await d.send({ text: 'four', queue: true });
+    expect(texts()).toEqual(['two', 'three', 'four']);
+    expect(h.view().filter(e => e.t === 'user')).toHaveLength(1);   // queued ones show when they start
+    const [two, three, four] = h.thread('t1').queue!.map(x => x.id);
+    await d.editQueued(three, 'three, edited');
+    await d.orderQueue([three, two, four]);
+    expect(texts()).toEqual(['three, edited', 'two', 'four']);
+    await d.dropQueued(four);
+    // the turn ends: the head starts as a turn of its own
+    await end();
+    await until(() => got.length === 2);
+    expect(got).toEqual(['one', 'three, edited']);
+    expect(texts()).toEqual(['two']);
+    // a stop pauses the queue; resume starts the next
+    await d.interrupt();
+    await end();
+    await until(() => h.thread('t1').queuePaused === true);
+    expect(got).toHaveLength(2);
+    await d.resumeQueue();
+    await until(() => got.length === 3);
+    expect(got[2]).toBe('two');
+    expect(h.thread('t1')).toMatchObject({ queue: [], queuePaused: false });
+    // steer: sent now, not queued
+    await d.send({ text: 'five', queue: true });
+    await d.steerQueued(h.thread('t1').queue![0].id);
+    expect(texts()).toEqual([]);
+    expect(h.view().filter(e => e.t === 'user').at(-1)).toMatchObject({ text: 'five' });
+    await end(); await end();
+    await until(() => got.length === 4 && h.thread('t1').status === 'idle');
+    await d.release();
+  });
+
   it('turns a permission prompt into an approval card and answers it', async () => {
     let decision: unknown;
     const sdk = fakeSdk(async function* (_m, opts) {

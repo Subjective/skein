@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Machine } from '../shared/types';
 import * as git from './git';
-import { parseDiff, parseNumstat, prUrl } from './gitparse';
+import { blobUrl, parseDiff, parseNumstat, prUrl } from './gitparse';
 import { gutterMarks } from '../shared/gutter';
 
 const local: Machine = { id: 'local', name: 'local', link: 'up', has: [] };
@@ -124,5 +124,25 @@ describe('git parsers', () => {
     expect(prUrl('https://github.com/o/r', 'b')).toBe('https://github.com/o/r/compare/b?expand=1');
     expect(prUrl('https://gitlab.example.com/g/r.git', 'b')).toContain('/-/merge_requests/new');
     expect(prUrl('ssh://git@host.internal:2222/x/y.git', 'b')).toBeNull();
+  });
+  it('builds a file\'s web address on the forge', () => {
+    expect(blobUrl('git@github.com:o/r.git', 'feat/x', 'src/a b.ts')).toBe('https://github.com/o/r/blob/feat/x/src/a%20b.ts');
+    expect(blobUrl('https://gitlab.com/g/r.git', 'main', 'a.ts')).toBe('https://gitlab.com/g/r/-/blob/main/a.ts');
+    expect(blobUrl('git@bitbucket.org:o/r.git', 'main', 'a.ts')).toBe('https://bitbucket.org/o/r/src/main/a.ts');
+    expect(blobUrl('ssh://git@host.internal:2222/x/y.git', 'main', 'a.ts')).toBeNull();
+  });
+});
+
+describe('a file\'s remote URL', () => {
+  it('uses the upstream branch, else the default branch, else the commit; null without a remote', async () => {
+    expect(await git.webUrl(local, dir, 'a.txt')).toBeNull();
+    sh('remote', 'add', 'origin', 'git@github.com:o/r.git');
+    const head = sh('rev-parse', 'HEAD').trim();
+    expect(await git.webUrl(local, dir, 'a.txt')).toBe(`https://github.com/o/r/blob/${head}/a.txt`);
+    sh('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main');
+    expect(await git.webUrl(local, dir, 'src/b.ts')).toBe('https://github.com/o/r/blob/main/src/b.ts');
+    sh('update-ref', 'refs/remotes/origin/feat/x', 'HEAD');
+    sh('config', 'branch.main.remote', 'origin'); sh('config', 'branch.main.merge', 'refs/heads/feat/x');
+    expect(await git.webUrl(local, dir, 'a.txt')).toBe('https://github.com/o/r/blob/feat/x/a.txt');
   });
 });

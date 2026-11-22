@@ -90,6 +90,7 @@ export const fakeApi: SkeinBridge = {
     info: async () => ({ platform: /Mac/.test(navigator.platform) ? 'mac' : 'win', version: 'dev', home: '~', pty: true }),
     load: async k => kv.get(k), save: async (k, v) => { kv.set(k, v); },
     settings: async () => settings, setSettings: async p => (settings = { ...settings, ...p }),
+    reveal: async p => { (window as unknown as { __revealed?: string[] }).__revealed = [...((window as unknown as { __revealed?: string[] }).__revealed || []), p]; },
     openExternal: async url => { (window as unknown as { __external?: string[] }).__external = [...((window as unknown as { __external?: string[] }).__external || []), url]; }, notify: async () => {},
   },
   machines: {
@@ -129,7 +130,7 @@ export const fakeApi: SkeinBridge = {
       if (t?.harness === 'claude') for (const [pid, th] of termOf) if (th === id) { termOf.delete(pid); emit({ type: 'pty.exit', id: pid, code: null, handoff: true }); }
       return chat.send(id, msg);
     },
-    interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); }, follow: () => {},
+    interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); }, follow: () => {}, steerQueued: chat.queue.steer, dropQueued: chat.queue.remove, editQueued: chat.queue.edit, orderQueue: chat.queue.order, resumeQueue: chat.queue.resume,
   },
   pty: {
     spawn: async spec => {

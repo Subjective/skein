@@ -10,7 +10,7 @@ import { init, step, typed, vrange, type TextState } from '../input/vimtext';
 import { forPut, getReg, setReg } from '../input/register';
 import { S, update } from '../state/store';
 import { cx, Icon } from './primitives';
-import { placeBy, placeStyle } from './place';
+import { placeBy, placeStyle, type Side } from './place';
 
 export interface MenuItem<D = unknown> {
   label: string;
@@ -33,6 +33,9 @@ export interface MenuItem<D = unknown> {
 export interface MenuProps<D = unknown> {
   items: MenuItem<D>[] | ((q: string) => MenuItem<D>[]);
   onPick: (it: MenuItem<D>, q: string) => void;
+  /** shift-enter (in INSERT too) or a click with a modifier picks this way instead: ctrl-p opens the file in a
+   *  new split, as shift-enter opens a sidebar thread in one. */
+  altPick?: (it: MenuItem<D>, q: string) => void;
   onClose: () => void;
   search?: { placeholder?: string; prefix?: string; value?: string };
   /** items(q) already filtered and ranked for q: skip the default substring filter. */
@@ -147,7 +150,11 @@ export function Menu<D>(p: MenuProps<D>) {
     return cur;
   });
   /** Pick the row under the cursor; `stay` (space) picks without closing. */
-  const pick = (stay = false) => { const it = st.current.items[st.current.i]; if (!it || it.dis || it.head) return; if (!stay && !(typeof p.keep === 'function' ? p.keep(it) : p.keep)) p.onClose(); p.onPick(it, st.current.q); };
+  const pick = (stay = false, alt = false) => {
+    const it = st.current.items[st.current.i]; if (!it || it.dis || it.head) return;
+    if (!stay && !(typeof p.keep === 'function' ? p.keep(it) : p.keep)) p.onClose();
+    (alt && p.altPick ? p.altPick : p.onPick)(it, st.current.q);
+  };
 
   // keyboard: this menu is the List surface while it is open
   useEffect(() => {
@@ -162,6 +169,7 @@ export function Menu<D>(p: MenuProps<D>) {
         const cur = st.current.items[st.current.i];
         // tab goes into a folder in a folder field (the owner says so), in INSERT too
         if (k === 'tab' && p.keys?.(k, cur)) return true;
+        if (p.altPick && k === 'shift-enter') { pick(false, true); return true; }
         switch (k) {
           case 'down': case 'ctrl-n': case 'ctrl-j': move(1); return true;
           case 'up': case 'ctrl-p': case 'ctrl-k': move(-1); return true;
@@ -223,16 +231,21 @@ export function Menu<D>(p: MenuProps<D>) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // place next to the anchor
-  // on its side of the anchor when it fits there, else flipped, else capped and scrolling (ui/place.ts); measured
-  // again when the list grows or shrinks, so a menu that fills in after opening still fits
+  // on its side of the anchor when it fits there, else flipped, else capped and scrolling (ui/place.ts). The side is
+  // chosen once, when it opens: a list that grows or shrinks later (a search, a list that fills in) is measured again
+  // and capped on that side, but never jumps to the other one
   const [pos, setPos] = useState<React.CSSProperties>({});
+  const side = useRef<Side | undefined>(undefined);
   useLayoutEffect(() => {
     if (p.modal || !p.anchor) return;
     const r = p.anchor, w = Math.min(p.width === 'anchor' ? r.width : p.width || 260, innerWidth - 16);
     const place = p.place || 'top-start', el = ref.current;
+    // measured without the cap; the cap goes straight back on, since React only rewrites a style that changed
     if (el) { el.style.maxHeight = ''; el.style.width = w + 'px'; }
     const h = el?.offsetHeight ?? 0;
-    const at = placeBy(r, w, h, place.startsWith('top') ? 'top' : 'bottom', place.endsWith('end') ? 'end' : 'start');
+    const at = placeBy(r, w, h, place.startsWith('top') ? 'top' : 'bottom', place.endsWith('end') ? 'end' : 'start', side.current);
+    side.current = at.side;
+    if (el) el.style.maxHeight = at.maxHeight != null ? at.maxHeight + 'px' : '';
     setPos({ width: w, ...placeStyle(r, at) });
   }, [p.anchor, p.modal, p.place, p.width, items.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -270,7 +283,7 @@ export function Menu<D>(p: MenuProps<D>) {
     ? <div key={'h' + n} className="mi head" role="presentation">{it.icon}{it.label}</div>
     : <div key={n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-disabled={it.dis || undefined} className={cx('mi', n === i && 'sel', it.dis && 'off')}
         onPointerMove={e => { if (composer && e.pointerType !== 'touch' && n !== i && !it.dis) setI(n); }}
-        onMouseDown={e => { e.preventDefault(); if (!it.dis) { st.current.i = n; pick(); } }}>
+        onMouseDown={e => { e.preventDefault(); if (!it.dis) { st.current.i = n; pick(false, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey); } }}>
         {it.icon && <span className="mic">{it.icon}</span>}
         <span className="ml">{it.display ?? it.label}</span>
         {it.hint && <span className="mh">{it.hint}</span>}
