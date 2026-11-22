@@ -95,7 +95,8 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
   const grow = () => {
     const el = ta.current; if (!el) return;
     const top = el.scrollTop;
-    el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, p.maxHeight ?? 180) + 'px';
+    const css = parseFloat(getComputedStyle(el).maxHeight);   // a field's CSS max-height (an edit box sets its own), else 180
+    el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, p.maxHeight ?? (Number.isFinite(css) ? css : 180)) + 'px';
     el.scrollTop = top;
     if (document.activeElement === el && S.settings.vim && st.current.mode !== 'INSERT') revealCaret(el, st.current.pos);
   };

@@ -17,8 +17,17 @@
 .prose td + td, .prose th + th { border-left: 1px solid var(--line); }
 /* your message: the bubble's own size and spacing; the last block sits on the bubble's padding */
 .m-user .prose { font-size: inherit; line-height: inherit; }
+.m-user .prose p:has(+ p) { margin-bottom: 1lh; }   /* a blank line between paragraphs, as you typed it and as the edit box shows it */
 .m-user .prose > :last-child { margin-bottom: 0; }
 .m-user .prose pre.code { background: color-mix(in srgb, var(--bg) 35%, transparent); }
+/* a long message: its first lines, fading out, and Show more under them (Codex) */
+.m-user.long { width: 100%; }   /* its widest: max-width (84%, 92% in a narrow pane) */
+.m-clip.shut { max-height: 280px; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent); }
+.m-more { display: inline-flex; align-items: center; gap: 4px; height: 24px; margin: 4px 0 -4px; padding: 0 6px 0 0; border-radius: 6px; color: var(--fg-3); font-size: 13px; transition: color var(--ease); }
+.m-more:hover { color: var(--fg); }
+.m-more svg.i { width: 13px; height: 13px; transition: transform var(--ease); }
+.m-more[aria-expanded="true"] svg.i { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .m-more, .m-more svg.i { transition: none; } }
 /* What a fold holds (a turn's work, a run of steps, a thought) hangs from a hairline under its row. */
 .fold-b { display: flex; flex-direction: column; gap: 12px; margin: 2px 0 4px 6px; padding-left: 16px; border-left: 1px solid var(--line); }
 /* the turn's own body sits flush under Worked for, as Codex and Cursor; only a run's steps (and a thought) get the rule */
