@@ -237,6 +237,11 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
         threads.update(id, { drive: view });
       },
       follow: (id, on) => follows.follow(id, on),
+      steerQueued: (id, q) => driver(id).steerQueued(q),
+      dropQueued: (id, q) => driver(id).dropQueued(q),
+      editQueued: (id, q, text) => driver(id).editQueued(q, text),
+      orderQueue: (id, ids) => driver(id).orderQueue(ids),
+      resumeQueue: id => driver(id).resumeQueue(),
     },
     pty: {
       spawn: async spec => {

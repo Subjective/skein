@@ -51,6 +51,11 @@ export interface ChatSend {
   sub?: string;
   /** Run the last turn again (Restart after a crash, Retry now after a rate limit). `text` is empty. */
   retry?: boolean;
+  /** While a turn runs: wait in the thread's queue for it to end (true), or steer it now (absent). */
+  queue?: boolean;
+  /** Codex only: continue the turn a stop interrupted (`text` empty), a turn with no new message. Claude Code has no
+   *  such call, so its chat doesn't offer it. */
+  resume?: boolean;
 }
 
 export interface NewThread {
@@ -173,6 +178,13 @@ export interface SkeinApi {
     /** A chat view showing the thread opened (true) or closed (false): its transcript is followed live meanwhile
      *  (new entries arrive as 'chat' pushes, whoever writes them). */
     follow(thread: string, on: boolean): void;
+    /** The thread's queue (ThreadMeta.queue): send one into the running turn now, drop or rewrite one, put them in
+     *  this order, or start the next after a stop paused it. */
+    steerQueued(thread: string, id: string): Promise<void>;
+    dropQueued(thread: string, id: string): Promise<void>;
+    editQueued(thread: string, id: string, text: string): Promise<void>;
+    orderQueue(thread: string, ids: string[]): Promise<void>;
+    resumeQueue(thread: string): Promise<void>;
   };
   pty: {
     spawn(spec: PtySpec): Promise<string>;
@@ -262,7 +274,7 @@ export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
   machines: ['list', 'add', 'remove', 'connect', 'answer', 'sshHosts'],
   fs: ['list', 'read', 'write', 'resolve', 'find'],
   threads: ['list', 'discover', 'create', 'update', 'history', 'sub', 'move'],
-  chat: ['send', 'interrupt', 'answer', 'drive', 'follow'],
+  chat: ['send', 'interrupt', 'answer', 'drive', 'follow', 'steerQueued', 'dropQueued', 'editQueued', 'orderQueue', 'resumeQueue'],
   pty: ['spawn', 'write', 'resize', 'kill', 'adopt'],
   images: ['toInbox'],
   git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files', 'webUrl'],

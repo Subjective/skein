@@ -94,11 +94,11 @@ export function SplitButton({ label, onClick, onMenu, menuLabel, disabled, menuD
 
 /** The round send button at the end of a composer; a square stops a running turn. `armed`: the first esc of a
  *  running turn's esc esc was pressed, so it shows "Esc" until the second one stops the turn (or the window ends). */
-export const SendButton = ({ stop, armed, label, ...rest }: BtnProps & { stop?: boolean; armed?: boolean; label?: string }) => {
-  const name = label || (armed ? 'Press Esc again to stop' : stop || armed ? 'Stop' : 'Send');
+export const SendButton = ({ stop, armed, play, label, ...rest }: BtnProps & { stop?: boolean; armed?: boolean; /** continue a stopped turn */ play?: boolean; label?: string }) => {
+  const name = label || (armed ? 'Press Esc again to stop' : stop || armed ? 'Stop' : play ? 'Continue the stopped turn' : 'Send');
   return (
     <button type="button" className={cx('send', (stop || armed) && 'stop', armed && 'armed')} aria-label={name} title={name} {...rest}>
-      {armed ? <span className="esc">Esc</span> : stop ? <span className="sq" /> : <Icon name="up" />}
+      {armed ? <span className="esc">Esc</span> : stop ? <span className="sq" /> : play ? <Icon name="play" /> : <Icon name="up" />}
     </button>
   );
 };

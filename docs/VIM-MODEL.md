@@ -144,7 +144,8 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 
 | Surface | Kind | Opens in | Notes |
 |---|---|---|---|
-| Composer, edit box | Field | INSERT | `enter` sends from INSERT or NORMAL |
+| Composer, edit box | Field | INSERT | `enter` sends from INSERT or NORMAL. While a turn runs `enter` queues and `mod-enter` steers (Settings swaps them); after a stop, `enter` with nothing typed continues a Codex turn |
+| Queued messages (above the composer) | List | NORMAL | `k` from the composer's first line lands on the last row; `j` / `k` move (`gg` / `G`), `j` past the last row is the composer, `k` past the first reads the thread. `h` / `l` ring the row's buttons and `enter` / `space` press (Steer first); `s` steers (Send now when idle), `x` / `dd` delete (Undo in the toast), `e` / `i` / `a` / `c` edit in place (`enter` saves, `esc` `esc` keeps it), `K` / `J` move the row, `.` opens ⋯, `r` resumes a queue a stop paused |
 | Terminal (TUI or shell) | Terminal | TERMINAL | rule 11; leader `[` for its scrollback |
 | Mirror bar, handoff card, upload error, SSH dialog buttons, move dialog | List (one row) | NORMAL | rule 16 |
 | SSH sign-in (passphrase, code) | Field | INSERT | `enter` connects; `esc` NORMAL on the buttons, `esc` again cancels |

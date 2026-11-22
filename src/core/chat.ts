@@ -13,6 +13,13 @@ export interface ChatDriver {
   answer(requestId: string, optionId: string): Promise<void>;
   /** Stop driving (handoff to the terminal). Resolves when the harness process has let go of the session. */
   release(): Promise<void>;
+  /** The queue (ThreadMeta.queue, filled by send with `queue`): send one now (into the running turn, else as the
+   *  next turn), drop or rewrite one, reorder them, or start the next after a stop paused it. */
+  steerQueued(id: string): Promise<void>;
+  dropQueued(id: string): Promise<void>;
+  editQueued(id: string, text: string): Promise<void>;
+  orderQueue(ids: string[]): Promise<void>;
+  resumeQueue(): Promise<void>;
 }
 
 export interface ChatHost {
@@ -51,6 +58,7 @@ export const unimplemented: Harnesses = {
     interrupt: async () => {},
     answer: async () => {},
     release: async () => {},
+    steerQueued: async () => {}, dropQueued: async () => {}, editQueued: async () => {}, orderQueue: async () => {}, resumeQueue: async () => {},
   }),
 };
 
