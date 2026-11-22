@@ -236,18 +236,22 @@ export function Menu<D>(p: MenuProps<D>) {
   // and capped on that side, but never jumps to the other one
   const [pos, setPos] = useState<React.CSSProperties>({});
   const side = useRef<Side | undefined>(undefined);
+  // an open menu never shrinks: a row that goes away (the model picker's Ultracode, on hovering a model without it)
+  // would otherwise move every row under the pointer of a menu that opens upward. Typing a search may shrink it
+  const tallest = useRef(0), forQ = useRef(q);
+  if (forQ.current !== q) { forQ.current = q; tallest.current = 0; }
   useLayoutEffect(() => {
     if (p.modal || !p.anchor) return;
     const r = p.anchor, w = Math.min(p.width === 'anchor' ? r.width : p.width || 260, innerWidth - 16);
     const place = p.place || 'top-start', el = ref.current;
     // measured without the cap; the cap goes straight back on, since React only rewrites a style that changed
-    if (el) { el.style.maxHeight = ''; el.style.width = w + 'px'; }
-    const h = el?.offsetHeight ?? 0;
+    if (el) { el.style.maxHeight = ''; el.style.minHeight = ''; el.style.width = w + 'px'; }
+    const h = tallest.current = Math.max(tallest.current, el?.offsetHeight ?? 0);
     const at = placeBy(r, w, h, place.startsWith('top') ? 'top' : 'bottom', place.endsWith('end') ? 'end' : 'start', side.current);
     side.current = at.side;
-    if (el) el.style.maxHeight = at.maxHeight != null ? at.maxHeight + 'px' : '';
+    if (el) { el.style.maxHeight = at.maxHeight != null ? at.maxHeight + 'px' : ''; el.style.minHeight = Math.min(h, at.maxHeight ?? h) + 'px'; }
     setPos({ width: w, ...placeStyle(r, at) });
-  }, [p.anchor, p.modal, p.place, p.width, items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [p.anchor, p.modal, p.place, p.width, items.length, q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // a click outside closes
   useEffect(() => {
