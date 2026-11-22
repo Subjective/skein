@@ -438,7 +438,7 @@ await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', 
   assert.equal(await mode(p), 'NORMAL');
   await p.keyboard.press('Escape');
   await settle(p);
-  assert.ok(await F(p).getByRole('button', { name: 'Save' }).isVisible());
+  assert.equal(await F(p).getByRole('button', { name: 'Save' }).count(), 0, 'no Save button: :w, mod-s or the ⋯ menu');
   assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 1, 'the tab marks unsaved edits');
   const dd = p.locator('.pane.focus .tab.on.dirty .tx .dd');
   assert.ok(await dd.isVisible(), 'a dot where the close button is');
@@ -455,7 +455,7 @@ await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', 
   assert.ok((await ed.inputValue()).startsWith('Hello'));
   await p.keyboard.press('Escape');
   await cmd(p, 'w');
-  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .tool-h .btn.mod'));
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .tab.on.dirty'));
   assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 0, 'saved: no dot');
   // the change shows in Changes
   await cmd(p, 'changes');
@@ -1062,11 +1062,19 @@ await test('file menu: Cursor\'s actions Skein has, in its order; discard only w
   await p.keyboard.type('x');
   await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
   await more(p).click();
-  assert.equal((await rows(p))[0], 'Discard changes');
+  assert.deepEqual((await rows(p)).slice(0, 2), ['Save', 'Discard changes'], 'Save and Discard lead the menu');
   await fileMenu(p).getByText('Discard changes').click();
   await fileMenu(p).waitFor({ state: 'detached' });
   assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 0, 'the edit is gone');
   assert.ok(!(await FV(p).locator('.src .dl').first().innerText()).startsWith('x'));
+  // Save from the menu writes the file
+  await keys(p, 'i');
+  await p.keyboard.type('y');
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  await more(p).click();
+  await fileMenu(p).locator('.mi', { hasText: /^Save/ }).click();
+  await p.waitForFunction(() => /Saved package\.json/.test(document.querySelector('.toast')?.textContent || ''));
+  assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 0, 'saved: no dot');
 });
 
 await test('file menu: works from the keyboard; toggles keep it open and redraw; line numbers and word wrap apply', async p => {

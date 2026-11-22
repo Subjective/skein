@@ -10,9 +10,11 @@ import { machine, openLayer, S, toast, update, useApp } from '../../state/store'
 import { Menu, type MenuItem } from '../../ui/Menu';
 import { cx } from '../../ui/primitives';
 import { baseName } from './highlight';
+import { tabHook } from './hooks';
+import { kb } from '../../input/platform';
 import { ctxOf, join } from './repo';
 
-export type FileAction = 'discard' | 'reveal' | 'copypath' | 'copyurl' | 'diffview' | 'numbers' | 'wrap';
+export type FileAction = 'save' | 'discard' | 'reveal' | 'copypath' | 'copyurl' | 'diffview' | 'numbers' | 'wrap';
 export const FILE_ACTIONS: FileAction[] = ['discard', 'reveal', 'copypath', 'copyurl', 'diffview', 'numbers', 'wrap'];
 
 /** What an open file view tells the menu (FileView registers it while mounted). */
@@ -38,11 +40,12 @@ const sw = (on: boolean) => <span className={cx('sw', on && 'on')} aria-hidden="
 const sep = (): MenuItem<FileAction> => ({ head: true, label: '', block: <i className="msep" /> });
 const isToggle = (a?: FileAction) => a === 'diffview' || a === 'numbers' || a === 'wrap';
 
-/** The menu's rows for a file tab, in Cursor's order. Discard shows only with unsaved edits. */
+/** The menu's rows for a file tab, in Cursor's order. Save and Discard show only with unsaved edits. */
 export function fileItems(t: Tab): MenuItem<FileAction>[] {
   const f = live.get(t.id), remote = !!machine(ctxOf(t).machine)?.ssh, inRepo = !!f?.repo(), canDiff = !!f?.canDiff();
   return [
-    ...(f?.dirty() ? [{ label: 'Discard changes', data: 'discard' as const }, sep()] : []),
+    // unsaved edits: Save (also :w and mod-s) and Discard, as in Cursor; the header has no Save button
+    ...(f?.dirty() ? [{ label: 'Save', kbd: kb('mod-s'), data: 'save' as const }, { label: 'Discard changes', data: 'discard' as const }, sep()] : []),
     { label: revealLabel(), dis: remote, hint: remote ? 'Not on this computer' : undefined, data: 'reveal' },
     { label: 'Copy relative path', data: 'copypath' },
     { label: 'Copy remote URL', dis: !inRepo, hint: inRepo ? undefined : 'Not in a repository', data: 'copyurl' },
@@ -60,6 +63,7 @@ export function fileAction(a: FileAction, t: Tab = A.currentTab()): boolean {
   if (t.kind !== 'file' || !f) return false;
   const ctx = ctxOf(t), path = t.path || '';
   switch (a) {
+    case 'save': if (!tabHook(t.id, 'save')) toast('Nothing to save here'); break;
     case 'discard': {
       if (!f.dirty()) { toast('No unsaved changes'); break; }
       f.discard(); toast(<>Discarded changes to <b>{baseName(path)}</b></>, { icon: 'retry' });

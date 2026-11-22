@@ -83,7 +83,6 @@
 .src .c { tab-size: 4; }
 .tool-h svg.fi { margin-left: 2px; }
 .tool-h .crumbs { flex: 0 1 auto; }
-.tool-h .mod { align-items: center; }
 .file-v .doc { padding-top: 10px; }
 .file-v .bin { color: var(--fg-3); }
 

@@ -6,7 +6,12 @@ import type { KeyLike } from '../../input/keys';
 import { registerTab, tabSurface } from '../../input/surfaces';
 import { update } from '../../state/store';
 
-export interface ReaderSpec { kind?: SurfaceKind; mode: () => Mode; key: (k: string, e: KeyLike) => boolean }
+export interface ReaderSpec {
+  kind?: SurfaceKind; mode: () => Mode; key: (k: string, e: KeyLike) => boolean;
+  /** Whether a field in the view has the keys now. Without it, any field registered for the tab is taken to (so a
+   *  field that handed the keys back but stays mounted, the file's editor, would keep them after a popup). */
+  fieldOwns?: () => boolean;
+}
 
 export function useSurface(tabId: string, focused: boolean, spec: ReaderSpec) {
   const ref = useRef(spec); ref.current = spec;
@@ -16,7 +21,8 @@ export function useSurface(tabId: string, focused: boolean, spec: ReaderSpec) {
   useEffect(() => {
     if (!focused) return;
     // a field in the view may own the tab already (the editor); keep it
-    if (!tabSurface(tabId) || tabSurface(tabId) === proxy) own();
+    const cur = tabSurface(tabId);
+    if (!cur || cur === proxy || ref.current.fieldOwns?.() === false) own();
     return () => { un.current?.(); un.current = null; };
   }, [focused, tabId]); // eslint-disable-line react-hooks/exhaustive-deps
   return { own, owns: () => tabSurface(tabId) === proxy };

@@ -1,7 +1,7 @@
 // An open file. It reads like any other text (a Vim cursor with counts, visual mode, y to copy, / ? n N to search,
 // ui/search.tsx) until an editing
 // key: then the source becomes a Vim field at that spot and the key acts there, with u / ctrl-r undo and redo.
-// esc from NORMAL goes back to reading; :w, ctrl-s / cmd-s or Save writes it. Unsaved text stays with the file
+// esc from NORMAL goes back to reading; :w, ctrl-s / cmd-s or Save in the ⋯ menu writes it. Unsaved text stays with the file
 // (closing the tab keeps it for this session) and is what Preview shows.
 // The header has back / forward (ctrl-o / ctrl-i, through the jump list), the path (each folder opens a list of
 // what is in it; - opens the file's own folder), the language, and the project tree. Lines changed since the last
@@ -19,7 +19,7 @@ import { ReaderSearch, type Searchable } from '../../ui/search';
 import type { Tab } from '../../state/layout';
 import { S, toast, update, useApp } from '../../state/store';
 import { openCmdline, openMenu } from '../../shell/overlays';
-import { Button, cx, Icon, IconButton, Seg, Spinner } from '../../ui/primitives';
+import { cx, Icon, IconButton, Seg, Spinner } from '../../ui/primitives';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
 import { CodeLine, LangBadge, selectPainted, type Paint } from './code';
 import { selEnds, useToolSel } from './mousesel';
@@ -249,6 +249,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   // ---------- keys while reading ----------
   const scrollBy = (px: number) => body.current?.scrollBy({ top: px });
   const { own } = useSurface(t.id, focused, {
+    fieldOwns: () => v.mode === 'edit',
     mode: (): Mode => (v.rs.mode === 'INSERT' ? 'NORMAL' : v.rs.mode),
     key: k => {
       if (nativeTarget() && (k === 'enter' || k === 'space')) return false;
@@ -357,7 +358,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   };
   return (
     <div className={cx('file-v', !numbersOn() && 'nonum', wrapOn() && 'wrap')} ref={side.ref} onMouseDown={e => { if (v.mode === 'read' && !(e.target as HTMLElement).closest('.ctree, .tool-h')) own(); }}>
-      <header className={cx('tool-h', dirty && 'dirty')}>
+      <header className="tool-h">
         <IconButton icon="chev" className="flip" small label="Back" keys="ctrl-o" disabled={nav.hi === 0} onClick={() => histStep(-1)} />
         <IconButton icon="chev" small label="Forward" keys="ctrl-i" disabled={nav.hi >= nav.hist.length - 1} onClick={() => histStep(1)} />
         <nav className="crumbs" aria-label="Path">
@@ -369,7 +370,6 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
           <Icon name="chev" className="sep" /><span className="crumb now"><LangBadge path={path} />&nbsp;{parts[parts.length - 1]}</span>
         </nav>
         <span className="sp" />
-        {dirty && <Button small className="mod" onClick={() => void save()} title={`Save · :w · ${kb('mod-s')}`}>Save</Button>}
         {isMd && <Seg text label="Preview or source" value={preview ? 'preview' : 'source'} onChange={x => { if (v.mode === 'edit') stopEdit(); v.md = x; update(); }}
           options={[{ v: 'preview', label: 'Preview' }, { v: 'source', label: 'Source' }]} />}
         <IconButton data-k="more" icon="dots" small label="More actions" onClick={e => openFileMenu(t, e.currentTarget.getBoundingClientRect())} />
