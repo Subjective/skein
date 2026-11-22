@@ -147,7 +147,7 @@ test('sidebar: enter on a thread opens it', async p => {
   await ldr(p, 'h');
   for (let i = 0; i < 12; i++) {
     const cur = await p.evaluate(() => window.__skein.S.sideCursor);
-    if (cur && !cur.startsWith('fold:')) break;
+    if (cur && cur !== 'new' && !cur.startsWith('fold:')) break;
     await keys(p, 'j');
   }
   const id = await p.evaluate(() => window.__skein.S.sideCursor);
@@ -592,4 +592,27 @@ test('archiving a thread closes its tabs and its side chat; Undo brings them bac
   await undo.click(); await settle(p, 300);
   assert.deepEqual(await open(), before, 'Undo reopens them');
   assert.ok(!(await p.evaluate(() => window.__skein.S.threads.find(t => t.id === 't1').archived)), 'and unarchives the thread');
+});
+
+test('sidebar NORMAL: k from the top heading reaches New thread, enter opens one; every row type draws the same cursor', async p => {
+  await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
+  await settle(p, 450);
+  await keys(p, 'Escape'); await ldr(p, 'h'); await settle(p);
+  const cur = () => p.evaluate(() => { const c = document.querySelector('#side .cur'); if (!c) return null; const r = c.getBoundingClientRect(), cs = getComputedStyle(c); return { cls: c.className, h: Math.round(r.height), shadow: cs.boxShadow, radius: cs.borderRadius }; });
+  const seen = [];
+  for (let i = 0; i < 6; i++) { await keys(p, 'k'); seen.push(await cur()); }
+  const top = seen[seen.length - 1];
+  assert.match(top.cls, /\bnav\b/, 'the cursor reached New thread');
+  // the same cursor on New thread, a heading, a folder and a thread: the same outline, radius and height
+  await keys(p, 'g'); const kinds = [await cur()];
+  for (let i = 0; i < 4; i++) { await keys(p, 'j'); kinds.push(await cur()); }
+  const types = new Set(kinds.map(k => k.cls.split(' ')[0]));
+  assert.ok(types.size >= 3, `several row types (${[...types]})`);
+  assert.equal(new Set(kinds.map(k => k.shadow)).size, 1, 'one outline');
+  assert.equal(new Set(kinds.map(k => k.radius)).size, 1, 'one radius');
+  assert.ok(Math.max(...kinds.map(k => k.h)) - Math.min(...kinds.map(k => k.h)) <= 2, `one height (${kinds.map(k => k.h)})`);
+  await keys(p, 'g');
+  const before = await tabsIn(p);
+  await keys(p, 'Enter'); await settle(p, 300);
+  assert.equal((await tabsIn(p)).reduce((a, b) => a + b, 0), before.reduce((a, b) => a + b, 0) + 1, 'enter on New thread opens a new-thread tab');
 });

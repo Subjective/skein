@@ -30,8 +30,13 @@ const threads: ThreadMeta[] = [
   T('t8', 'codex', 'build', '~/ci', 'Bump lockfile to fix CI', 300, { status: 'error' }),
 ];
 threads.push(...extraThreads(T));
-Object.assign(threads[0], { model: 'opus', effort: 'medium', perm: 'acceptEdits', ctx: 38, branch: 'fix/restore-race' });
+Object.assign(threads[0], { model: 'opus', effort: 'medium', perm: 'acceptEdits', ctx: 38, ctxTokens: { used: 76_400, max: 200_000, compactAt: 167_000 }, branch: 'fix/restore-race' });
+// Codex reports used of the window, not where it compacts
+Object.assign(threads[2], { ctx: 12, ctxTokens: { used: 31_200, max: 258_400 } });
 Object.assign(threads[6], { drive: 'term' });
+// ?ctx=N fills a Claude and a Codex thread's context to N% (for looking at the context popup at other levels)
+const ctxScene = typeof location !== 'undefined' ? Number(new URLSearchParams(location.search).get('ctx') || NaN) : NaN;
+if (ctxScene >= 0) for (const t of [threads[0], threads[2]]) { t.ctx = ctxScene; t.ctxTokens!.used = Math.round(ctxScene / 100 * t.ctxTokens!.max); }
 const chat = fakeChat(emit, threads);
 let settings: Settings = { theme: 'dark', vim: true, leader: 'ctrl-space', sideView: 'grouped', defaultView: 'chat', notify: 'waiting', vimrc: '" Skein vimrc\n\ninoremap jk <Esc>\n' };
 const kv = new Map<string, unknown>();

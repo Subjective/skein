@@ -500,7 +500,8 @@ export class CodexDriver implements ChatDriver {
       case 'thread/tokenUsage/updated': {
         const u = p.tokenUsage as { last?: { inputTokens?: number; totalTokens?: number }; modelContextWindow?: number | null } | undefined;
         const used = u?.last?.inputTokens ?? u?.last?.totalTokens;
-        if (u?.modelContextWindow && used != null) this.host.update(this.id, { ctx: Math.min(100, Math.round((used / u.modelContextWindow) * 100)) });
+        const max = u?.modelContextWindow;
+        if (max && used != null) this.host.update(this.id, { ctx: Math.min(100, Math.round((used / max) * 100)), ctxTokens: { used, max } });
         return;
       }
       case 'serverRequest/resolved': {
