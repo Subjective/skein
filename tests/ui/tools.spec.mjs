@@ -901,6 +901,20 @@ await test('changes: a click draws the character cursor; double click, drag and 
   await p.locator('.compw .bk .tok').first().waitFor();
 });
 
+await test('file: mod-l quotes V-LINE into the thread beside it, even when the file was not opened from one', async p => {
+  await openFile(p, 'package.json');
+  // as if opened from a pane with no thread (a new tab, the Files tree of a launcher): the tab carries no thread
+  await p.evaluate(() => { const { S } = window.__skein; const walk = n => n.type === 'pane' ? n.tabs : [...walk(n.a), ...walk(n.b)]; for (const w of S.workspaces) for (const t of walk(w.tree)) if (t.kind === 'file') delete t.thread; });
+  const chat = p.locator('.pane:not(.focus) .compw');
+  assert.equal(await chat.locator('.bk .tok').count(), 0);
+  await keys(p, 'j Shift+V j');
+  assert.equal(await mode(p), 'V-LINE');
+  await keys(p, `${mod}+l`);
+  await p.locator('.compw .bk .tok').first().waitFor();
+  assert.ok(!(await p.locator('.toast', { hasText: 'Open a thread first' }).count()), 'no toast');
+  assert.ok(await p.locator('.pane.focus .compw .bk .tok').count(), 'the quote is in the thread pane, which now has focus');
+});
+
 await test('file: V shades the text, not the gutter, and moves nothing (read and edit)', async p => {
   await openFile(p, 'package.json');
   const row = F(p).locator('.src .dl').nth(1);
