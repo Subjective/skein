@@ -23,6 +23,8 @@ export async function page(o = {}) {
   p.errors = [];
   p.on('pageerror', e => p.errors.push(e.message));
   p.on('console', m => { if (m.type() === 'error') p.errors.push(m.text()); });
+  // { os: 'mac' } runs the app as on a Mac (cmd is mod), whatever this machine is
+  if (o.os === 'mac') await p.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }));
   await p.goto(URL);
   await p.waitForSelector('#side');
   return p;

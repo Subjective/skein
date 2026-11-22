@@ -177,6 +177,7 @@ One table, read by the input layer before anything else (`mockups/platform.js`, 
 | Leader | `ctrl-space` | `⌃Space` | macOS can claim ⌃Space for input sources; Settings offers `ctrl-\` instead |
 | Pane focus | `alt-h/j/k/l` | `⌥H/J/K/L` | read by physical key (`e.code`), since ⌥H types ˙ |
 | Workspaces | `ctrl-tab` | `⌃Tab` | |
+| Sidebar | leader `b` | leader `b`, `⌘B` | `⌘B` as in Codex and Cursor; not `ctrl-b` on Windows, which is Vim's page up |
 
 The Electron build must also drop the default menu accelerators that would swallow these keys (`ctrl-w`,
 `ctrl-tab`, `ctrl-shift-a`, `cmd-k` in some menus) by building its own application menu (G3).

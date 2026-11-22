@@ -25,6 +25,7 @@
 .tool.turn > .fold-b { margin-left: 0; padding-left: 0; border-left: 0; }
 .think-b { color: var(--fg-3); font-size: 13px; margin: 2px 0 6px 6px; padding-left: 16px; border-left: 1px solid var(--line); white-space: pre-wrap; }
 /* "Worked for 2m 13s": only the duration, as quiet as the rows it folds */
+.tool.turn > summary { user-select: none; }
 .tool.turn > summary .v { color: inherit; }
 .tool.turn > summary:hover .v { color: var(--fg); }
 .tool.edited .ef { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
@@ -47,7 +48,7 @@
 
 /* Timeline ticks, as in Cursor (Josh, 2026-11-20): a little thicker, and the pointer lengthens and darkens the ticks
    around it, most at the one under it (--w is 1 there and falls off over about three ticks each side). */
-.ticks button i { height: 1.5px; width: calc(10px + 12px * var(--w, 0)); background: color-mix(in srgb, var(--fg) calc(var(--w, 0) * 100%), var(--fg-4)); transition: width 120ms ease-out, background-color 120ms ease-out; }
+.ticks button i { height: 1.5px; width: calc(7px + 12px * var(--w, 0)); background: color-mix(in srgb, var(--fg) calc(var(--w, 0) * 100%), var(--fg-4)); transition: width 120ms ease-out, background-color 120ms ease-out; }
 .ticks button.on i { background: var(--fg); }
 .ticks { cursor: default; }
 body.scrubbing, body.scrubbing * { cursor: ns-resize !important; user-select: none; }

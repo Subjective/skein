@@ -1220,7 +1220,7 @@ await test('reader: VISUAL gg / G stay inside one reply and select across prose 
   await keys(p, 'v g g');
   assert.equal(await mode(p), 'VISUAL');
   let sel = await p.evaluate(() => getSelection().toString());
-  assert.match(sel, /^Worked/, `starts at the reply's first line: ${sel.slice(0, 40)}`);
+  assert.match(sel, /^It is a sequential scan/, `starts at the answer's first line, not "Worked for" (Josh, 2026-11-22): ${sel.slice(0, 40)}`);
   assert.match(sel, /CREATE INDEX orders_account_created/, 'prose and code together');
   assert.ok(!sel.includes('orders-by-account'), 'not the message above');
   await keys(p, 'Shift+G');
@@ -1678,6 +1678,31 @@ await test('/ menu: Claude Code lists its everyday commands first with their own
   await p.keyboard.type('co'); await settle(p);
   assert.equal(await menu.locator('.mi.head').count(), 0);
   assert.deepEqual((await menu.locator('.mi .ml').allInnerTexts()).slice(0, 4), ['Compact', 'Code review', 'Context', 'Color']);
+});
+
+await test('reader: "Worked for" is not part of the answer\'s selection (mouse, V k, v on its row)', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  const reply = p.locator('.pane.focus .reply').first(), sum = reply.locator('.turn > summary');
+  const para = reply.locator('p').filter({ hasNot: p.locator('xpath=ancestor::details[contains(@class,"turn")]') }).last();
+  const sel = () => p.evaluate(() => getSelection().toString());
+  // a drag from the answer up past the header stops at the answer
+  const pb = await para.boundingBox(), sb = await sum.boundingBox();
+  await p.mouse.move(pb.x + 60, pb.y + 8); await p.mouse.down();
+  await p.mouse.move(sb.x + 4, sb.y + sb.height / 2, { steps: 8 }); await p.mouse.up(); await settle(p, 200);
+  let s = await sel();
+  assert.ok(s.length > 0 && !/Worked/.test(s), `drag: ${JSON.stringify(s.slice(0, 40))}`);
+  // V then k: the selection stays in the answer
+  await keys(p, 'Escape'); await keys(p, 'Escape');
+  await para.dblclick({ position: { x: 30, y: 8 } }); await keys(p, 'Escape');
+  await keys(p, 'Shift+V k k k'); s = await sel();
+  assert.equal(await mode(p), 'V-LINE'); assert.ok(s.length > 0 && !/Worked/.test(s), `V k: ${JSON.stringify(s.slice(0, 40))}`);
+  // the cursor on the header row: v starts at the answer below
+  await keys(p, 'Escape');
+  for (let i = 0; i < 12 && !(await sum.evaluate(e => e.classList.contains('rowcur'))); i++) await keys(p, 'k');
+  assert.ok(await sum.evaluate(e => e.classList.contains('rowcur')), 'the cursor reaches the header row');
+  await keys(p, 'v l'); s = await sel();
+  assert.equal(await mode(p), 'VISUAL'); assert.ok(s.length > 0 && !/Worked/.test(s), `v on the header: ${JSON.stringify(s)}`);
+  await keys(p, 'Escape');
 });
 
 await test('/ menu: shrinks to fit as you type, on the side it opened on', async p => {
