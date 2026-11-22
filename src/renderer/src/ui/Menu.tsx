@@ -242,12 +242,21 @@ export function Menu<D>(p: MenuProps<D>) {
   // an open menu never shrinks: a row that goes away (the model picker's Ultracode, on hovering a model without it)
   // would otherwise move every row under the pointer of a menu that opens upward. Typing a search, or the owner's
   // filter (`filter`), may shrink it
-  const by = q + '\0' + (p.filter ?? ''), tallest = useRef(0), forQ = useRef(by);
+  const by = q + '\0' + (p.filter ?? ''), tallest = useRef(0), widest = useRef(0), forQ = useRef(by);
   if (forQ.current !== by) { forQ.current = by; tallest.current = 0; }
   useLayoutEffect(() => {
     if (p.modal || !p.anchor) return;
-    const r = p.anchor, w = Math.min(p.width === 'anchor' ? r.width : p.width || 260, innerWidth - 16);
-    const place = p.place || 'top-start', el = ref.current;
+    const r = p.anchor, el = ref.current, place = p.place || 'top-start';
+    // a set width is the least it takes: it widens to its longest label (up to half as wide again), so a label like
+    // "Bypass permissions" is not cut off (hints still are), and it never narrows while open. A menu as wide as its
+    // anchor (the composer's) stays that wide
+    let w = p.width === 'anchor' ? r.width : p.width || 260;
+    if (el && p.width !== 'anchor') {
+      el.classList.add('fit'); el.style.width = '';
+      w = widest.current = Math.max(widest.current, Math.min(Math.ceil(el.offsetWidth), Math.round(w * 1.5)), w);
+      el.classList.remove('fit');
+    }
+    w = Math.min(w, innerWidth - 16);
     // measured without the cap; the cap goes straight back on, since React only rewrites a style that changed
     if (el) { el.style.maxHeight = ''; el.style.minHeight = ''; el.style.width = w + 'px'; }
     const h = tallest.current = Math.max(tallest.current, el?.offsetHeight ?? 0);

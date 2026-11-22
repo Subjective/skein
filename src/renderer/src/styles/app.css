@@ -58,8 +58,9 @@ textarea.vn.vv::selection { background: var(--sel); color: inherit; }
 /* a block row the keyboard is on (the model picker's effort track) looks like a hovered row */
 .menu .mx.sel { background: var(--active); border-radius: 7px; border-top-color: transparent; }
 .menu .m-empty { padding: 12px 10px; color: var(--fg-3); font-size: 12.5px; }
-.menu .mi .ml { flex: none; max-width: 70%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.menu .mi .mh { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: 12px; }
+/* the label takes the room it needs first (the menu widens for it), the hint gets the rest */
+.menu .mi .ml { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu .mi .mh { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: 12px; }
 .menu .mi .mr { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--fg-3); }
 .layer { display: contents; }
 
