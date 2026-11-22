@@ -643,6 +643,9 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 /* ---------- menus ---------- */
 .menu { position: fixed; z-index: 50; max-height: min(420px, 70vh); display: flex; flex-direction: column; padding: 5px; background: var(--pop); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow); font-size: 13px; }
 .menu.none { display: none; }
+/* measuring the width a menu's labels need (Menu.tsx): rows at their natural width, hints left out */
+.menu.fit { width: max-content !important; }
+.menu.fit .mi .mh { display: none; }
 .m-l { overflow: auto; min-height: 0; }
 .m-pin { flex: none; }   /* rows that stay in view under a list that scrolls */
 .m-s { display: flex; align-items: center; gap: 9px; padding: 6px 9px 9px; margin-bottom: 5px; border-bottom: 1px solid var(--line); color: var(--fg-3); }
