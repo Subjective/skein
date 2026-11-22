@@ -224,7 +224,7 @@ export function Workspace() {
   const f = A.focusedPane(w);
   return (
     <div id="work">
-      <div className={cx('panes', many ? 'many' : 'one')}>{w.zoom && many ? <PaneEl g={f} /> : <NodeEl n={w.tree} />}</div>
+      <div className={cx('panes', many ? 'many' : 'one', w.pf && w.pops.some(p => p.tab.id === w.pf) && 'popped')}>{w.zoom && many ? <PaneEl g={f} /> : <NodeEl n={w.tree} />}</div>
       {w.zoom && many && <div className="rail">{leaves(w.tree).map(g => { const t = activeTab(g), m = tabMeta(t); return <button key={g.id} className={cx(g.id === f.id && 'on')} title={m.title} aria-label={m.title} onClick={() => A.focusPane(g.id)}><TabIcon t={t} icon={m.icon} /><TabState t={t} /></button>; })}</div>}
       <Popups />
       {s.layers.length === 0 && null}
