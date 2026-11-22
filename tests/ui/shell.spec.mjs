@@ -260,6 +260,22 @@ test('palette: no key hints, thread status and project, the mockup actions', asy
   for (const a of ['Show thread as chat / terminal', 'Open changes beside', 'Machines', 'Keyboard shortcuts']) assert.match(list, new RegExp(a.replace(/[/]/g, '\\/')));
 });
 
+test('on a Mac, cmd-shift-a opens the pane dropdown from the chat and the composer; cmd-b toggles the sidebar', async p => {
+  await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
+  await p.locator('.pane.focus .chat').waitFor();
+  await keys(p, 'Meta+Shift+a');
+  await p.locator('.menu', { hasText: 'Pane' }).waitFor();
+  assert.equal(await p.locator('.menu .m-s input').getAttribute('placeholder'), 'Search this thread');
+  await keys(p, 'Escape');
+  await p.locator('.pane.focus .comp').click(); await keys(p, 'Meta+Shift+a');
+  await p.locator('.menu', { hasText: 'Pane' }).waitFor();
+  await keys(p, 'Escape');
+  const shown = () => p.locator('#side').evaluate(e => e.getBoundingClientRect().width > 40);
+  assert.ok(await shown());
+  await keys(p, 'Meta+b'); await settle(p, 400); assert.ok(!await shown(), 'cmd-b hides the sidebar');
+  await keys(p, 'Meta+b'); await settle(p, 400); assert.ok(await shown(), 'and shows it again');
+}, { os: 'mac' });
+
 test('pane search: mod-shift-a drops from the pane chevron with the thread, tabs and pane groups', async p => {
   await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
   await p.locator('.pane.focus .chat').waitFor();

@@ -134,3 +134,14 @@ describe('keymap clashes', () => {
     expect(clashes).toEqual([]);
   });
 });
+
+describe('canon', () => {
+  it('writes modifiers in the order keyOf produces them', () => {
+    const press: KeyLike = { key: 'A', code: 'KeyA', ctrlKey: false, altKey: false, shiftKey: true, metaKey: true };
+    expect(canon('mod-shift-a', 'mac')).toBe(keyOf(press));
+    expect(canon('mod-shift-a', 'win')).toBe(keyOf({ ...press, metaKey: false, ctrlKey: true }));
+    expect(canon('mod-k', 'mac')).toBe('cmd-k');
+    expect(canon('ctrl--', 'win')).toBe('ctrl--');
+    expect(canon('g t', 'mac')).toBe('g t');
+  });
+});

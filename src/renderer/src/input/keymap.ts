@@ -97,6 +97,8 @@ export const DEFAULTS: Binding[] = [
   { layer: 'global', keys: 'mod-shift-s', command: 'quoteside' },
   { layer: 'global', keys: 'mod-w', command: 'tabclose', term: true, os: ['mac'] },
   { layer: 'global', keys: 'mod-t', command: 'tabnew', term: true, os: ['mac'] },
+  // the sidebar key of Codex and Cursor; Mac only, since ctrl-b is Vim's page up (and tmux's prefix) elsewhere
+  { layer: 'global', keys: 'mod-b', command: 'sidebar', term: true, os: ['mac'] },
   { layer: 'global', keys: 'mod-n', command: 'newthread', term: true, os: ['mac'] },
   { layer: 'global', keys: 'mod-,', command: 'settings', term: true, os: ['mac'] },
   { layer: 'global', keys: 'alt-h', command: 'focus h', term: true },
