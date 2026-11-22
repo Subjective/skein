@@ -94,8 +94,9 @@ textarea.vn.vv::selection { background: var(--sel); color: inherit; }
 #side .row.lift { position: fixed; margin: 0; z-index: 90; pointer-events: none; background: var(--seg-on); color: var(--fg); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .3), 0 0 0 1px var(--line-2); }
 body.dragging-thread { user-select: none; cursor: grabbing; }
 
-/* Settings: the section list has the keys (VIM-MODEL section 4); its picked section shows the cursor */
-.settings-nav.kf button.on { box-shadow: inset 0 0 0 1.5px var(--fg-3); }
+/* Settings: the section list has the keys (VIM-MODEL section 4); while they are in use its picked section shows the
+   cursor, the same 1px ring as the sidebar's */
+.settings-nav.kf button.on { box-shadow: inset 0 0 0 1px var(--fg-3); }
 
 /* Reader search (/ ?): every match; the cursor sits on the current one */
 ::highlight(rsearch) { background-color: rgba(226, 165, 60, .32); }

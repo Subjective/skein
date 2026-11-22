@@ -334,7 +334,7 @@ test('settings: General has On launch, Appearance has the theme, the vimrc row s
   await p.locator('.s-row', { hasText: 'On launch' }).getByText('Start empty').click();
   await p.waitForFunction(() => window.__skein.S.settings.launch === 'empty');
   await p.locator('.settings-nav button', { hasText: 'Notifications' }).click();
-  assert.match(await p.locator('.s-body').innerText(), /A thread counts as read/);
+  assert.match(await p.locator('.s-body').innerText(), /Notify me/);
   await p.locator('.settings-nav button', { hasText: 'Vim' }).click();
   assert.match(await p.locator('.s-row', { hasText: 'vimrc' }).innerText(), /~\/\.config\/skein\/vimrc/);
   await p.evaluate(() => window.__skein.api.app.setSettings({ launch: 'restore' }));

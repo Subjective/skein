@@ -13,6 +13,7 @@ import { fuzzyTop } from '../ui/fuzzy';
 import { FileIcon } from '../ui/FileIcon';
 import { Menu, type MenuItem, type MenuProps } from '../ui/Menu';
 import { Dialog, useDialogSurface } from '../ui/Dialog';
+import { useKeyCursor } from '../ui/modality';
 import { cx, Dot, Icon, IconButton, Spinner, Switch } from '../ui/primitives';
 import { base, harnessName, projectName, tabMeta, tildify } from './meta';
 import { commandNames, run } from './commands';
@@ -490,58 +491,82 @@ function KeysSheet({ close }: { close: () => void }) {
 }
 
 // ---------- settings ----------
-interface Row { label: string; desc?: string; seg?: [string, string][]; get?: () => string; set?: (v: string) => void; sw?: () => boolean; toggle?: () => void; btn?: string; run?: () => void; extra?: React.ReactNode }
+interface Row { label: string; desc?: string; seg?: [string, string][]; get?: () => string; set?: (v: string) => void; sw?: () => boolean; toggle?: () => void; btn?: string; run?: () => void; extra?: React.ReactNode; preview?: (v: string) => React.ReactNode }
+/** A titled card of rows; the first group of a section usually has no title. */
+interface Group { title?: string; rows: Row[] }
 
 const SECTIONS = ['General', 'Appearance', 'Vim', 'Notifications', 'Machines'];
 export function openSettings(section?: string, row?: number) { openLayer(close => <Settings close={close} section={section} row={row} />); }
 export const setSetting = async (patch: Partial<typeof S.settings>) => { const s = await api.app.setSettings(patch); update(st => { st.settings = s; }); };
 
+/** What a finished turn looks like at each density (Agent work), shown while choosing one. */
+function DensityPreview({ d }: { d: string }) {
+  const step = (verb: string, arg: string, diff?: boolean) => (
+    <div className="dp-step"><span><b>{verb}</b> {arg}</span>{diff && <span className="dp-diff"><i className="del" /><i className="add" /><i className="add short" /></span>}</div>
+  );
+  return (
+    <div className="dprev" aria-hidden>
+      <div className="dp-fold">Worked for 42s<Icon name={d === 'compact' ? 'chev' : 'down'} size="sm" /></div>
+      {d === 'balanced' && <div className="dp-run">Edited 2 files, ran 2 commands<Icon name="chev" size="sm" /></div>}
+      {d === 'detailed' && <div className="dp-steps">{step('Edited', 'math.ts +4 -1', true)}{step('Edited', 'README.md +5 -1', true)}{step('Ran', 'npm test')}{step('Ran', 'npm run typecheck')}</div>}
+      <div className="dp-answer">Fixed the rounding bug and added a test.</div>
+    </div>
+  );
+}
+
 // Keys (VIM-MODEL section 4, Settings): two lists side by side. The section list has the keys first: j / k move
 // over sections (the page follows), l / enter / tab go into the section's rows. In the rows, j / k move,
 // h / l lower and raise a row's value (a choice, a switch), enter presses it, and esc, shift-tab, or h on a row
 // with no value go back to the section list. esc there closes. H / L (tabs elsewhere) do nothing in this dialog.
+// The key cursor (a ring on the section, a filled row) shows only while the keys are in use (ui/modality).
 function Settings({ close, section, row: row0 }: { close: () => void; section?: string; row?: number }) {
   const s = useApp();
   const [sec, setSec] = useState(() => Math.max(0, SECTIONS.indexOf(section || '')));
   const [row, setRow] = useState(row0 ?? 0);
   const [col, setCol] = useState<'nav' | 'rows'>(row0 != null ? 'rows' : 'nav');
-  const sections: [string, string, Row[]][] = [
-    ['General', 'sliders', [
-      { label: 'New threads open as', desc: 'Any thread can be switched from its tab', seg: [['chat', 'Chat'], ['term', 'Terminal']], get: () => s.settings.defaultView, set: v => setSetting({ defaultView: v as never }) },
+  const [peek, setPeek] = useState<{ row: string; v: string } | null>(null);
+  const { kb: keyed, onKey, pointer } = useKeyCursor();
+  const cursor = s.settings.vim && keyed;
+  const sections: [string, string, Group[]][] = [
+    ['General', 'sliders', [{ rows: [
+      { label: 'Default view', desc: 'How new threads open', seg: [['chat', 'Chat'], ['term', 'Terminal']], get: () => s.settings.defaultView, set: v => setSetting({ defaultView: v as never }) },
       { label: 'Sidebar', desc: 'How threads are listed', seg: [['grouped', 'By folder'], ['recent', 'Recent']], get: () => s.settings.sideView, set: v => setSetting({ sideView: v as never }) },
-      { label: 'While a turn runs, enter', desc: `Queue waits for the turn to end; Steer sends into it now. ${kb('mod-enter')} does the other`, seg: [['queue', 'Queues'], ['steer', 'Steers']], get: () => s.settings.followUp || 'queue', set: v => setSetting({ followUp: v as never }) },
-      { label: 'On launch', desc: 'Workspaces, layouts, popups, drafts and reading positions', seg: [['restore', 'Restore'], ['empty', 'Start empty']], get: () => s.settings.launch || 'restore', set: v => setSetting({ launch: v as never }) },
-    ]],
+      { label: 'Messages during a turn', desc: 'Queue them for when it ends, or steer it now', seg: [['queue', 'Queue'], ['steer', 'Steer']], get: () => s.settings.followUp || 'queue', set: v => setSetting({ followUp: v as never }) },
+      { label: 'On launch', desc: 'Reopen your last workspaces or start fresh', seg: [['restore', 'Restore'], ['empty', 'Start empty']], get: () => s.settings.launch || 'restore', set: v => setSetting({ launch: v as never }) },
+    ] }]],
     ['Appearance', 'sun', [
-      { label: 'Theme', seg: [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], get: () => s.settings.theme, set: v => setSetting({ theme: v as never }) },
-      { label: 'Agent work', desc: 'How much of a turn\'s steps stay open. zr and zm change it for one thread', seg: DENSITY.map(d => [d, DENSITY_NAME[d]]), get: () => s.settings.density || 'compact', set: v => setSetting({ density: v as never }) },
+      { rows: [{ label: 'Theme', desc: 'Light, dark, or match the system', seg: [['system', 'System'], ['dark', 'Dark'], ['light', 'Light']], get: () => s.settings.theme, set: v => setSetting({ theme: v as never }) }] },
+      { title: 'Threads', rows: [
+        { label: 'Agent work', desc: 'How much of each turn is shown', seg: DENSITY.map(d => [d, DENSITY_NAME[d]]), get: () => s.settings.density || 'compact', set: v => setSetting({ density: v as never }), preview: v => <DensityPreview d={v} /> },
+      ] },
     ]],
-    ['Vim', 'keyboard', [
+    ['Vim', 'keyboard', [{ rows: [
       { label: 'Vim keys', desc: 'Modal editing in composers, menus and read-only text', sw: () => s.settings.vim, toggle: () => setSetting({ vim: !s.settings.vim }) },
+      { label: 'Leader', desc: 'Starts pane and tab commands', seg: [['ctrl-space', kb('ctrl-space')], ['ctrl-\\', kb('ctrl-\\')]], get: () => s.settings.leader, set: v => setSetting({ leader: v as never }) },
       { label: 'vimrc', desc: '~/.config/skein/vimrc', btn: 'Edit', run: () => { close(); openVimrc(); } },
-      { label: 'Leader', desc: s.info.platform === 'mac' ? 'macOS may take ⌃Space for input sources' : 'Pane and tab commands, also inside terminals', seg: [['ctrl-space', kb('ctrl-space')], ['ctrl-\\', kb('ctrl-\\')]], get: () => s.settings.leader, set: v => setSetting({ leader: v as never }) },
-    ]],
-    ['Notifications', 'bell', [
-      { label: 'Notify me', desc: 'When Skein is in the background or the thread is out of sight', seg: [['waiting', 'Waiting on me'], ['replies', 'Every reply'], ['off', 'Never']], get: () => s.settings.notify, set: v => setSetting({ notify: v as never }) },
-      { label: 'A thread counts as read', desc: 'once its tab has been on screen and focused' },
-    ]],
-    ['Machines', 'host', [
+    ] }]],
+    ['Notifications', 'bell', [{ rows: [
+      { label: 'Notify me', desc: 'While Skein or the thread is out of sight', seg: [['waiting', 'Waiting on me'], ['replies', 'Every reply'], ['off', 'Never']], get: () => s.settings.notify, set: v => setSetting({ notify: v as never }) },
+    ] }]],
+    ['Machines', 'host', [{ rows: [
       ...s.machines.map(m => ({
         label: m.name, desc: m.ssh ? `${sshAddr(m)}${m.note && m.link !== 'up' ? ' · ' + m.note : ''}` : m.os,
         extra: <span className="s-meta">{marks(m)}{linkDot(m) || <span className="dot" style={{ visibility: 'hidden' }} />}</span>,
         btn: m.ssh && m.link !== 'up' ? 'Connect' : undefined, run: () => void api.machines.connect(m.id),
       })),
-      { label: 'Add SSH host', desc: 'from ~/.ssh/config', btn: 'Add', run: () => addHostMenu() },
-    ]],
+      { label: 'Add SSH host', desc: 'From ~/.ssh/config or user@host', btn: 'Add', run: () => addHostMenu() },
+    ] }]],
   ];
-  const rows = sections[sec][2];
+  const groups = sections[sec][2];
+  const rows = groups.flatMap(g => g.rows);
   const r = rows[Math.min(row, rows.length - 1)];
   const step = (x: Row, d: number) => { if (!x.seg || !x.get || !x.set) return; const i = x.seg.findIndex(o => o[0] === x.get!()); x.set(x.seg[(i + d + x.seg.length) % x.seg.length][0]); };
   const press = (x: Row) => { if (x.seg) step(x, 1); else if (x.toggle) x.toggle(); else x.run?.(); };
   const goSec = (i: number) => { setSec(Math.max(0, Math.min(sections.length - 1, i))); setRow(0); };
   useDialogSurface({
-    onEsc: () => (col === 'rows' ? setCol('nav') : close()),
+    onEsc: () => { onKey(); if (col === 'rows') setCol('nav'); else close(); },
     key: k => {
+      onKey();
       if (k === 'q') { close(); return true; }
       if (col === 'nav') {
         if (k === 'j' || k === 'down') { goSec(sec + 1); return true; }
@@ -562,21 +587,35 @@ function Settings({ close, section, row: row0 }: { close: () => void; section?: 
       return k.length === 1 || k === 'tab';
     },
   }, [sec, row, col, rows.length, s.settings]);
+  let n = -1;
   return (
     <Dialog onClose={close} className="settings" label="Settings">
-      <nav className={cx('settings-nav', s.settings.vim && col === 'nav' && 'kf')}><h4>Settings</h4>
-        {sections.map(([n, i], k) => <button key={n} className={cx(k === sec && 'on')} aria-current={k === sec || undefined} onClick={() => { setSec(k); setRow(0); setCol('nav'); }}><Icon name={i} /><span>{n}</span></button>)}
+      <nav className={cx('settings-nav', cursor && col === 'nav' && 'kf')} {...pointer}><h4>Settings</h4>
+        {sections.map(([name, i], k) => <button key={name} className={cx(k === sec && 'on')} aria-current={k === sec || undefined} onClick={() => { setSec(k); setRow(0); setCol('nav'); }}><Icon name={i} /><span>{name}</span></button>)}
       </nav>
-      <section className="s-body">
+      <section className="s-body" {...pointer}>
         <header><h3>{sections[sec][0]}</h3><IconButton icon="x" label="Close" small onClick={close} /></header>
-        {rows.map((x, i) => (
-          <div key={x.label} className={cx('s-row', s.settings.vim && col === 'rows' && i === row && 'cur')} onMouseEnter={() => { setRow(i); setCol('rows'); }}>
-            <div className="s-txt"><b>{x.label}</b>{x.desc && <span>{x.desc}</span>}</div>
-            {x.extra}
-            {x.seg ? <div className="seg txt">{x.seg.map(([v, n]) => <button key={v} className={cx(x.get?.() === v && 'on')} onClick={() => x.set?.(v)}>{n}</button>)}</div>
-              : x.sw ? <Switch large on={x.sw()} onChange={() => x.toggle?.()} label={x.label} />
-              : x.btn ? <button className="btn sm" onClick={() => x.run?.()}>{x.btn}</button> : null}
-          </div>
+        {groups.map((g, gi) => (
+          <Fragment key={gi}>
+            {g.title && <h4 className="s-group">{g.title}</h4>}
+            <div className="s-card">
+              {g.rows.map(x => {
+                const i = ++n, cur = cursor && col === 'rows' && i === row;
+                const shown = peek?.row === x.label ? peek.v : cur && x.preview && x.get ? x.get() : null;
+                return (
+                  <div key={x.label} className={cx('s-row', cur && 'cur')} onMouseMove={() => { if (i !== row || col !== 'rows') { setRow(i); setCol('rows'); } }}>
+                    <div className="s-txt"><b>{x.label}</b>{x.desc && <span>{x.desc}</span>}</div>
+                    {x.extra}
+                    {x.seg ? <div className="seg txt" onMouseLeave={() => setPeek(null)}>{x.seg.map(([v, l]) => <button key={v} className={cx(x.get?.() === v && 'on')} aria-pressed={x.get?.() === v}
+                        onMouseEnter={x.preview ? () => setPeek({ row: x.label, v }) : undefined} onClick={() => x.set?.(v)}>{l}</button>)}</div>
+                      : x.sw ? <Switch large on={x.sw()} onChange={() => x.toggle?.()} label={x.label} />
+                      : x.btn ? <button className="btn sm" onClick={() => x.run?.()}>{x.btn}</button> : null}
+                    {shown && x.preview?.(shown)}
+                  </div>
+                );
+              })}
+            </div>
+          </Fragment>
         ))}
       </section>
     </Dialog>
