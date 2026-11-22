@@ -1,7 +1,8 @@
 // A thread's events as a conversation: your messages as bubbles, each reply as one block of prose,
 // tool rows, diffs, plans and requests. Rows the reader treats as one line carry the classes in reader.ts ROWS.
 import { openLightbox } from '../../ui/Lightbox';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { flushSync } from 'react-dom';
 import type { Density, Harness, StepKind, ThreadEvent, ThreadMeta } from '@shared/types';
 import { api } from '../../api';
 import { machine, S, toast } from '../../state/store';
@@ -9,6 +10,7 @@ import type { IconName } from '../../ui/icons';
 import { Button, cx, Icon, IconButton, Spinner } from '../../ui/primitives';
 import { harnessName } from '../../shell/meta';
 import { Markdown } from './markdown';
+import { MOTION, reduced } from '../../ui/motion';
 import { INSTALL } from './options';
 import { answer, pending, plain } from './state';
 
@@ -180,20 +182,73 @@ function Edited({ edits }: { edits: Ev<'edit'>[] }) {
   );
 }
 
+/** A long message shows its first lines, fading out, with Show more (as Codex): CLIP px of it, once it is a quarter
+ *  taller than that. The choice is kept per message, so it survives the edit box and a remount. */
+const CLIP = 280;
+const OPEN = new Set<string>();
+/** How tall each message's words are, and whether they are cut short: the edit box opens at the same size. */
+const SIZE = new Map<string, { h: number; shut: boolean }>();
+
+function UserMsg({ e, c, src }: { e: Ev<'user'>; c: TranscriptCtx; src: string }) {
+  const clip = useRef<HTMLDivElement>(null);
+  const [long, setLong] = useState(false), [open, setOpen] = useState(() => OPEN.has(src));
+  const shut = long && !open;
+  useLayoutEffect(() => {
+    const el = clip.current; if (!el) return;
+    const measure = () => { const h = el.scrollHeight; setLong(h > CLIP * 1.25); SIZE.set(src, { h, shut: h > CLIP * 1.25 && !OPEN.has(src) }); };
+    measure();
+    const ro = new ResizeObserver(measure); ro.observe(el); return () => ro.disconnect();
+  }, [src, e.text, e.images?.length]);
+  useLayoutEffect(() => { const s = SIZE.get(src); if (s) s.shut = shut; }, [src, shut]);
+  // the reader moving onto words below the fold opens the message (j, w, a search), so the cursor is never hidden
+  useEffect(() => {
+    const el = clip.current; if (!el) return;
+    const on = () => { OPEN.add(src); flushSync(() => setOpen(true)); };
+    el.addEventListener('skein-open', on); return () => el.removeEventListener('skein-open', on);
+  }, [src]);
+  const toggle = () => {
+    const el = clip.current; if (!el) return;
+    const from = el.getBoundingClientRect().height;
+    if (!open) {
+      OPEN.add(src); flushSync(() => setOpen(true));
+      if (!reduced()) el.animate([{ height: `${from}px`, overflow: 'hidden' }, { height: `${el.scrollHeight}px`, overflow: 'hidden' }], { duration: MOTION.slow, easing: MOTION.ease });
+      return;
+    }
+    const done = () => {
+      OPEN.delete(src); flushSync(() => setOpen(false));
+      const u = el.closest('.m-user'); if (u && u.getBoundingClientRect().top < 0) u.scrollIntoView({ block: 'start' });
+      else el.parentElement?.querySelector('.m-more')?.scrollIntoView({ block: 'nearest' });
+    };
+    if (reduced()) return done();
+    const a = el.animate([{ height: `${from}px`, overflow: 'hidden' }, { height: `${CLIP}px`, overflow: 'hidden' }], { duration: MOTION.base, easing: MOTION.ease, fill: 'forwards' });
+    void a.finished.then(() => { done(); a.cancel(); }, () => {});
+  };
+  return (
+    <div className={cx('m-user', c.onEdit && 'can-edit', long && 'long')} data-user data-ev={e.id} data-src={src} title={c.onEdit ? 'Click to edit and resend' : undefined}
+      onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img, .m-more')) return; c.onEdit(e.id); }}>
+      <div ref={clip} className={cx('m-clip', shut && 'shut')}>
+        {e.images?.map((u, i) => <img key={i} className="m-img" src={u} alt="" data-zoom onClick={ev => { ev.stopPropagation(); openLightbox(u); }} />)}
+        {/* your words as you wrote them: line breaks kept, Markdown (lists, code, bold, links) as in a reply */}
+        {e.text && <div className="mt prose" data-md={e.text}><Markdown text={e.text} /></div>}
+      </div>
+      {long && (
+        <button type="button" className="m-more" aria-expanded={open} title={open ? 'Show less' : 'Show the whole message'}
+          onClick={ev => { ev.stopPropagation(); toggle(); }}><span>{open ? 'Show less' : 'Show more'}</span><Icon name="down" /></button>
+      )}
+    </div>
+  );
+}
+
 /** One event. */
 function Event({ e, c, all, f, folded }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEvent[]; f: Folds; folded?: boolean }): ReactNode {
   const src = `${c.src}:${e.id}`;
   switch (e.t) {
     case 'user':
-      if (c.editing === e.id) return <div className="m-edit" data-user key={e.id}>{c.editBox}</div>;
-      return (
-        <div className={cx('m-user', c.onEdit && 'can-edit')} data-user data-ev={e.id} data-src={src} title={c.onEdit ? 'Click to edit and resend' : undefined}
-          onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img')) return; c.onEdit(e.id); }}>
-          {e.images?.map((u, i) => <img key={i} className="m-img" src={u} alt="" data-zoom onClick={ev => { ev.stopPropagation(); openLightbox(u); }} />)}
-          {/* your words as you wrote them: line breaks kept, Markdown (lists, code, bold, links) as in a reply */}
-          {e.text && <div className="mt prose" data-md={e.text}><Markdown text={e.text} /></div>}
-        </div>
-      );
+      if (c.editing === e.id) {   // the box is as tall as the bubble showed the words: cut short if it was, else all of them
+        const sz = SIZE.get(src);
+        return <div className="m-edit" data-user key={e.id} style={sz ? { ['--edit-fit' as string]: `${sz.shut ? CLIP : Math.max(CLIP, sz.h)}px` } : undefined}>{c.editBox}</div>;
+      }
+      return <UserMsg e={e} c={c} src={src} />;
     case 'text': {
       return <>
         <div className={cx('m-asst prose', e.streaming && 'streaming')} data-src={src} data-md={e.text}><Markdown text={e.text} /></div>

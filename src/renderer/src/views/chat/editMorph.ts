@@ -5,7 +5,11 @@
 import { MOTION, reduced } from '../../ui/motion';
 
 /** Where your message's bubble sat, relative to the column it's in (so a scroll in between doesn't matter). */
-export interface Shape { x: number; y: number; w: number; h: number; tx: number; ty: number; lines: number; col: number; ghost: HTMLElement | null }
+export interface Shape {
+  x: number; y: number; w: number; h: number;   // the bubble
+  tx: number; ty: number; tw: number; th: number;   // its words: where they start, how wide, how much of them shows
+  lines: number; col: number; plain: boolean; shut: boolean; ghost: HTMLElement | null;
+}
 
 const LINE = 21.7;   // 14px/1.55: one line of a message, in the bubble and the box alike
 const rel = (r: DOMRect, p: DOMRect) => ({ x: r.left - p.left, y: r.top - p.top });
@@ -14,9 +18,12 @@ const rel = (r: DOMRect, p: DOMRect) => ({ x: r.left - p.left, y: r.top - p.top 
 export function bubbleShape(root: Element | null | undefined, id: string): Shape | null {
   const u = root?.querySelector<HTMLElement>(`.m-user[data-ev="${CSS.escape(id)}"]`), col = u?.parentElement;
   if (!u || !col) return null;
-  const p = col.getBoundingClientRect(), b = u.getBoundingClientRect(), mt = u.querySelector<HTMLElement>('.mt');
-  const t = mt?.getBoundingClientRect() ?? b, at = rel(b, p), tat = rel(t, p);
-  return { ...at, w: b.width, h: b.height, tx: tat.x, ty: tat.y, lines: Math.round(t.height / LINE), col: p.width, ghost: mt ? mt.cloneNode(true) as HTMLElement : null };
+  const p = col.getBoundingClientRect(), b = u.getBoundingClientRect(), mt = u.querySelector<HTMLElement>('.mt'), clip = u.querySelector('.m-clip');
+  const t = mt?.getBoundingClientRect() ?? b, at = rel(b, p), tat = rel(t, p), shut = !!clip?.classList.contains('shut');
+  const th = Math.min(t.bottom, clip?.getBoundingClientRect().bottom ?? t.bottom) - t.top;
+  // paragraphs of plain words lay out the same in the box (a blank line between them in both); lists, quotes and code don't
+  const plain = !!mt && [...mt.children].every(k => k.tagName === 'P');
+  return { ...at, w: b.width, h: b.height, tx: tat.x, ty: tat.y, tw: t.width, th, lines: Math.round(t.height / LINE), col: p.width, plain, shut, ghost: mt ? mt.cloneNode(true) as HTMLElement : null };
 }
 
 interface Parts { comp: HTMLElement; taw: HTMLElement; rest: HTMLElement[]; p: DOMRect; c: DOMRect; t: DOMRect }
@@ -35,11 +42,13 @@ function clipOf(s: Shape, q: Parts) {
 
 /** The bubble's words over the box, moving with the box's own and fading (only when the wider box rewraps them). */
 function ghost(edit: HTMLElement, s: Shape, q: Parts): HTMLElement | null {
-  const wraps = s.lines > 1 || q.t.width + 1 < s.w;   // one line that still fits on one line can simply glide
-  if (!wraps || !s.ghost) return null;
+  // one line glides; so do several lines of plain words at the same width (a long message: the box is the bubble's width)
+  const same = s.lines <= 1 || s.plain && Math.abs(q.t.width - s.tw) < 1;
+  if (same || !s.ghost) return null;
   const g = document.createElement('div'); g.className = 'm-ghost'; g.setAttribute('aria-hidden', 'true'); g.appendChild(s.ghost.cloneNode(true));
   const e = rel(edit.getBoundingClientRect(), q.p);
-  Object.assign(g.style, { left: `${s.tx - e.x}px`, top: `${s.ty - e.y}px`, width: `${s.w - (s.tx - s.x) * 2}px` });
+  Object.assign(g.style, { left: `${s.tx - e.x}px`, top: `${s.ty - e.y}px`, width: `${s.tw}px`, height: `${s.th}px` });
+  if (s.shut) g.classList.add('shut');
   edit.appendChild(g);
   return g;
 }

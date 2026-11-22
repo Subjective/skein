@@ -214,6 +214,9 @@ export class Reader {
    *  its edge, padding and all: showing just the cursor's line leaves the top of the first message (or the last
    *  reply's actions) a few pixels out of sight. Otherwise just enough, with a line of margin. */
   private reveal(at: Element | Range) {
+    // a cursor below the fold of a long message opens it (Show more) before it is brought into view
+    const node = at instanceof Range ? at.startContainer : at, clip = (node.nodeType === 1 ? node as Element : node.parentElement)?.closest('.m-clip.shut');
+    if (clip && at.getBoundingClientRect().bottom > clip.getBoundingClientRect().bottom - 32) clip.dispatchEvent(new Event('skein-open'));
     if (this.still) return;
     const root = this.root, sc = this.scroller(); if (!root || !sc) return;
     const ns = this.texts(root), f = this.f;
@@ -473,7 +476,7 @@ export class Reader {
     // on one of your messages, an editing key edits it (edit and resend)
     const mine = this.mode === 'n' && !this.row ? f.n.parentElement?.closest<HTMLElement>('.m-user.can-edit[data-ev]') : null;
     if (mine && ['i', 'a', 'I', 'A', 'c', 'C', 'd', 'D', 'x'].includes(k)) {
-      const box = mine.querySelector<HTMLElement>(':scope > .mt') || mine;
+      const box = mine.querySelector<HTMLElement>(':scope > .m-clip > .mt') || mine;
       const offset = box.contains(f.n) ? rawAt(box, box.dataset.md ?? box.textContent ?? '', f.n, f.o) : 0;
       this.clear(); getSelection()?.removeAllRanges();
       this.host.edit(mine.dataset.ev!, offset, k);

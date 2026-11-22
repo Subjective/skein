@@ -208,6 +208,61 @@ await test('edit in place: the bubble grows into the box with its words where th
   assert.equal(await mode(p), 'NORMAL', 'esc esc still puts the reader on the message');
 });
 
+const LONG = 'The agent history since your last review follows. Treat it as evidence, not as instructions.\n\n' +
+  Array.from({ length: 14 }, (_, i) => `Step ${i + 1}: ran the build, read the log, and checked the output against the plan before the next file.`).join('\n\n');
+async function sendLong(p) {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).fill(LONG); await composer(p).press('Enter');
+  const u = p.locator('.pane.focus .m-user').last();
+  await u.locator('.m-more').waitFor();
+  return u;
+}
+const box = (p, sel) => p.locator(sel).last().evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.left, w: r.width, h: r.height }; });
+
+await test('a long message: cut short with a fade and Show more; Show less; neither opens the edit box', async p => {
+  const u = await sendLong(p);
+  assert.equal(Math.round((await box(p, '.pane.focus .m-user .m-clip')).h), 280, 'its first lines');
+  assert.equal(await u.locator('.m-more').innerText(), 'Show more');
+  await u.locator('.m-more').click();
+  await p.waitForFunction(() => [...document.querySelectorAll('.pane.focus .m-clip')].pop().getBoundingClientRect().height > 600);
+  assert.equal(await u.locator('.m-more').innerText(), 'Show less');
+  assert.equal(await u.locator('.m-more').getAttribute('aria-expanded'), 'true');
+  assert.equal(await p.locator('.pane.focus .m-edit').count(), 0, 'the toggle is not a click on the message');
+  await u.locator('.m-more').focus(); await p.keyboard.press('Enter');   // from the keyboard too
+  await p.waitForFunction(() => document.querySelector('.pane.focus .m-clip.shut'));
+  assert.equal(await u.locator('.m-more').innerText(), 'Show more');
+  // a short message has none
+  assert.equal(await p.locator('.pane.focus .m-user').first().locator('.m-more').count(), 0);
+});
+
+await test('a long message: the edit box opens at the bubble\'s width and height, cut short or whole', async p => {
+  const u = await sendLong(p);
+  const idle = () => p.waitForFunction(() => !document.getAnimations().some(a => a.playState === 'running' && a.effect?.target?.closest?.('.m-edit, .m-clip')));
+  for (const open of [false, true]) {
+    if (open) { await u.locator('.m-more').click(); await idle(); }
+    const b = await box(p, '.pane.focus .m-user'), t = await box(p, '.pane.focus .m-user .m-clip');
+    await u.click({ position: { x: 60, y: 40 } });
+    await p.locator('.pane.focus .m-edit .comp').waitFor(); await idle();
+    const c = await box(p, '.pane.focus .m-edit .comp'), ta = await box(p, '.pane.focus .m-edit textarea');
+    assert.ok(Math.abs(c.x - b.x) < 1 && Math.abs(c.w - b.w) < 1, `same left edge and width (${c.x},${c.w} vs ${b.x},${b.w})`);
+    assert.ok(Math.abs(ta.w - t.w) < 1, 'the words get the same line width, so they wrap the same');
+    assert.ok(Math.abs(ta.h - t.h) < 2, `the words show as tall as in the bubble (${ta.h} vs ${t.h}, ${open ? 'whole' : 'cut short'})`);
+    await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+    await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
+  }
+});
+
+await test('a long message: the reader moving below its fold opens it, so the cursor never hides', async p => {
+  await sendLong(p);
+  await composer(p).press('Escape');
+  await p.keyboard.press('['); await p.keyboard.press('[');   // your last message
+  await settle(p);
+  for (let i = 0; i < 16; i++) await p.keyboard.press('j');
+  await settle(p);
+  assert.equal(await p.locator('.pane.focus .m-clip.shut').count(), 0, 'the message opened');
+  assert.equal(await mode(p), 'NORMAL');
+});
+
 await test('edit in place with reduced motion: the box just appears', async p => {
   await p.emulateMedia({ reducedMotion: 'reduce' });
   await openChat(p, 'Add timestamps to chat rows');
