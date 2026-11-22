@@ -48,8 +48,11 @@ const MARGIN = 24;
 /** What bounds a selection: one message, a whole reply (everything up to the next message of yours) or one of
  * your bubbles. Code blocks, paragraphs and tool rows inside a reply are not bounds of their own. */
 export const SEL_BLOCK = '[data-read] > *';
-/** Text a selection may cover: not a reply's action row (copy, fork, side chat and its age). */
-export const selectable = (n: Node) => !n.parentElement?.closest('.m-acts');
+/** Text a selection may cover: not a reply's action row (copy, fork, side chat and its age), nor its "Worked for"
+ *  header. */
+export const selectable = (n: Node) => !n.parentElement?.closest('.m-acts, .turn > summary');
+/** A reply's work (under "Worked for") and its answer are selected apart: a selection stays on the side it began. */
+const part = (n: Node) => n.parentElement?.closest('.turn') ?? null;
 
 export class Reader {
   on = false;
@@ -117,10 +120,11 @@ export class Reader {
   }
   private firstText(el: Element): Pt | null { const n = this.texts(el)[0]; return n ? { n, o: n.data.length - n.data.trimStart().length } : null; }
   private blockOf(p: Pt) { return p.n.parentElement?.closest(SEL_BLOCK) ?? null; }
-  private ok(p: Pt) { return this.mode === 'n' || ((!this.bound || this.bound.contains(p.n)) && selectable(p.n)); }
-  /** The first or last character a selection can reach in a message. */
-  private edge(el: Element, last: boolean): Pt | null {
-    const ns = this.texts(el).filter(selectable), n = last ? ns[ns.length - 1] : ns[0]; if (!n) return null;
+  private ok(p: Pt) { return this.mode === 'n' || ((!this.bound || this.bound.contains(p.n)) && selectable(p.n) && (!this.a || part(p.n) === part(this.a.n))); }
+  /** The first or last character a selection can reach in a message (on the anchor's side of "Worked for"). */
+  private edge(el: Element, last: boolean, from: Pt | null = this.a): Pt | null {
+    const side = from && el.contains(from.n) ? part(from.n) : undefined;
+    const ns = this.texts(el).filter(n => selectable(n) && (side === undefined || part(n) === side)), n = last ? ns[ns.length - 1] : ns[0]; if (!n) return null;
     return last ? { n, o: Math.max(0, n.data.trimEnd().length - 1) } : { n, o: n.data.length - n.data.trimStart().length };
   }
 
@@ -153,7 +157,7 @@ export class Reader {
     Object.assign(this, { on: true, mode, root, f, a: a || f, bound: null, g: false, br: null });
     if (mode !== 'n') {
       const bd = this.blockOf(this.a!); this.bound = bd;
-      if (bd && (!bd.contains(f.n) || !selectable(f.n))) {   // a drag that ran past its message is cut back to the message's edge
+      if (bd && (!bd.contains(f.n) || !selectable(f.n) || part(f.n) !== part(this.a!.n))) {   // a drag that ran past its message is cut back to the message's edge
         const after = this.a!.n.compareDocumentPosition(f.n) & Node.DOCUMENT_POSITION_FOLLOWING, e = this.edge(bd, !!after);
         if (e) this.f = e;
       }
@@ -441,8 +445,12 @@ export class Reader {
           return true;
         }
         if (row.matches('.m-acts') && (k === 'v' || k === 'V')) {   // nothing to select on it: start at the reply's last character
-          const bd = row.closest(SEL_BLOCK), p = bd && this.edge(bd, true); if (!p) return true; this.f = p;
+          const bd = row.closest(SEL_BLOCK), p = bd && this.edge(bd, true, null); if (!p) return true; this.f = p;
         }
+      }
+      if (row.matches('.turn > summary') && (k === 'v' || k === 'V')) {   // nor on "Worked for": start at the answer below it
+        const bd = row.closest(SEL_BLOCK), ns = bd ? this.texts(bd).filter(n => selectable(n) && !part(n)) : [];
+        if (!ns[0]) return true; this.f = { n: ns[0], o: ns[0].data.length - ns[0].data.trimStart().length };
       }
       if (row.matches('.sc-link')) {   // a reply's side chat links sit on one line: h / l (w / b / e, 0 / $) step along them
         const ls = [...row.parentElement!.querySelectorAll<HTMLElement>(':scope > .sc-link')], i = ls.indexOf(row);
