@@ -901,6 +901,20 @@ await test('changes: a click draws the character cursor; double click, drag and 
   await p.locator('.compw .bk .tok').first().waitFor();
 });
 
+await test('file: mod-l quotes V-LINE into the thread beside it, even when the file was not opened from one', async p => {
+  await openFile(p, 'package.json');
+  // as if opened from a pane with no thread (a new tab, the Files tree of a launcher): the tab carries no thread
+  await p.evaluate(() => { const { S } = window.__skein; const walk = n => n.type === 'pane' ? n.tabs : [...walk(n.a), ...walk(n.b)]; for (const w of S.workspaces) for (const t of walk(w.tree)) if (t.kind === 'file') delete t.thread; });
+  const chat = p.locator('.pane:not(.focus) .compw');
+  assert.equal(await chat.locator('.bk .tok').count(), 0);
+  await keys(p, 'j Shift+V j');
+  assert.equal(await mode(p), 'V-LINE');
+  await keys(p, `${mod}+l`);
+  await p.locator('.compw .bk .tok').first().waitFor();
+  assert.ok(!(await p.locator('.toast', { hasText: 'Open a thread first' }).count()), 'no toast');
+  assert.ok(await p.locator('.pane.focus .compw .bk .tok').count(), 'the quote is in the thread pane, which now has focus');
+});
+
 await test('file: V shades the text, not the gutter, and moves nothing (read and edit)', async p => {
   await openFile(p, 'package.json');
   const row = F(p).locator('.src .dl').nth(1);
@@ -932,7 +946,7 @@ await test('file: the project tree resizes by dragging its left edge, and keeps 
   await openReadme(p);
   if (!(await F(p).locator('.ctree').count())) await F(p).getByRole('button', { name: 'Project files' }).click();
   const tree = F(p).locator('.ctree'), w0 = (await tree.boundingBox()).width;
-  const h = await F(p).locator('.tree-resize').evaluate(e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; });
+  const h = await F(p).locator('.rsz').evaluate(e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; });
   await p.mouse.move(h.x + h.width / 2, h.y + 40); await p.mouse.down();
   await p.mouse.move(h.x - 80, h.y + 40, { steps: 4 }); await p.mouse.up();
   const w1 = (await tree.boundingBox()).width;
@@ -940,6 +954,10 @@ await test('file: the project tree resizes by dragging its left edge, and keeps 
   assert.equal(await p.evaluate(() => localStorage.getItem('skein.treeWidth')), String(Math.round(w1)));
   await p.mouse.move(h.x - 80, h.y + 40); await p.mouse.down(); await p.mouse.move(h.x + 2000, h.y + 40, { steps: 3 }); await p.mouse.up();
   assert.ok((await tree.boundingBox()).width >= 160, 'not below the minimum');
+  const e = await F(p).locator('.rsz').boundingBox();
+  await p.mouse.dblclick(e.x + 1, e.y + 40);
+  assert.equal(Math.round((await tree.boundingBox()).width), Math.round(w0), 'double-click: back to the default width');
+  assert.equal(await p.evaluate(() => localStorage.getItem('skein.treeWidth')), null);
 });
 
 await test('file: v and V paint one selection colour; the cursor line is not shaded under a selection', async p => {
