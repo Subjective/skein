@@ -932,7 +932,7 @@ await test('file: the project tree resizes by dragging its left edge, and keeps 
   await openReadme(p);
   if (!(await F(p).locator('.ctree').count())) await F(p).getByRole('button', { name: 'Project files' }).click();
   const tree = F(p).locator('.ctree'), w0 = (await tree.boundingBox()).width;
-  const h = await F(p).locator('.tree-resize').evaluate(e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; });
+  const h = await F(p).locator('.rsz').evaluate(e => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; });
   await p.mouse.move(h.x + h.width / 2, h.y + 40); await p.mouse.down();
   await p.mouse.move(h.x - 80, h.y + 40, { steps: 4 }); await p.mouse.up();
   const w1 = (await tree.boundingBox()).width;
@@ -940,6 +940,10 @@ await test('file: the project tree resizes by dragging its left edge, and keeps 
   assert.equal(await p.evaluate(() => localStorage.getItem('skein.treeWidth')), String(Math.round(w1)));
   await p.mouse.move(h.x - 80, h.y + 40); await p.mouse.down(); await p.mouse.move(h.x + 2000, h.y + 40, { steps: 3 }); await p.mouse.up();
   assert.ok((await tree.boundingBox()).width >= 160, 'not below the minimum');
+  const e = await F(p).locator('.rsz').boundingBox();
+  await p.mouse.dblclick(e.x + 1, e.y + 40);
+  assert.equal(Math.round((await tree.boundingBox()).width), Math.round(w0), 'double-click: back to the default width');
+  assert.equal(await p.evaluate(() => localStorage.getItem('skein.treeWidth')), null);
 });
 
 await test('file: v and V paint one selection colour; the cursor line is not shaded under a selection', async p => {

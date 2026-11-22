@@ -16,7 +16,7 @@ import { moveMenu, startThreadDrag } from './move';
 import { openAddProject, openMachines, openMenu, openSettings } from './overlays';
 import { showAuth } from './AuthDialog';
 import { pending, useChat } from '../views/chat/state';
-import { dragEdge, restoreEdge, SIDEBAR_EDGE } from '../ui/resize';
+import { dragEdge, ResizeHandle, resetEdge, restoreEdge, SIDEBAR_EDGE } from '../ui/resize';
 
 const LINK: Record<Machine['link'], ['green' | 'amber' | 'red', boolean, string]> = {
   up: ['green', false, 'Connected'], connecting: ['amber', true, 'Connecting'], reconnecting: ['amber', true, 'Reconnecting'], auth: ['amber', false, 'Needs you to sign in'], down: ['red', false, 'Not connected'],
@@ -346,7 +346,7 @@ export function Sidebar() {
   const live = s.threads.filter(t => !t.archived && !t.side);
   const pinned = live.filter(t => t.pinned), rest = live.filter(t => !t.pinned), archived = s.threads.filter(t => t.archived && !t.side);
   return (
-    <aside id="side" className={cx(s.sideFocus && 'focus')} onMouseDown={e => { if (!(e.target as HTMLElement).closest('input, .s-top, .s-nav, .s-foot, .side-resize')) takeKeys(); }}>
+    <aside id="side" className={cx(s.sideFocus && 'focus')} onMouseDown={e => { if (!(e.target as HTMLElement).closest('input, .s-top, .s-nav, .s-foot, .rsz')) takeKeys(); }}>
       <div className="s-top">
         <IconButton icon="sidebar" label="Hide sidebar" keys="ldr b" onClick={() => run('sidebar')} />
         <IconButton icon="search" label="Search" keys="mod-k" onClick={() => run('palette')} />
@@ -393,7 +393,7 @@ export function Sidebar() {
         <IconButton icon="keyboard" label="Keyboard" keys="?" onClick={() => run('keys')} />
         <IconButton icon="sliders" label="Settings" onClick={() => run('settings')} />
       </div>
-      <div className="side-resize" title="Drag to resize sidebar" onPointerDown={resizeSide} />
+      <ResizeHandle axis="x" label="Resize sidebar" onPointerDown={resizeSide} onDoubleClick={() => resetEdge(SIDEBAR_EDGE)} />
     </aside>
   );
 }
