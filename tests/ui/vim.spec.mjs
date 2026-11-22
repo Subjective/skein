@@ -130,11 +130,63 @@ test('settings: H and L do nothing in the dialog; tab enters the rows, h on a bu
   assert.equal(await section(p), 'General');
   assert.equal(await tabs(), n);
   assert.equal(await layers(p), 1);
-  await keys(p, 'j j Tab j');
+  await keys(p, 'j j Tab j j');
   assert.match(await p.locator('.s-row.cur').innerText(), /vimrc/);
   await keys(p, 'h');
   assert.ok(await p.locator('.settings-nav.kf').count(), 'h on a row with no value goes back to the sections');
   assert.equal(await section(p), 'Vim');
+});
+test('settings: the key cursor shows only while the keys are in use; a click leaves no ring or filled row', async p => {
+  await openSettings(p);
+  assert.ok(await p.locator('.settings-nav.kf').count(), 'opened by keys: the section list shows its cursor');
+  const nav = p.locator('.settings-nav button', { hasText: 'Machines' });
+  await nav.click();
+  assert.equal(await section(p), 'Machines');
+  assert.equal(await p.locator('.settings-nav.kf').count(), 0, 'a click leaves no ring');
+  const last = p.locator('.s-row').last();
+  await last.hover(); await p.mouse.move(5, 5); await settle(p);
+  assert.equal(await p.locator('.s-row.cur').count(), 0, 'a row the pointer left is not filled');
+  await keys(p, 'k');
+  assert.match(await p.locator('.s-row.cur').innerText(), /build-07/, 'a key brings the cursor back, on the rows the pointer was in');
+  await keys(p, 'Escape k');
+  assert.equal(await section(p), 'Notifications');
+  assert.ok(await p.locator('.settings-nav.kf').count());
+  assert.equal(await p.locator('.settings-nav button:focus-visible').evaluateAll(bs => bs.filter(b => getComputedStyle(b).outlineStyle !== 'none').length), 0, 'no browser focus ring on top');
+  await keys(p, 'l');
+  assert.match(await p.locator('.s-row.cur').innerText(), /Notify me/);
+  await p.mouse.move(400, 300); await p.mouse.move(420, 320); await settle(p);
+  assert.equal(await p.locator('.s-row.cur').count(), 0, 'moving the pointer hides the key cursor');
+});
+
+test('settings: rows sit in cards, descriptions carry no key or OS hints', async p => {
+  await openSettings(p);
+  for (const sec of ['General', 'Appearance', 'Vim', 'Notifications', 'Machines']) {
+    await p.locator('.settings-nav button', { hasText: sec }).click();
+    assert.equal(await p.locator('.s-body .s-row').count(), await p.locator('.s-card .s-row').count(), `${sec}: every row is in a card`);
+    assert.doesNotMatch(await p.locator('.s-body').innerText(), /\bzr\b|\bzm\b|macOS|input sources/);
+  }
+});
+
+test('settings: Agent work previews each density, on hover and under the key cursor', async p => {
+  await openSettings(p);
+  await keys(p, 'j l j');
+  assert.match(await p.locator('.s-row.cur').innerText(), /Agent work/);
+  const prev = p.locator('.dprev');
+  const d0 = await p.evaluate(() => window.__skein.S.settings.density || 'compact');
+  assert.equal(await prev.count(), 1, 'the key cursor shows the current density');
+  await keys(p, 'l');
+  await p.waitForFunction(d => (window.__skein.S.settings.density || 'compact') !== d, d0);
+  assert.equal(await prev.count(), 1);
+  const row = p.locator('.s-row', { hasText: 'Agent work' });
+  await row.getByRole('button', { name: 'Detailed' }).hover();
+  assert.match(await prev.innerText(), /Edited math\.ts/, 'Detailed opens every step');
+  await row.getByRole('button', { name: 'Compact' }).hover();
+  assert.doesNotMatch(await prev.innerText(), /Edited/, 'Compact folds the turn');
+  await row.getByRole('button', { name: 'Balanced' }).hover();
+  assert.match(await prev.innerText(), /Edited 2 files, ran 2 commands/, 'Balanced shows the runs folded');
+  await p.mouse.move(5, 5); await settle(p);
+  assert.equal(await prev.count(), 0, 'leaving the choice hides it');
+  await p.evaluate(d => window.__skein.api.app.setSettings({ density: d }), d0);
 });
 async function ldrNewTab(p) { await keys(p, 'Control+Space c'); }
 
