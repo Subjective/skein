@@ -895,9 +895,6 @@ textarea.vn.hollow.drawn { caret-color: transparent; }
 .ed { flex: none; display: flex; margin: 0 -14px; min-height: 100%; }
 .ed-n { flex: none; width: 48px; margin: 0; padding: 0 10px 0 0; text-align: right; color: var(--fg-4); font: var(--mono-w) 12px/1.650 var(--mono); user-select: none; }
 .file-ed { padding: 0 14px 0 0; font: var(--mono-w) 12px/1.650 var(--mono); white-space: pre; overflow: hidden; }
-.tool-h .mod { display: none; }
-.tool-h.dirty .mod { display: inline-flex; }
-.tool-h span.mod { margin-left: 8px; font-size: 12px; }
 .tab.dirty .t::after { content: " \2022"; color: var(--fg-3); }
 
 /* sidebar section headings fold on click: a chevron appears on hover, and stays (turned) while folded */

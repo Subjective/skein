@@ -33,7 +33,7 @@ export class Threads {
       // Claude Code accepts a session id up front (--session-id), so the thread knows it before the first turn.
       sessionId: spec.harness === 'claude' ? randomUUID() : undefined,
       drive: spec.harness === 'claude' ? spec.view : undefined,
-      parent: spec.parent, side: !!spec.parent,
+      parent: spec.parent, side: !!spec.side,
     };
     this.map.set(t.id, t); this.store.put('threads', t.id, t); emit({ type: 'thread', thread: t });
     return t;

@@ -91,7 +91,8 @@ const silence = (stop: Promise<void>): AsyncIterable<SDKUserMessage> => ({
 });
 
 /** Claude Code's initialize response for a folder on the machine (its models, commands and skills). */
-export async function claudeInit(m: Machine, query: QueryFn, dir?: string): Promise<SDKControlInitializeResponse> {
+/** With `skills`, also the names of the skills Claude Code has loaded (reloadSkills; left out where the CLI can't say). */
+export async function claudeInit(m: Machine, query: QueryFn, dir?: string, skills = false): Promise<SDKControlInitializeResponse & { skills?: string[] }> {
   let end!: () => void;
   const stopped = new Promise<void>(r => (end = r));
   let stderr = '';
@@ -109,7 +110,10 @@ export async function claudeInit(m: Machine, query: QueryFn, dir?: string): Prom
   let q: Query | null = null;
   try {
     q = query({ prompt: silence(stopped), options: opts });
-    return await withTimeout(q.initializationResult(), 'Claude Code');
+    const init = await withTimeout(q.initializationResult(), 'Claude Code');
+    if (!skills) return init;
+    const asked = q; const names = await withTimeout(Promise.resolve().then(() => asked.reloadSkills()), 'Claude Code').then(r => r.skills.map(s => s.name), () => undefined);
+    return { ...init, ...(names ? { skills: names } : {}) };
   } catch (e) {
     throw new Error(((e as Error).message || String(e)) + (stderr.trim() ? ` (${stderr.trim().split('\n').pop()})` : ''));
   } finally {

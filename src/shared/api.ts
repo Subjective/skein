@@ -129,6 +129,8 @@ export interface SkeinApi {
     settings(): Promise<Settings>;
     setSettings(patch: Partial<Settings>): Promise<Settings>;
     openExternal(url: string): Promise<void>;
+    /** Show a file on this computer in Finder / File Explorer (~ allowed). */
+    reveal(path: string): Promise<void>;
     notify(title: string, body: string, thread?: string): Promise<void>;
   };
   machines: {
@@ -224,6 +226,9 @@ export interface SkeinApi {
     snapshot(machine: string, root: string): Promise<string>;
     /** Tracked and untracked files, ignored ones left out. Paths relative to the root, with /. */
     files(machine: string, root: string): Promise<string[]>;
+    /** The file's page on the remote's website (GitHub, GitLab, Bitbucket), at the upstream branch, else the
+     *  default branch. null when there is no remote or its host is not one of those. */
+    webUrl(machine: string, root: string, path: string): Promise<string | null>;
   };
   browser: {
     /** Forward a port on an SSH machine to this computer (`ssh -N -L`), so a Browser tab can load the remote's
@@ -265,14 +270,14 @@ export type SkeinBridge = SkeinApi & { on(fn: (e: SkeinEvent) => void): () => vo
 
 export const FIRE_AND_FORGET = new Set(['pty.write', 'pty.resize', 'pty.kill', 'browser.keys', 'chat.follow']);
 export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
-  app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'notify'],
+  app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'reveal', 'notify'],
   machines: ['list', 'add', 'remove', 'connect', 'answer', 'sshHosts'],
   fs: ['list', 'read', 'write', 'resolve', 'find'],
   threads: ['list', 'discover', 'create', 'update', 'history', 'sub', 'move'],
   chat: ['send', 'interrupt', 'answer', 'drive', 'follow', 'steerQueued', 'dropQueued', 'editQueued', 'orderQueue', 'resumeQueue'],
   pty: ['spawn', 'write', 'resize', 'kill', 'adopt'],
   images: ['toInbox'],
-  git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files'],
+  git: ['status', 'diff', 'stage', 'revert', 'unrevert', 'commit', 'log', 'repo', 'changes', 'counts', 'show', 'commits', 'branches', 'switch', 'push', 'snapshot', 'files', 'webUrl'],
   browser: ['forward', 'keys'],
   harness: ['options', 'commands'],
 };

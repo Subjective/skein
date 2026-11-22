@@ -292,6 +292,36 @@ await test('side chat: link opens it; Send to thread quotes the answer back', as
   assert.equal(await p.locator('.pane .compw .bk .tok').count(), 1, 'drawn as a chip');
 });
 
+await test('side chat links on one reply: h / l move the cursor between them; enter opens one', async p => {
+  await openChat(p, 'Fix session-restore race');
+  // a second side chat from the same reply
+  await p.evaluate(async () => {
+    const { api, S } = window.__skein, at = S.threads.find(t => t.id === 's1').parent.at;
+    const t = await api.threads.create({ harness: 'claude', machine: 'local', dir: '~/projects/skein', view: 'chat', side: true, parent: { id: 't1', at } });
+    await api.threads.update(t.id, { title: 'Second side chat' });
+  });
+  const links = p.locator('.pane.focus .sc-links').first().locator('.sc-link');
+  await links.nth(1).waitFor();
+  await composer(p).press('Escape');
+  await keys(p, 'g g');
+  const on = () => p.evaluate(() => document.querySelector('.pane.focus .sc-link.rowcur')?.textContent ?? null);
+  for (let i = 0; i < 12 && !(await on()); i++) await keys(p, 'j');
+  const [first, second] = await links.allTextContents();
+  assert.ok([first, second].includes(await on()), 'j lands on a link');
+  await keys(p, '0');
+  assert.equal(await on(), first, '0 goes to the first');
+  await keys(p, 'l');
+  assert.equal(await on(), second, 'l moves to the next one');
+  await keys(p, 'l');
+  assert.equal(await on(), second, 'and stops at the last');
+  await keys(p, 'h');
+  assert.equal(await on(), first, 'h moves back');
+  await keys(p, '$');
+  assert.equal(await on(), second, '$ goes to the last');
+  await keys(p, 'Enter');
+  await p.locator('.peek.focus .sc-anchor').waitFor();
+});
+
 await test('/sidechats offers New side chat; it opens a side chat popup in INSERT', async p => {
   await openChat(p, 'Add timestamps to chat rows');
   await composer(p).pressSequentially('/sidech');
@@ -785,16 +815,16 @@ await test('/ menu: the harness\'s commands with icons, thread commands, then it
   await menu.waitFor();
   await menu.locator('.mi', { hasText: 'Mockup parity' }).waitFor();   // the folder's project skill: the harness answered
   const names = await menu.locator('.mi:not(.head) .ml').allInnerTexts();
-  // Claude Code's built-in commands (sorted), then the thread's own, then its custom skills under Skills
-  assert.deepEqual(names.slice(0, 4), ['Clear', 'Code review', 'Compact', 'Config']);
+  // Claude Code's everyday commands (in CORE's order), then the thread's own, its skills, then its other built-ins
+  assert.deepEqual(names.slice(0, 4), ['Clear', 'Compact', 'Model', 'Effort']);
   assert.ok(names.includes('Usage') && !names.includes('Plan'), 'the harness\'s list, not the bundled one');
   assert.ok(names.indexOf('Side chats') > names.indexOf('Usage') && names.indexOf('Subagents') === names.indexOf('Side chats') + 1);
   assert.equal(await menu.locator('.mi.head', { hasText: 'Skills' }).count(), 1);
-  assert.deepEqual(names.slice(-2), ['Changelog', 'Mockup parity']);
+  assert.ok(names.indexOf('Mockup parity') > names.indexOf('Subagents') && names.indexOf('Mockup parity') < names.indexOf('Advisor'), 'custom skills under Skills, before More');
   assert.equal(await menu.locator('.mi:not(.head)').first().locator('.i-compose').count(), 1, 'Clear has its icon');
   // ctrl-p moves the list (the popup's keys win over global file search)
   await p.keyboard.press('Control+n');
-  assert.equal(await menu.locator('.mi.sel .ml').innerText(), 'Code review');
+  assert.equal(await menu.locator('.mi.sel .ml').innerText(), 'Compact');
   await p.keyboard.press('Control+p');
   assert.equal(await menu.locator('.mi.sel .ml').innerText(), 'Clear');
   await settle(p);
@@ -1308,7 +1338,7 @@ await test('/ menu: sections when nothing is typed; one list with source tags wh
   const menu = p.locator('.composer-menu');
   await menu.waitFor();
   const heads = await menu.locator('.mi.head').allInnerTexts();
-  assert.deepEqual(heads.map(h => h.trim()), ['Claude Code', 'Skein', 'Skills']);
+  assert.deepEqual(heads.map(h => h.trim()), ['Claude Code', 'Skein', 'Skills', 'More']);
   await composer(p).pressSequentially('si');
   await p.waitForFunction(() => !document.querySelector('.composer-menu .mi.head'));
   assert.equal(await menu.locator('.mi', { hasText: 'Side chat' }).first().locator('.src').innerText(), 'Skein');
@@ -1559,4 +1589,54 @@ await test('quote chip: two chips each get an icon, in order', async p => {
   const ts = await p.evaluate(() => [...document.querySelectorAll('.pane.focus .compw .bk .tok')].map(s => s.getBoundingClientRect().left));
   assert.equal(xs.length, 2);
   assert.ok(Math.abs(xs[0] - ts[0]) < 3 && Math.abs(xs[1] - ts[1]) < 3, 'each icon at its own chip');
+});
+
+await test('popups keep the side they opened on: filtering the / menu and the model picker never flips them', async p => {
+  await p.setViewportSize({ width: 1100, height: 800 });
+  const side = () => p.evaluate(() => { const m = document.querySelector('.menu'), c = document.querySelector('.pane.focus .comp'); return m && (m.getBoundingClientRect().top >= c.getBoundingClientRect().bottom - 1 ? 'below' : 'above'); });
+  await p.locator('.pane.focus .comp textarea').first().click();
+  await p.keyboard.type('/'); await settle(p, 250);
+  const first = await side();
+  assert.equal(first, 'below', 'the whole list has no room above the new-thread composer');
+  for (const k of ['c', 'o', 'm']) { await p.keyboard.type(k); await settle(p); assert.equal(await side(), first, `still ${first} after /…${k}`); }
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  await p.locator('.pane.focus .comp .cf [title="Model and effort"]').click();
+  await p.locator('.menu.model').waitFor(); await settle(p, 250);
+  const m = await side();
+  for (const q of ['h', 'a', 'i']) { await p.keyboard.type(q); await settle(p); assert.equal(await side(), m, 'the model picker stays put while searching'); }
+});
+
+await test('model picker: stays inside the window after its list is measured again (rows past Haiku 4.5 stay reachable)', async p => {
+  await p.setViewportSize({ width: 1100, height: 620 });
+  await p.locator('.pane.focus .comp .cf [title="Model and effort"]').click();
+  const menu = p.locator('.menu.model'); await menu.waitFor(); await settle(p, 250);
+  const inside = async why => { const b = await menu.boundingBox(); assert.ok(b.y + b.height <= 620, `${why}: bottom ${Math.round(b.y + b.height)} inside 620`); };
+  await inside('open');
+  // a search re-measures the list; one that ends where it started used to drop the height cap
+  await p.keyboard.type('o'); await settle(p); await p.keyboard.press('Backspace'); await settle(p);
+  await inside('after a search');
+  for (let i = 0; i < 12; i++) await p.keyboard.press('ArrowDown');
+  await settle(p);
+  await inside('after moving down the list');
+  const sel = await menu.locator('.mi.sel').boundingBox();
+  assert.ok(sel.y >= 0 && sel.y + sel.height <= 620, 'the selected row is in view');
+});
+
+await test('/ menu: Claude Code lists its everyday commands first with their own icons and short hints, skills and the rest after', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).click();
+  await p.keyboard.type('/');
+  const menu = p.locator('.menu.composer-menu'); await menu.waitFor(); await settle(p, 250);
+  assert.deepEqual(await menu.locator('.mi.head').allInnerTexts(), ['Claude Code', 'Skein', 'Skills', 'More']);
+  const rows = await menu.locator('.mi:not(.head)').evaluateAll(xs => xs.map(x => ({ l: x.querySelector('.ml').textContent, h: x.querySelector('.mh')?.textContent ?? '', i: x.querySelector('.mic svg')?.getAttribute('class') ?? '' })));
+  const core = rows.slice(0, rows.findIndex(r => r.l === 'Side chat'));
+  assert.deepEqual(core.map(r => r.l), ['Clear', 'Compact', 'Model', 'Effort', 'Code review', 'Context', 'Usage', 'MCP', 'Init']);
+  assert.ok(core.every(r => !/bolt/.test(r.i)), 'each everyday command has its own icon');
+  assert.ok(core.every(r => r.h.length <= 30), 'short hints');
+  assert.equal(rows.find(r => r.l === 'Batch').h, 'Research and plan a large-scale change, then execute it in parallel across 5–30 isolated worktree agents that each open a PR', 'other built-ins keep the harness text, cut to its first clause');
+  assert.equal(rows.find(r => r.l === 'Claude api').h, 'Reference for the Claude API / Anthropic SDK');
+  // typing: one list, no headings
+  await p.keyboard.type('co'); await settle(p);
+  assert.equal(await menu.locator('.mi.head').count(), 0);
+  assert.deepEqual((await menu.locator('.mi .ml').allInnerTexts()).slice(0, 4), ['Compact', 'Code review', 'Context', 'Color']);
 });
