@@ -7,7 +7,7 @@ import { tabHook } from './hooks';
 import { ctxOf, viewState, type Ctx } from './repo';
 
 /** The file view's state that outlives a render: history and where to put the cursor next. */
-export interface FileNav { hist: { path: string; line: number }[]; hi: number; goto?: { line: number; col?: number } }
+export interface FileNav { hist: { path: string; line: number }[]; hi: number; goto?: { line: number; col?: number }; anchor?: string }
 export const fileNav = (t: Tab) => viewState<FileNav>(t.id + ':nav', () => ({ hist: [{ path: t.path || '', line: 1 }], hi: 0 }));
 
 /** Changes, Files or a Browser beside the current tab: an open one for the same folder is reused. */
@@ -22,12 +22,14 @@ export function openTool(kind: 'changes' | 'files' | 'browser', from: Tab = A.cu
 
 /** Open `path` (relative to `ctx.dir`). From an open file it moves that tab (with history); otherwise an open
  *  tab for the file is reused, a launcher on screen becomes the file, or it opens where state/layout placeFor says:
- *  a tab in a pane that shows files, else beside the thread. `split` opens it in a new split to the right. */
-export function openFile(ctx: Ctx, path: string, o: { line?: number; col?: number; from?: Tab; newTab?: boolean; split?: boolean } = {}) {
+ *  a tab in a pane that shows files, else beside the thread. `split` opens it in a new split to the right.
+ *  `anchor` scrolls a Markdown preview to the heading with that id. */
+export function openFile(ctx: Ctx, path: string, o: { line?: number; col?: number; from?: Tab; newTab?: boolean; split?: boolean; anchor?: string } = {}) {
   const from = o.from;
   if (from?.kind === 'file' && !o.newTab && !o.split && from.dir === ctx.dir) {
     const nav = fileNav(from);
     const cur = nav.hist[nav.hi];
+    nav.anchor = o.anchor;
     if (cur.path === path) { nav.goto = { line: o.line || 1, col: o.col }; update(); return; }
     nav.hist = [...nav.hist.slice(0, nav.hi + 1), { path, line: o.line || 1 }];
     nav.hi = nav.hist.length - 1;
@@ -39,6 +41,7 @@ export function openFile(ctx: Ctx, path: string, o: { line?: number; col?: numbe
   const hit = o.split ? undefined : allTabs(ws()).find(x => x.tab.kind === 'file' && x.tab.path === path && x.tab.dir === ctx.dir && (x.tab.machine || 'local') === ctx.machine);
   const t = hit?.tab || mkTab('file', { machine: ctx.machine, dir: ctx.dir, path, thread: from?.thread });
   fileNav(t).goto = { line: o.line || 1, col: o.col };
+  fileNav(t).anchor = o.anchor;
   if (hit?.pane) { A.activate(hit.pane.id, t.id); return; }
   if (hit) { update(() => { ws().pf = t.id; }); return; }
   const g = A.focusedPane(), a = g.tabs.find(x => x.id === g.active);
