@@ -664,6 +664,46 @@ test('archiving a thread closes its tabs and its side chat; Undo brings them bac
   assert.ok(!(await p.evaluate(() => window.__skein.S.threads.find(t => t.id === 't1').archived)), 'and unarchives the thread');
 });
 
+test('a focused popup shows it by the panes behind receding, not by an outline: keys and mouse', async p => {
+  await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
+  await settle(p, 300);
+  const seg = p.locator('.pane.focus .tb .seg button[aria-label^="Chat"]');
+  if ((await seg.getAttribute('aria-pressed')) !== 'true') await seg.click();
+  const look = () => p.evaluate(() => {
+    const pane = document.querySelector('.pane[data-pane] > .body'), pop = document.querySelector('.peek');
+    return { pane: getComputedStyle(pane).opacity, popFocus: pop.classList.contains('focus'), border: getComputedStyle(pop).borderTopColor, popBody: getComputedStyle(pop.querySelector(':scope > .body')).opacity };
+  });
+  await p.locator('.pane.focus .sc-link', { hasText: 'Why not a mutex here?' }).first().click();
+  await settle(p, 300);
+  const on = await look();
+  assert.ok(on.popFocus, 'the side chat opens focused');
+  assert.equal(on.pane, '0.68', 'the thread behind it recedes');
+  assert.equal(on.popBody, '1');
+  // the mouse: a click in the thread takes the focus back, and the thread comes forward again
+  await p.mouse.move(5, 5);
+  await p.locator('.pane[data-pane] .compw').first().click();
+  await settle(p, 300);
+  const off = await look();
+  assert.ok(!off.popFocus);
+  assert.equal(off.pane, '1', 'the thread is back to full strength');
+  assert.equal(off.popBody, '0.68', 'the popup recedes instead');
+  assert.equal(off.border, on.border, 'the popup has no focus outline of its own');
+  // a click on the popup focuses it again
+  await p.locator('.peek .tb .pt').click();
+  await p.mouse.move(5, 5); await settle(p, 300);
+  assert.equal((await look()).pane, '0.68');
+  // the keys: leader o goes back to the panes, and again to the popup
+  await keys(p, 'Escape'); await ldr(p, 'o'); await settle(p, 300);
+  assert.equal((await look()).pane, '1');
+  await ldr(p, 'o'); await settle(p, 300);
+  assert.equal((await look()).pane, '0.68');
+  // closing the focused popup brings the panes back
+  await ldr(p, 'o'); await ldr(p, 'o'); await settle(p, 300);
+  await p.locator('.peek button[aria-label="Close"]').click(); await settle(p, 300);
+  assert.equal(await p.locator('.peek').count(), 0);
+  assert.equal(await p.evaluate(() => getComputedStyle(document.querySelector('.pane[data-pane] > .body')).opacity), '1');
+});
+
 test('sidebar NORMAL: k from the top heading reaches New thread, enter opens one; every row type draws the same cursor', async p => {
   await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
   await settle(p, 450);

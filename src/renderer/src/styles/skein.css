@@ -15,6 +15,8 @@
   --mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono", Consolas, monospace;
   --mono-w: 350;
   --ease: 120ms ease;
+  /* what's behind the focus recedes: panes that aren't focused, and every pane while a popup is (a hover brings an unfocused pane partway back, but not from under a popup) */
+  --recede: .68; --recede-hover: .85;
   /* every drag-to-resize edge (.rsz): the line it shows on hover and while dragging, and how wide it can be grabbed */
   --rsz-line: var(--blue); --rsz-w: 2px; --rsz-hit: 9px; --rsz-delay: 150ms;
   --sel: rgba(74, 163, 255, .3);   /* every selection: text, VISUAL, V-LINE rows */
@@ -208,9 +210,11 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 .tb .seg { flex: none; margin: 0 2px; }
 .tb .seg button { width: 28px; height: 22px; }
 .tb .seg svg.i { width: 14px; height: 14px; }
-/* inactive panes recede, tmux-style; the focused one needs no extra chrome */
-.panes.many .pane:not(.focus) > .body { opacity: .68; transition: opacity var(--ease); }
-.panes.many .pane:not(.focus):hover > .body { opacity: .85; }
+/* inactive panes recede, tmux-style; the focused one needs no extra chrome. A focused popup is marked the same way:
+   the panes behind it recede, with no outline of its own (and no hover lift: the pointer is usually over them) */
+.pane > .body { transition: opacity var(--ease); }
+.panes.many .pane:not(.focus) > .body, .panes.popped .pane > .body { opacity: var(--recede); }
+.panes.many:not(.popped) .pane:not(.focus):hover > .body { opacity: var(--recede-hover); }
 .drop { position: fixed; z-index: 40; background: rgba(74, 163, 255, .14); border: 1px solid var(--blue); border-radius: 6px; pointer-events: none; }
 
 .rail { flex: 0 0 41px; border-left: 1px solid var(--line); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 0; background: var(--side); }
@@ -447,8 +451,7 @@ textarea.vn.vv::selection { background: var(--sel); color: inherit; }
 /* the side chat popup floats: no backdrop, drag by the header, close with x */
 .peek { position: absolute; z-index: 20; width: min(500px, calc(100% - 40px)); height: min(540px, calc(100% - 80px)); }
 .peek > .tb { cursor: grab; }
-.peek.focus { border-color: var(--fg-3); }
-.peek:not(.focus) > .chat { opacity: .75; }
+.peek:not(.focus) > .chat { opacity: var(--recede); }
 
 /* quoted selections in a composer, and where they point */
 .notes { display: flex; flex-direction: column; gap: 1px; padding: 0 0 4px; }
@@ -771,7 +774,7 @@ body.dragging-tab * { cursor: grabbing !important; }
 .peek.focus { z-index: 22; }
 .peek > .body { flex: 1; min-height: 0; }
 .peek > .tb { flex: none; }
-.peek:not(.focus) > .body { opacity: .75; }
+.peek:not(.focus) > .body { opacity: var(--recede); transition: opacity var(--ease); }
 .peek .tb .dot, .peek .tb .spin { margin-left: 2px; }
 /* alt / option held: x becomes "pop out" on a tab and "back to a tab" on a popup */
 .tx .i-popout, .px .i-dockin { display: none; }

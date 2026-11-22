@@ -232,6 +232,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | shell P6 | esc from NORMAL in a popup closes it | Fixed | `input/keymap.ts:142`; driven. |
 | shell P7 | ctrl-o / ctrl-i between a popup and its pane, keeping places | Fixed | `state/actions.ts:224-247`. |
 | shell POPDOCK-browser | A Browser tab keeps its page when popped out or docked | Proposed deviation | A webview reloads when re-parented; the URL is kept. |
+| shell P-focus | A focused popup is marked by a darker outline | Approved deviation | Josh, 2026-11-22: no outline; the panes behind a focused popup recede the way unfocused panes do (`--recede`, `styles/skein.css`). |
 
 ## Tools
 

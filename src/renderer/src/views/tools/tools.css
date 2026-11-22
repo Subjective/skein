@@ -104,7 +104,12 @@
 .doc hr { border: 0; border-top: 1px solid var(--line); margin: 1.2em 0; }
 .doc a { color: var(--blue); text-decoration: none; cursor: pointer; }
 .doc a:hover { text-decoration: underline; }
-.doc .mlink { color: var(--blue); }
+.doc a.mlink.kcur { color: var(--blue) !important; border-radius: 4px; text-decoration: underline; }
+.doc [data-slug].flash { animation: flashRow .7s ease; border-radius: 6px; }
+/* where the link under the pointer or the ringed one goes, as a browser shows it */
+.file-v .cbody { position: relative; }
+.link-tip { position: absolute; left: 10px; bottom: 10px; z-index: 2; max-width: min(520px, calc(100% - 20px)); padding: 3px 9px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--pop); color: var(--fg-2); font: var(--mono-w) 11.500px/18px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; animation: eff-in .12s ease; }
+@media (prefers-reduced-motion: reduce) { .doc [data-slug].flash, .link-tip { animation: none; } }
 .src .dl { content-visibility: auto; contain-intrinsic-size: auto 19.8px; }
 .src .dl.curl, .src .dl.vsel { content-visibility: visible; }
 .ib.flip svg.i { transform: rotate(180deg); }

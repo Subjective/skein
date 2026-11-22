@@ -509,6 +509,121 @@ await test('file: Markdown opens as a preview; gp and the Source / Preview switc
   await F(p).locator('.src').waitFor();
 });
 
+// docs/GUIDE.md links, in order: the readme, its build steps, the types, the theme, the sessions folder, later on,
+// a missing file, a missing heading, an odd scheme, the web, an autolink, then (at the bottom) the top.
+async function openGuide(p) {
+  await openFiles(p);
+  await keys(p, '/');
+  await p.keyboard.type('GUIDE.md');
+  await p.keyboard.press('Enter');
+  await F(p).locator('.doc.prose a.mlink').first().waitFor();
+}
+const L = (p, name) => F(p).locator('.doc a.mlink', { hasText: name }).first();
+const crumbIs = (p, re) => p.waitForFunction(r => new RegExp(r).test(document.querySelector('.pane.focus .file-v .crumbs')?.textContent || ''), re.source);
+/** Whether the element is inside the reader's visible area. */
+const shown = loc => loc.evaluate(el => { const b = el.closest('.tool-b').getBoundingClientRect(), r = el.getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1; });
+
+await test('file: preview links open files, headings and web pages; hover shows where they go', async p => {
+  await openGuide(p);
+  assert.equal(await F(p).locator('.doc a.mlink').count(), 12);
+  assert.equal(await L(p, 'the readme').evaluate(e => getComputedStyle(e).cursor), 'pointer');
+  // hover: where it goes, resolved from the file's folder; it goes when the pointer leaves
+  await L(p, 'the types').hover();
+  assert.equal(await F(p).locator('.link-tip').innerText(), 'sessions/types.ts#L2');
+  await L(p, 'the web').hover();
+  assert.equal(await F(p).locator('.link-tip').innerText(), 'https://example.com/skein');
+  await F(p).locator('.doc h1').hover();
+  assert.equal(await F(p).locator('.link-tip').count(), 0);
+  // a heading in this file scrolls into view and flashes
+  await L(p, 'later on').click();
+  const later = F(p).locator('.doc h2[data-slug="later-on"]');
+  assert.ok(await shown(later), 'the heading is in view');
+  assert.match(await later.getAttribute('class') || '', /flash/);
+  await L(p, 'the top').click();
+  assert.ok(await shown(F(p).locator('.doc h1[data-slug="guide"]')));
+  // broken links say so quietly and stay put
+  await L(p, 'a missing heading').click();
+  assert.match(await toastText(p), /No heading #nowhere in GUIDE\.md/);
+  await L(p, 'a missing file').click();
+  await p.locator('.toast', { hasText: 'No file at docs/nope.md' }).waitFor();
+  await L(p, 'an odd scheme').click();
+  await p.locator('.toast', { hasText: 'does not open ftp: links' }).waitFor();
+  await crumbIs(p, /GUIDE\.md/);
+  // web links open in the system browser
+  await L(p, 'the web').click();
+  await L(p, 'https://example.com/auto').click();
+  assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein', 'https://example.com/auto']);
+  // a file opens in this tab, at a heading; ctrl-o comes back
+  await L(p, 'its build steps').click();
+  await crumbIs(p, /README\.md/);
+  const build = F(p).locator('.doc h2[data-slug="build"]');
+  await build.waitFor();
+  assert.match(await build.getAttribute('class') || '', /flash/);
+  await keys(p, 'Control+o');
+  await crumbIs(p, /GUIDE\.md/);
+  // a line link (from the root, /sessions/...) opens the source at that line
+  await L(p, 'the types').click();
+  await crumbIs(p, /types\.ts/);
+  await p.waitForFunction(() => document.querySelector('.pane.focus .file-v .curl .n')?.textContent === '2');
+  await keys(p, 'Control+o');
+  await crumbIs(p, /GUIDE\.md/);
+  // a folder lists what is in it
+  await L(p, 'The sessions folder').click();
+  await menu(p).getByText('store.ts').waitFor();
+  await p.keyboard.press('Escape');
+  // a modifier click opens a new split, as everywhere else
+  const panes = await p.locator('.pane').count();
+  await L(p, 'the theme').click({ modifiers: ['Shift'] });
+  await p.waitForFunction(n => document.querySelectorAll('.pane').length === n + 1, panes);
+  await crumbIs(p, /theme\.css/);
+});
+
+await test('file: tab rings preview links; enter, g x and O follow the ringed one; esc lets go', async p => {
+  await openGuide(p);
+  const ring = () => F(p).locator('.doc a.mlink.kcur').innerText();
+  await keys(p, 'Tab');
+  assert.equal(await ring(), 'the readme');
+  assert.equal(await F(p).locator('.link-tip').innerText(), 'README.md');
+  await keys(p, 'Tab Tab');
+  assert.equal(await ring(), 'the types');
+  await keys(p, 'Shift+Tab');
+  assert.equal(await ring(), 'its build steps');
+  assert.equal(await mode(p), 'NORMAL');
+  await keys(p, 'Escape');
+  assert.equal(await F(p).locator('.doc a.mlink.kcur').count(), 0);
+  assert.equal(await F(p).locator('.link-tip').count(), 0);
+  // g x with nothing ringed says how to ring one
+  await keys(p, 'g x');
+  assert.match(await toastText(p), /No link chosen/);
+  // enter follows; the new file starts with nothing ringed
+  await keys(p, 'Tab Enter');
+  await crumbIs(p, /README\.md/);
+  assert.equal(await F(p).locator('.doc a.mlink.kcur').count(), 0);
+  assert.equal(await F(p).locator('.ed textarea:focus').count(), 0, 'enter on a link does not start editing');
+  await keys(p, 'Control+o');
+  await crumbIs(p, /GUIDE\.md/);
+  // g x on "later on" (the 6th) scrolls to it
+  await keys(p, 'Tab Tab Tab Tab Tab Tab');
+  assert.equal(await ring(), 'later on');
+  await keys(p, 'g x');
+  assert.ok(await shown(F(p).locator('.doc h2[data-slug="later-on"]')));
+  // after scrolling, tab starts from what is on screen, not from the top
+  await keys(p, 'Escape G');
+  await settle(p);
+  await keys(p, 'Tab');
+  assert.equal(await ring(), 'the top');
+  // shift-tab with nothing ringed starts from the last link on screen
+  await keys(p, 'Escape g g Shift+Tab');
+  assert.equal(await ring(), 'https://example.com/auto');
+  // O opens the ringed file in a new split
+  await keys(p, 'g g Escape Tab Tab Tab Tab');
+  assert.equal(await ring(), 'the theme');
+  const panes = await p.locator('.pane').count();
+  await keys(p, 'O');
+  await p.waitForFunction(n => document.querySelectorAll('.pane').length === n + 1, panes);
+  await crumbIs(p, /theme\.css/);
+});
+
 await test('file: the project tree toggles beside the file and opens another file', async p => {
   await openReadme(p);
   if (!(await F(p).locator('.ctree').count())) await F(p).getByRole('button', { name: 'Project files' }).click();
