@@ -121,10 +121,11 @@ describe('Codex driver', () => {
     const { srv, h, d } = setup();
     await d.send({ text: 'hello', model: 'GPT-6.2 Sol', effort: 'High', perm: 'Auto' });
     expect(h.thread('t1').sessionId).toBe('cx-1');
-    expect(srv.got.map(g => g.method)).toEqual(['initialize', 'initialized', 'thread/start', 'turn/start']);
-    expect(srv.got[2].params).toMatchObject({ model: 'gpt-6.2-sol', approvalPolicy: 'on-request', sandbox: 'workspace-write' });
-    expect(srv.got[3].params).toMatchObject({ threadId: 'cx-1', effort: 'high', input: [{ type: 'text', text: 'hello' }] });
-    const clientId = srv.got[3].params.clientUserMessageId;
+    const got = srv.got.filter(g => g.method !== 'thread/queue/list');
+    expect(got.map(g => g.method)).toEqual(['initialize', 'initialized', 'thread/start', 'turn/start']);
+    expect(got[2].params).toMatchObject({ model: 'gpt-6.2-sol', approvalPolicy: 'on-request', sandbox: 'workspace-write' });
+    expect(got[3].params).toMatchObject({ threadId: 'cx-1', effort: 'high', input: [{ type: 'text', text: 'hello' }] });
+    const clientId = got[3].params.clientUserMessageId;
     expect(h.thread('t1').status).toBe('running');
     // The server echoes the user message (skipped: shown at send), streams, and completes.
     srv.notify('item/started', { threadId: 'cx-1', turnId: 'turn-1', item: { type: 'userMessage', id: 'u1', clientId, content: [] } });
@@ -151,6 +152,64 @@ describe('Codex driver', () => {
     expect(h.view().find(e => e.id === 'ap-cmd1')).toMatchObject({ t: 'notice', text: 'Always allowed: npm test' });
     await d.send({ text: 'also lint' });
     expect(srv.got.at(-1)).toMatchObject({ method: 'turn/steer', params: { expectedTurnId: 'turn-1' } });
+  });
+
+  it("queues on Codex's own queue, mirrors it, steers one in, and pauses after a stop", async () => {
+    // a server keeping a queue the way the app-server does (thread/queue/*), announcing each change
+    let q: { id: string; input: unknown[]; clientUserMessageId: string }[] = [], n = 0;
+    const srv: ReturnType<typeof fakeServer> = fakeServer((method, p) => {
+      const P = p as { input?: unknown[]; clientUserMessageId?: string; queuedSubmissionId?: string; queuedSubmissionIds?: string[] };
+      const changed = () => queueMicrotask(() => srv.notify('thread/queue/changed', { threadId: 'cx-1' }));
+      if (method === 'turn/start') return { turn: { id: 'turn-1' } };
+      if (method === 'thread/queue/list') return { data: q, nextCursor: null };
+      if (method === 'thread/queue/add') { const s = { id: 'q' + ++n, input: P.input!, clientUserMessageId: P.clientUserMessageId! }; q.push(s); changed(); return { queuedSubmission: s }; }
+      if (method === 'thread/queue/delete') { q = q.filter(x => x.id !== P.queuedSubmissionId); changed(); return { deleted: true }; }
+      if (method === 'thread/queue/update') { q = q.map(x => (x.id === P.queuedSubmissionId ? { ...x, input: P.input! } : x)); changed(); return {}; }
+      if (method === 'thread/queue/reorder') { q = P.queuedSubmissionIds!.map(i => q.find(x => x.id === i)!); changed(); return {}; }
+      return {};
+    });
+    const h = fakeHost([{ id: 't1', harness: 'codex', sessionId: 'cx-1' }]);
+    const d = new CodexDriver('t1', h.host, new CodexServers(srv.launch));
+    await d.send({ text: 'first' });
+    srv.notify('turn/started', { threadId: 'cx-1', turn: { id: 'turn-1' } });
+    await d.send({ text: 'second', queue: true });
+    await d.send({ text: 'third', queue: true });
+    await until(() => h.thread('t1').queue?.length === 2);
+    expect(h.thread('t1').queue!.map(x => x.text)).toEqual(['second', 'third']);
+    expect(h.view().filter(e => e.t === 'user').map(e => (e as { text: string }).text)).toEqual(['first']);   // queued ones show when they start
+    const [a, b] = h.thread('t1').queue!.map(x => x.id);
+    await d.editQueued(b, 'third, edited');
+    await d.orderQueue([b, a]);
+    await until(() => h.thread('t1').queue![0].text === 'third, edited');
+    // steer: into the running turn now, and out of the queue
+    await d.steerQueued(a);
+    expect(srv.got.find(g => g.method === 'turn/steer')?.params).toMatchObject({ expectedTurnId: 'turn-1', input: [{ type: 'text', text: 'second' }] });
+    await until(() => h.thread('t1').queue?.length === 1);
+    expect(h.view().filter(e => e.t === 'user').map(e => (e as { text: string }).text)).toEqual(['first', 'second']);
+    // a stop pauses it; resume starts the next
+    srv.notify('turn/completed', { threadId: 'cx-1', turn: { id: 'turn-1', status: 'interrupted', error: null, durationMs: 10 } });
+    await until(() => h.thread('t1').queuePaused === true);
+    await d.resumeQueue();
+    expect(srv.got.at(-1)).toMatchObject({ method: 'thread/queue/start', params: { threadId: 'cx-1' } });
+    srv.notify('turn/started', { threadId: 'cx-1', turn: { id: 'turn-2' } });
+    await until(() => h.thread('t1').queuePaused === false);
+    await d.dropQueued(b);
+    await until(() => h.thread('t1').queue?.length === 0);
+  });
+
+  it('continues a stopped turn: a turn with no input and a Continued note, live and in history', async () => {
+    const { srv, h, d } = setup({ sessionId: 'cx-1' });
+    await d.send({ text: '', resume: true });
+    expect(srv.got.find(g => g.method === 'turn/start')?.params).toMatchObject({ threadId: 'cx-1', input: [] });
+    expect(h.view().filter(e => e.t === 'user')).toHaveLength(0);
+    expect(h.view().at(-1)).toMatchObject({ t: 'notice', id: 'c-turn-1', text: 'Continued' });
+    const user = (id: string) => ({ type: 'userMessage', id, clientId: null, content: [{ type: 'text', text: 'go', text_elements: [] }] });
+    const turns = [
+      { id: 'a', status: 'interrupted', error: null, durationMs: 10, items: [user('u1')] },
+      { id: 'b', status: 'completed', error: null, durationMs: 10, items: [{ type: 'agentMessage', id: 'm1', text: 'ok' }] },
+      { id: 'c', status: 'completed', error: null, durationMs: 10, items: [{ type: 'agentMessage', id: 'm2', text: 'ok' }] },   // not after a stop: no note
+    ];
+    expect(turnEvents(turns as never).events.filter(e => e.t === 'notice')).toEqual([{ t: 'notice', id: 'c-b', text: 'Continued' }]);
   });
 
   it('records the model and effort Codex resumed a thread with when the thread has none', async () => {

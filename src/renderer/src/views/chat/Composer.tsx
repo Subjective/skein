@@ -37,7 +37,12 @@ export interface ComposerProps {
   onDraft(d: Draft): void;
   placeholder?: string;
   running?: boolean;
-  onSend(): void;
+  /** `alt`: mod-enter, which does the other of queue and steer while a turn runs. */
+  onSend(alt?: boolean): void;
+  /** The text got the keys (a click, or focus from elsewhere). */
+  onFocus?(): void;
+  /** Codex: a stop interrupted the last turn, so with nothing typed send (enter, the ▶ button) continues it. */
+  canContinue?: boolean;
   onStop?(): void;
   /** Our own / commands: /model is handled here; the rest go to the view. */
   onCommand?(cmd: string, anchor: DOMRect): void;
@@ -291,6 +296,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     else if (open && menu.current && ['up', 'down', 'ctrl-n', 'ctrl-p', 'ctrl-j', 'ctrl-k', 'tab', 'shift-tab', 'enter'].includes(k)) return menu.current.key(k === 'tab' || k === 'shift-tab' ? 'enter' : k, { key: '', code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
     if (open && k === 'esc') { setPop(null); return false; }   // the field goes to NORMAL too
     if (k === 'esc' && mode === 'NORMAL' && escStop()) return true;
+    if (!open && (k === 'mod-enter' || k === 'ctrl-enter' || k === 'cmd-enter')) { if (!ourCommand()) props.current.onSend(true); return true; }
     if (mode === 'NORMAL' && props.current.onNormalKey?.(k)) return true;
     // NORMAL has no paste event (the keys don't type): ctrl-v / cmd-v still attach an image on the clipboard
     if (mode === 'NORMAL' && (k === 'ctrl-v' || k === 'cmd-v')) { void pasteFromClipboard(); return true; }
@@ -376,7 +382,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const th = p.thread, ctx = th.ctx;
   const hasText = !!p.draft.text.trim() || p.draft.images.length > 0;
   return (
-    <div ref={box} className={cx('comp', p.className)} onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+    <div ref={box} className={cx('comp', p.className)} onFocus={() => p.onFocus?.()} onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
       onDrop={e => { const fs = clipImages(e.dataTransfer); if (fs.length) { e.preventDefault(); addFiles(fs); } }}>
       {p.draft.images.length > 0 && (
         <div className="atts">{p.draft.images.map((src, i) => (
@@ -403,7 +409,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <span className={cx('ring', fill(ctx))} style={{ ['--p' as string]: ctx }} />
           </button>
         )}
-        <SendButton stop={p.running && !hasText} armed={armed} disabled={!p.running && !hasText} onClick={() => { if (armed) { disarm(false); p.onStop?.(); return; } if (p.running && !hasText) p.onStop?.(); else p.onSend(); }} />
+        <SendButton stop={p.running && !hasText} armed={armed} play={!p.running && !hasText && p.canContinue} disabled={!p.running && !hasText && !p.canContinue} onClick={() => { if (armed) { disarm(false); p.onStop?.(); return; } if (p.running && !hasText) p.onStop?.(); else p.onSend(); }} />
       </div>
       {hot && createPortal(<button ref={tokx} type="button" className="tokx" title="Remove" aria-label="Remove quote" style={{ left: hot.right - 4, top: hot.top - 9 }}
         onMouseDown={e => { e.preventDefault(); e.stopPropagation(); dropQuote(hot.i); }}><Icon name="x" /></button>, document.body)}

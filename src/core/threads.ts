@@ -9,7 +9,7 @@ import type { Store } from './store';
 export class Threads {
   private map = new Map<string, ThreadMeta>();
   constructor(private store: Store) {
-    for (const t of store.rows<ThreadMeta>('threads')) this.map.set(t.id, { ...t, status: t.status === 'running' ? 'idle' : t.status });
+    for (const t of store.rows<ThreadMeta>('threads')) this.map.set(t.id, { ...t, status: t.status === 'running' ? 'idle' : t.status, ...(t.queue?.length ? { queuePaused: true } : {}) }); // nothing runs a queue after a restart until you resume it
   }
   list() { return [...this.map.values()]; }
   get(id: string) { const t = this.map.get(id); if (!t) throw new Error(`Unknown thread ${id}`); return t; }

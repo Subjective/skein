@@ -116,7 +116,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | chat R17 | Any mousedown outside the selection bar turns the reader off | In progress | Confirmed by the click survey (Z8); a fix is in progress in `views/chat/reader.ts` (uncommitted). |
 | chat R20 | H L \| \\ from the reader | Fixed | See keys R3. |
 | chat E10 | Editing in side chats and subagents | Proposed deviation | A subagent transcript cannot be rewound through the harness; side chats can be edited. |
-| chat P6 | Send turns into stop whenever a turn runs | Proposed deviation | With text typed, send queues a follow-up (HANDOFF). |
+| chat P6 | Send turns into stop whenever a turn runs | Deviation (approved by Josh, 2026-11-22) | With text typed, enter queues the message above the composer (`views/chat/QueueTray.tsx`) and mod-enter steers the running turn; Settings, General swaps them. After a stop, an empty composer's send button continues a Codex turn (Claude Code has no such call, so it isn't offered there). |
 | chat P7 | Send is never disabled | Proposed deviation | An empty send is disabled; minor. |
 | chat P11 | Drag or double click in the composer gives VISUAL; triple click V-LINE | Fixed | `ui/VimField.tsx:131-137`. |
 | chat P15 | esc from composer NORMAL in a popup closes it | Fixed | See keys N13. |
