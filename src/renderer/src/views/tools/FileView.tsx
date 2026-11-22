@@ -6,6 +6,8 @@
 // The header has back / forward (ctrl-o / ctrl-i, through the jump list), the path (each folder opens a list of
 // what is in it; - opens the file's own folder), the language, and the project tree. Lines changed since the last
 // commit get a bar in the gutter: green added, amber changed, a red notch where lines were removed.
+// Links in the Markdown preview follow (mdlinks.ts): a file opens in this tab (ctrl-o comes back), a heading
+// scrolls into view, a web link opens in the system browser. tab / shift-tab ring them, enter or g x follows.
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { gutterMarks } from '@shared/gutter';
 import { api } from '../../api';
@@ -28,7 +30,8 @@ import { registerHooks } from './hooks';
 import { numbersOn, openFileMenu, registerFile, wrapOn } from './fileactions';
 import { diffLines, toHunks } from './linediff';
 import { Markdown } from './md';
-import { fileNav, openFile, readText } from './open';
+import { linkTarget, type LinkTarget } from './mdlinks';
+import { fileNav, openFile, readText, splitClick, splitKey } from './open';
 import { ProjectTree, toggleDir, useLister, type TreeState } from './ProjectTree';
 import { ctxOf, join, refreshNow, useRepo, viewState } from './repo';
 import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
@@ -49,7 +52,7 @@ const EDIT_N = new Set(['i', 'a', 'I', 'A', 'o', 'O', 's', 'S', 'c', 'C', 'd', '
 const EDIT_V = new Set(['d', 'x', 'c', 's', 'J', '~', 'r', 'delete']);
 const HL_MAX = 8000;   // lines highlighted; the rest of a huge file is plain
 
-interface View { rs: TextState; mode: 'read' | 'edit'; md: 'preview' | 'source'; diff?: boolean; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string; search: ReaderSearch; reader?: Searchable }
+interface View { rs: TextState; mode: 'read' | 'edit'; md: 'preview' | 'source'; lk: number; lkTip?: string; hover?: string; diff?: boolean; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string; search: ReaderSearch; reader?: Searchable }
 
 const fakeKey = (k: string): KeyLike => ({ key: k.length === 1 ? k : k === 'esc' ? 'Escape' : k, code: '', ctrlKey: k.startsWith('ctrl-'), altKey: false, shiftKey: false, metaKey: false });
 const lineStarts = (t: string) => { const a = [0]; for (let i = 0; i < t.length; i++) if (t.charCodeAt(i) === 10) a.push(i + 1); return a; };
@@ -65,7 +68,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   const lister = useLister(ctx, re);
   const nav = fileNav(t);
   const v = viewState<View>(t.id, () => {
-    const x: View = { rs: init('', 'NORMAL'), mode: 'read', md: 'preview', tree: true, ts: { open: new Set(), cur: null, q: '' }, find: '', opened: '', search: null as unknown as ReaderSearch };
+    const x: View = { rs: init('', 'NORMAL'), mode: 'read', md: 'preview', lk: -1, tree: true, ts: { open: new Set(), cur: null, q: '' }, find: '', opened: '', search: null as unknown as ReaderSearch };
     x.search = new ReaderSearch(() => x.reader!);
     return x;
   });
@@ -107,7 +110,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   if (v.rs.text !== text) v.rs = setText(v.rs, text, Math.min(v.rs.pos, Math.max(0, text.length - 1)));
   // a new file in this tab: open its folders in the tree, start at the top (or where asked)
   if (v.opened !== path) {
-    v.opened = path; v.mode = 'read'; v.md = 'preview';
+    v.opened = path; v.mode = 'read'; v.md = 'preview'; v.lk = -1; v.hover = undefined;
     const parts = path.split('/'); for (let i = 1; i < parts.length; i++) v.ts.open.add(parts.slice(0, i).join('/'));
     v.rs = { ...init(text, 'NORMAL'), pos: 0 };
   }
@@ -246,6 +249,60 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     else void api.fs.list(ctx.machine, join(ctx.dir, dir)).then(es => show(es.map(e => ({ name: e.name, rel: dir ? dir + '/' + e.name : e.name, dir: e.dir })))).catch(e => toast(String(e)));
   };
 
+  // ---------- links in the preview ----------
+  const links = () => [...(body.current?.querySelectorAll<HTMLElement>('.doc a.mlink') ?? [])];
+  const showHeading = (id: string) => {
+    const h = body.current?.querySelector<HTMLElement>(`.doc [data-slug="${CSS.escape(id)}"]`); if (!h) return false;
+    h.scrollIntoView({ block: 'start' });
+    h.classList.remove('flash'); void h.offsetWidth; h.classList.add('flash');
+    return true;
+  };
+  const follow = async (a: HTMLElement, split = false) => {
+    const href = a.dataset.href || '', to = linkTarget(href, path);
+    if (to.kind === 'none') { toast(`Skein does not open ${href.replace(/:.*/, ':')} links`); return; }
+    if (to.kind === 'external') { void api.app.openExternal(to.url); return; }
+    if (to.kind === 'anchor') { if (!showHeading(to.slug)) toast(`No heading #${to.slug} in ${baseName(path)}`); return; }
+    // a file or a folder: look it up first, so a broken link says so instead of opening an error tab
+    const dir = to.path.includes('/') ? to.path.replace(/\/[^/]*$/, '') : '', name = to.path.slice(dir ? dir.length + 1 : 0);
+    const es = await api.fs.list(ctx.machine, join(ctx.dir, dir)).catch(() => []);
+    const e = es.find(x => x.name === name) || es.find(x => x.name.toLowerCase() === name.toLowerCase());
+    if (!e) { toast(`No file at ${to.path}`); return; }
+    const rel = dir ? dir + '/' + e.name : e.name;
+    if (e.dir) { crumbMenu(rel, a.getBoundingClientRect()); return; }
+    openFile(ctx, rel, { from: t, split, line: to.line, anchor: to.slug });
+  };
+  /** tab / shift-tab: the next or previous link, starting from what is on screen when the ringed one is not. */
+  const ringLink = (d: 1 | -1) => {
+    const ls = links(), b = body.current?.getBoundingClientRect();
+    if (!ls.length || !b) { toast('No links in this file'); return; }
+    const cur = ls[v.lk], seen = (r: DOMRect) => r.bottom > b.top && r.top < b.bottom;
+    let i: number;
+    if (cur && seen(cur.getBoundingClientRect())) i = (v.lk + d + ls.length) % ls.length;
+    else if (d > 0) { i = ls.findIndex(a => a.getBoundingClientRect().top >= b.top); if (i < 0) i = 0; }
+    else { i = ls.findLastIndex(a => a.getBoundingClientRect().bottom <= b.bottom); if (i < 0) i = ls.length - 1; }
+    v.lk = i; v.lkTip = tipOf(ls[i]);
+    ls[i].scrollIntoView({ block: 'nearest' });
+    update();
+  };
+  const tipOf = (a: HTMLElement) => {
+    const to: LinkTarget = linkTarget(a.dataset.href || '', path);
+    return to.kind === 'external' ? to.url : to.kind === 'anchor' ? '#' + to.slug : to.kind === 'file' ? to.path + (to.line ? `#L${to.line}` : to.slug ? '#' + to.slug : '') : a.dataset.href;
+  };
+  // an anchor asked for when the file opened (openFile's `anchor`): show the preview there
+  useLayoutEffect(() => {
+    if (!nav.anchor || doc.disk == null) return;
+    if (isMd && v.md !== 'preview') { v.md = 'preview'; update(); return; }
+    const id = nav.anchor; nav.anchor = undefined;
+    if (isMd && !showHeading(id)) toast(`No heading #${id} in ${baseName(path)}`);
+  });
+  // the ringed link shows while the keys are here; it, or the link under the pointer, shows where it goes
+  useLayoutEffect(() => { links().forEach((a, i) => a.classList.toggle('kcur', focused && preview && i === v.lk)); });
+  const hover = (e: React.MouseEvent) => {
+    const a = e.type === 'mouseover' ? (e.target as Element).closest<HTMLElement>('a.mlink') : null, tip = a ? tipOf(a) : undefined;
+    if (tip !== v.hover) { v.hover = tip; update(); }
+  };
+  const tip = preview ? v.hover ?? (focused && links()[v.lk] ? v.lkTip : undefined) : undefined;
+
   // ---------- keys while reading ----------
   const scrollBy = (px: number) => body.current?.scrollBy({ top: px });
   const { own } = useSurface(t.id, focused, {
@@ -268,6 +325,10 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
           const ln = Math.max(0, Math.min(starts.length - 1, curLine + h)); v.rs = { ...v.rs, pending: '', pos: starts[ln] + Math.min(v.rs.pos - starts[curLine], Math.max(0, lines[ln].length - 1)) }; update(); return true;
         }
         if (k === 'esc' && !visual && !v.rs.pending && v.search.clear()) return true;
+        if (preview && (k === 'tab' || k === 'shift-tab')) { v.rs = { ...v.rs, pending: '' }; ringLink(k === 'tab' ? 1 : -1); return true; }
+        const lk = preview ? links()[v.lk] : undefined;
+        if (lk && (k === 'enter' || k === 'o' || splitKey(k))) { void follow(lk, splitKey(k)); return true; }
+        if (lk && k === 'esc') { v.lk = -1; v.lkTip = undefined; update(); return true; }
         if (k === 'enter' && !visual) { startEdit(); return true; }
         if (preview) {
           if (k === 'j' || k === 'down') { v.rs = { ...v.rs, pending: '' }; scrollBy(40 * n); return true; }
@@ -276,6 +337,12 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
         }
         if (!visual && EDIT_N.has(k) && !(preview && k === 'u')) { startEdit(k); return true; }
         if (visual && EDIT_V.has(k)) { startEdit(k); return true; }
+      }
+      if (preview && v.rs.pending === 'g' && (k === 'x' || k === 'f')) {
+        v.rs = { ...v.rs, pending: '' };
+        const a = links()[v.lk];
+        if (a) void follow(a); else toast(`No link chosen · ${kb('tab')} moves to one`);
+        return true;
       }
       if (preview && v.rs.pending === 'g' && k === 'g') { v.rs = { ...v.rs, pending: '' }; body.current?.scrollTo({ top: 0 }); update(); return true; }
       if (/^[dcr]/.test(v.rs.pending.replace(/^\d+/, ''))) { startEdit(k); return true; }   // an operator typed while reading
@@ -406,8 +473,19 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
               </Fragment>))}
             </div>
           )}
-          {v.mode === 'read' && preview && doc.disk != null && <article className="doc prose" data-src={`file:${path}`} onMouseUp={mouseUp}><Markdown text={text} /></article>}
+          {v.mode === 'read' && preview && doc.disk != null && (
+            <article className="doc prose" data-src={`file:${path}`} onMouseUp={mouseUp} onMouseOver={hover} onMouseLeave={hover}
+              onClick={e => {
+                const a = (e.target as Element).closest<HTMLElement>('a.mlink');
+                if (!a || getSelection()?.toString()) return;
+                e.preventDefault(); v.lk = -1; v.lkTip = undefined;
+                void follow(a, splitClick(e));
+              }}>
+              <Markdown text={text} />
+            </article>
+          )}
         </div>
+        {tip && <div className="link-tip" role="status">{tip}</div>}
         {side.show && (<>
           <div className="tree-resize" title="Drag to resize" onPointerDown={resizeTree} />
           <aside className="ctree" aria-label="Project files">
