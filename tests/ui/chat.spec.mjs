@@ -1638,3 +1638,16 @@ await test('/ menu: Claude Code lists its everyday commands first with their own
   assert.equal(await menu.locator('.mi.head').count(), 0);
   assert.deepEqual((await menu.locator('.mi .ml').allInnerTexts()).slice(0, 4), ['Compact', 'Code review', 'Context', 'Color']);
 });
+
+await test('/ menu: shrinks to fit as you type, on the side it opened on', async p => {
+  await p.setViewportSize({ width: 1100, height: 620 });
+  await p.locator('.pane.focus .comp textarea').first().click();
+  await p.keyboard.type('/'); await settle(p, 250);
+  const menu = p.locator('.menu.composer-menu');
+  const full = await menu.boundingBox();
+  await p.keyboard.type('model'); await settle(p);
+  const one = await menu.boundingBox(), row = await menu.locator('.mi').first().boundingBox();
+  assert.equal(await menu.locator('.mi').count(), 1);
+  assert.ok(one.height < row.height + 24, `fits its one row (${Math.round(one.height)}px for a ${Math.round(row.height)}px row)`);
+  assert.equal(Math.round(one.y), Math.round(full.y), 'same side, same edge');
+});
