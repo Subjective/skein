@@ -10,7 +10,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChatSend } from '../../../shared/api';
 import { effortId, modelId, permId } from '../../../shared/models';
-import type { ApprovalRequest, Machine, ThreadEvent, ThreadMeta } from '../../../shared/types';
+import type { ApprovalRequest, Machine, Queued, ThreadEvent, ThreadMeta } from '../../../shared/types';
 import type { ChatDriver, ChatHost } from '../../chat';
 import { spawnOn } from '../../exec';
 import { log } from '../../log';
@@ -18,6 +18,7 @@ import { which } from '../../shell';
 import { errorKind, throttle, tidy } from '../common';
 import { codexHistory } from './history';
 import { agentStates, commandStep, itemEvents, turnError } from './items';
+import type { QueuedSubmission } from './protocol/v2/QueuedSubmission';
 import type { ThreadItem } from './protocol/v2/ThreadItem';
 import type { UserInput } from './protocol/v2/UserInput';
 import { Rpc } from './rpc';
@@ -140,6 +141,13 @@ export class CodexServers {
   dispose() { for (const s of this.servers.values()) s.rpc?.kill(); this.servers.clear(); }
 }
 
+/** A Codex queued submission as Skein shows it: its text and images. */
+export function queuedOf(q: QueuedSubmission): Queued {
+  const text = q.input.flatMap(i => (i.type === 'text' ? [i.text] : [])).join('\n');
+  const images = q.input.flatMap(i => (i.type === 'image' && 'url' in i ? [i.url] : i.type === 'localImage' ? [i.path] : []));
+  return { id: q.id, text, ...(images.length ? { images } : {}) };
+}
+
 const threadOf = (p: unknown): string | undefined => {
   const o = p as Params | undefined;
   return (o?.threadId ?? o?.conversationId ?? (o as { thread?: { id?: string } })?.thread?.id) as string | undefined;
@@ -241,6 +249,13 @@ export class CodexDriver implements ChatDriver {
 
     const clientId = randomUUID();
     const input = await this.inputOf(text, images);
+    // queued: Codex keeps it (thread/queue/*) and starts it as a turn of its own when this one ends; its message
+    // shows in the transcript when that turn starts (item/started), so it isn't one of ours to show now
+    if (msg.queue && this.turn) {
+      try { await rpc.request('thread/queue/add', { threadId, input, clientUserMessageId: clientId }); }
+      catch (e) { this.error((e as Error).message); }
+      return;
+    }
     this.sent.add(clientId);
     this.lastUser = { id: clientId, text, images };
     this.ev({ t: 'user', id: clientId, text, ...(images?.length ? { images } : {}), at: Date.now() });
@@ -265,6 +280,60 @@ export class CodexDriver implements ChatDriver {
     } catch (e) {
       this.error((e as Error).message);
     }
+  }
+
+  // ---- the queue: Codex's own (thread/queue/*), mirrored into ThreadMeta.queue on every thread/queue/changed ----
+  /** A stop pauses it: Codex keeps the queue but starts nothing until thread/queue/start. */
+  private paused = false;
+  private pause(on: boolean) { this.paused = on; if (!!this.t.queuePaused !== (on && !!this.t.queue?.length)) this.host.update(this.id, { queuePaused: on && !!this.t.queue?.length }); }
+  private async queued(): Promise<QueuedSubmission[]> {
+    const threadId = this.t.sessionId; if (!this.rpc || !threadId) return [];
+    const out: QueuedSubmission[] = [];
+    let cursor: string | null = null;
+    do {
+      const r: { data: QueuedSubmission[]; nextCursor: string | null } = await this.rpc.request('thread/queue/list', { threadId, ...(cursor ? { cursor } : {}) });
+      out.push(...r.data); cursor = r.nextCursor;
+    } while (cursor);
+    return out;
+  }
+  private async syncQueue() {
+    try {
+      const queue = (await this.queued()).map(queuedOf);
+      this.host.update(this.id, { queue, queuePaused: queue.length > 0 && this.paused });
+    } catch (e) { log('codex', 'thread/queue/list', (e as Error).message); }
+  }
+  async steerQueued(id: string): Promise<void> {
+    if (!(await this.ensure())) return;
+    const rpc = this.rpc!, threadId = this.t.sessionId!;
+    try {
+      if (!this.turn) { this.pause(false); await rpc.request('thread/queue/start', { threadId, queuedSubmissionId: id }); return; }
+      const q = (await this.queued()).find(x => x.id === id); if (!q) return;
+      const clientId = randomUUID(), m = queuedOf(q);
+      this.sent.add(clientId);
+      this.ev({ t: 'user', id: clientId, text: m.text, ...(m.images?.length ? { images: m.images } : {}), at: Date.now() });
+      await rpc.request('turn/steer', { threadId, clientUserMessageId: clientId, input: q.input, expectedTurnId: this.turn });
+      await rpc.request('thread/queue/delete', { threadId, queuedSubmissionId: id });
+    } catch (e) { this.error((e as Error).message); }
+  }
+  async dropQueued(id: string): Promise<void> {
+    if (!(await this.ensure())) return;
+    await this.rpc!.request('thread/queue/delete', { threadId: this.t.sessionId!, queuedSubmissionId: id }).catch(e => this.error((e as Error).message));
+  }
+  async editQueued(id: string, text: string): Promise<void> {
+    if (!(await this.ensure())) return;
+    const q = (await this.queued()).find(x => x.id === id); if (!q) return;
+    const input = await this.inputOf(text, queuedOf(q).images);
+    await this.rpc!.request('thread/queue/update', { threadId: this.t.sessionId!, queuedSubmissionId: id, input }).catch(e => this.error((e as Error).message));
+  }
+  async orderQueue(ids: string[]): Promise<void> {
+    if (!(await this.ensure())) return;
+    await this.rpc!.request('thread/queue/reorder', { threadId: this.t.sessionId!, queuedSubmissionIds: ids }).catch(e => this.error((e as Error).message));
+  }
+  async resumeQueue(): Promise<void> {
+    if (!(await this.ensure())) return;
+    this.pause(false);
+    if (this.turn) return;   // it runs: the queue goes on when this turn ends
+    await this.rpc!.request('thread/queue/start', { threadId: this.t.sessionId! }).catch(e => this.error((e as Error).message));
   }
 
   private async inputOf(text: string, images?: string[]): Promise<UserInput[]> {
@@ -418,6 +487,8 @@ export class CodexDriver implements ChatDriver {
       if (!cur.effort && r?.reasoningEffort) adopt.effort = r.reasoningEffort;
       if (Object.keys(adopt).length) this.host.update(this.id, adopt);
       this.loaded = true;
+      this.paused = true;   // a queue already there when the thread opens waits (Codex doesn't start it on resume)
+      void this.syncQueue();
       return true;
     } catch (e) {
       this.error((e as Error).message);
@@ -465,7 +536,8 @@ export class CodexDriver implements ChatDriver {
 
   private onNotify(method: string, p: Params) {
     switch (method) {
-      case 'turn/started': this.beginTurn((p.turn as { id: string }).id); return;
+      case 'turn/started': this.beginTurn((p.turn as { id: string }).id); this.pause(false); return;
+      case 'thread/queue/changed': void this.syncQueue(); return;
       case 'turn/completed': {
         this.flush.flush();
         const turn = p.turn as { id: string; status: string; error: Parameters<typeof turnError>[1] | null; durationMs: number | null };
@@ -476,6 +548,7 @@ export class CodexDriver implements ChatDriver {
         for (const [rid, p2] of this.approvals) this.settle(rid, p2, decline(p2.method, true), 'Cancelled');
         this.turn = null; this.items.clear(); this.text.clear();
         this.host.update(this.id, { status: turn.status === 'failed' ? 'error' : 'idle', updatedAt: Date.now() });
+        if (turn.status === 'interrupted') this.pause(true);
         return;
       }
       case 'item/started': case 'item/completed': {
