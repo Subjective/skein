@@ -40,6 +40,9 @@ export interface MenuProps<D = unknown> {
   search?: { placeholder?: string; prefix?: string; value?: string };
   /** items(q) already filtered and ranked for q: skip the default substring filter. */
   ranked?: boolean;
+  /** What the owner filtered `items` by, for a menu without a search field (the composer's / and @ menus): a new
+   *  filter lets the menu shrink to fit, as typing in its own search does. */
+  filter?: string;
   /** Only for a popup that remounts itself (the folder picker going into a folder): come back in NORMAL if it was in
    *  NORMAL. A popup with a search field always OPENS in INSERT (VIM-MODEL rule 21); don't use this to change that. */
   normal?: boolean;
@@ -237,9 +240,10 @@ export function Menu<D>(p: MenuProps<D>) {
   const [pos, setPos] = useState<React.CSSProperties>({});
   const side = useRef<Side | undefined>(undefined);
   // an open menu never shrinks: a row that goes away (the model picker's Ultracode, on hovering a model without it)
-  // would otherwise move every row under the pointer of a menu that opens upward. Typing a search may shrink it
-  const tallest = useRef(0), forQ = useRef(q);
-  if (forQ.current !== q) { forQ.current = q; tallest.current = 0; }
+  // would otherwise move every row under the pointer of a menu that opens upward. Typing a search, or the owner's
+  // filter (`filter`), may shrink it
+  const by = q + '\0' + (p.filter ?? ''), tallest = useRef(0), forQ = useRef(by);
+  if (forQ.current !== by) { forQ.current = by; tallest.current = 0; }
   useLayoutEffect(() => {
     if (p.modal || !p.anchor) return;
     const r = p.anchor, w = Math.min(p.width === 'anchor' ? r.width : p.width || 260, innerWidth - 16);
@@ -251,7 +255,7 @@ export function Menu<D>(p: MenuProps<D>) {
     side.current = at.side;
     if (el) { el.style.maxHeight = at.maxHeight != null ? at.maxHeight + 'px' : ''; el.style.minHeight = Math.min(h, at.maxHeight ?? h) + 'px'; }
     setPos({ width: w, ...placeStyle(r, at) });
-  }, [p.anchor, p.modal, p.place, p.width, items.length, q]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [p.anchor, p.modal, p.place, p.width, items.length, q, p.filter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // a click outside closes
   useEffect(() => {

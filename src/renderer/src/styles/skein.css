@@ -15,6 +15,8 @@
   --mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono", Consolas, monospace;
   --mono-w: 350;
   --ease: 120ms ease;
+  /* every drag-to-resize edge (.rsz): the line it shows on hover and while dragging, and how wide it can be grabbed */
+  --rsz-line: var(--blue); --rsz-w: 2px; --rsz-hit: 9px; --rsz-delay: 150ms;
   --sel: rgba(74, 163, 255, .3);   /* every selection: text, VISUAL, V-LINE rows */
   --quote-hot: rgba(74, 163, 255, .14);   /* a quote chip under the pointer */
   color-scheme: dark;
@@ -88,13 +90,21 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 #main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
 /* ---------- sidebar ---------- */
-#side { position: relative; background: var(--side); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
-.side-resize { position: absolute; inset: 0 -4px 0 auto; width: 8px; z-index: 3; cursor: col-resize; touch-action: none; }
-.side-resize:hover::after, .side-resize:active::after { content: ""; position: absolute; inset: 0 3px; background: var(--fg-3); }
-/* the file tree's left edge, the same handle as the sidebar's (ui/resize.ts) */
-.tree-resize { position: relative; flex: none; width: 0; z-index: 3; }
-.tree-resize::before { content: ""; position: absolute; inset: 0 -4px; cursor: col-resize; touch-action: none; }
-.tree-resize:hover::after, .tree-resize:active::after { content: ""; position: absolute; inset: 0 -1px; background: var(--fg-3); }
+#side { position: relative; background: var(--side); display: flex; flex-direction: column; min-height: 0; }
+/* Every drag-to-resize edge (ui/resize.tsx ResizeHandle): the sidebar's right edge, the file tree's left edge, a split's
+   divider. The handle is the 1px hairline itself; ::before is the hit area, ::after the line shown on hover (after
+   --rsz-delay, so passing over it does not flash) and at once while it is held. */
+.rsz { position: relative; flex: none; z-index: 3; background: var(--line); touch-action: none; }
+.rsz.x { width: 1px; cursor: col-resize; } .rsz.y { height: 1px; cursor: row-resize; }
+.rsz::before, .rsz::after { content: ""; position: absolute; }
+.rsz.x::before { top: 0; bottom: 0; left: calc((1px - var(--rsz-hit)) / 2); width: var(--rsz-hit); }
+.rsz.y::before { left: 0; right: 0; top: calc((1px - var(--rsz-hit)) / 2); height: var(--rsz-hit); }
+.rsz::after { background: var(--rsz-line); opacity: 0; transition: opacity var(--ease); }
+.rsz.x::after { top: 0; bottom: 0; left: calc((1px - var(--rsz-w)) / 2); width: var(--rsz-w); }
+.rsz.y::after { left: 0; right: 0; top: calc((1px - var(--rsz-w)) / 2); height: var(--rsz-w); }
+.rsz:hover::after { opacity: 1; transition-delay: var(--rsz-delay); }
+.rsz.on::after { opacity: 1; transition-delay: 0s; }
+#side > .rsz { position: absolute; top: 0; bottom: 0; right: 0; }
 .s-top { height: 40px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; }
 .s-nav { padding: 6px 8px 2px; }
 .nav { width: 100%; height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; font-size: 13.500px; transition: background var(--ease); }
@@ -174,11 +184,6 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 .split { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .split.d-col { flex-direction: column; }
 .cell { min-width: 0; min-height: 0; display: flex; }
-.dv { flex: 0 0 1px; background: var(--line); position: relative; z-index: 3; transition: background var(--ease); }
-.dv::after { content: ""; position: absolute; }
-.split.d-row > .dv { cursor: col-resize; } .split.d-row > .dv::after { inset: 0 -4px; }
-.split.d-col > .dv { cursor: row-resize; } .split.d-col > .dv::after { inset: -4px 0; }
-.dv:hover, .dv.on { background: var(--blue); }
 
 .pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; container-type: inline-size; background: var(--bg); }
 .body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -345,9 +350,6 @@ pre.out { margin: 3px 0 8px; padding: 8px 12px; font: var(--mono-w) 12px/1.600 v
 /* sent messages: hover shades, click edits in place */
 .m-user.can-edit { cursor: pointer; transition: background var(--ease); }
 .m-user.can-edit:hover { background: var(--active); }
-.m-edit { align-self: stretch; margin-top: 12px; display: flex; flex-direction: column; gap: 6px; padding: 10px 10px 8px 14px; background: var(--comp); border: 1px solid var(--line-2); border-radius: 18px; }
-.m-edit textarea { width: 100%; min-height: 28px; padding: 2px; background: none; border: 0; outline: 0; resize: none; color: var(--fg); font: 14px/1.550 var(--sans); }
-.m-edit .ea { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 /* Vim NORMAL inside a composer: the block cursor is a one-character selection */
 textarea.vn { caret-color: transparent; }
 textarea.vn::selection { background: var(--fg); color: var(--bg); }
@@ -532,9 +534,16 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 /* a quote in a sent message: the same icon and blue words */
 .qtok { position: relative; padding-left: 17px; color: var(--blue); }
 
-/* editing a sent message: the normal composer, in place of the bubble */
-.m-edit { align-self: stretch; margin-top: 12px; padding: 0; background: none; border: 0; border-radius: 0; display: block; }
-.m-edit .comp { border-color: var(--line-2); }
+/* editing a sent message: the normal composer, in place of the bubble. Its words keep the bubble's type and inset
+   (14px/1.55, 9px down and 15px in from the outer edge, 1px of that the border) so they don't change size or rewrap
+   as the bubble becomes the box; editMorph.ts moves the box from the bubble's place to its own */
+.m-edit { position: relative; align-self: stretch; margin-top: 12px; padding: 0; background: none; border: 0; border-radius: 0; display: block; }
+.m-edit:first-child { margin-top: 0; }
+.m-edit .comp { padding: 8px 10px 8px 14px; border-color: var(--line-2); border-radius: 18px; }
+.m-edit .comp textarea { min-height: 0; padding: 0; font: 14px/1.550 var(--sans); }
+.m-edit .bk, .m-edit .fk { padding: 0; font: 14px/1.550 var(--sans); }
+/* the bubble's words, over the box for a moment while a rewrapped message fades between the two */
+.m-ghost { position: absolute; z-index: 2; pointer-events: none; font-size: 14px; line-height: 1.550; overflow-wrap: anywhere; color: var(--fg); }
 
 /* drag preview: glide between targets instead of jumping */
 .tab.ghost { animation: none; background: var(--hover); box-shadow: inset 0 0 0 1px var(--line-2); }
@@ -701,10 +710,17 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .s-body { min-width: 0; overflow: auto; padding: 18px 28px 24px; }
 .s-body header { display: flex; align-items: center; justify-content: space-between; margin: 0 -8px 10px 0; }
 .s-body h3 { margin: 0; font-size: 16px; font-weight: 600; }
-.s-row { min-height: 60px; display: flex; align-items: center; gap: 20px; margin: 0 -12px; padding: 10px 12px; border-radius: 10px; }
-.s-row + .s-row { box-shadow: 0 -1px 0 var(--line); }
-.s-row.cur { background: var(--hover); box-shadow: none; }
-.s-row.cur + .s-row { box-shadow: none; }
+/* rows sit in rounded cards (Cursor's settings), grouped under a short title; hairlines between rows, inset */
+.s-group { margin: 22px 0 8px 14px; font-size: 12.500px; font-weight: 500; color: var(--fg-3); }
+.s-card { display: flex; flex-direction: column; padding: 4px; border-radius: 12px; background: var(--bg-2); }
+.s-card + .s-card { margin-top: 12px; }
+.s-row { position: relative; min-height: 56px; display: flex; align-items: center; gap: 20px; padding: 9px 10px; border-radius: 9px; }
+.s-row + .s-row::before { content: ""; position: absolute; left: 10px; right: 10px; top: 0; height: 1px; background: var(--line); }
+/* the key cursor (shown only while the keys are in use): the row fills, and the hairlines beside it give way */
+.s-row.cur { background: var(--hover); }
+.s-row.cur::before, .s-row.cur + .s-row::before { visibility: hidden; }
+/* the dialog's keys draw its cursor; a clicked button keeping the browser's focus ring would be a second one */
+.settings :focus-visible { outline: 0; }
 .s-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .s-txt b { font-size: 13.500px; font-weight: 500; }
 .s-txt span { font-size: 12.500px; color: var(--fg-3); }
@@ -1072,6 +1088,7 @@ button[aria-expanded="true"] > .i-down { transform: rotate(180deg); }
   #app:not(.noside) { grid-template-columns: minmax(0, 1fr); }
   #app:not(.noside) #side { position: fixed; left: 0; top: 0; bottom: 0; width: min(280px, 80vw); z-index: 45; box-shadow: var(--shadow); animation: slide .18s ease; }
   #app:not(.noside) #main { grid-column: 1; }
+  #app:not(.noside) #side > .rsz { pointer-events: none; }   /* a floating sidebar has a fixed width */
   .wc i { width: 34px; }
   .tb .seg button { width: 24px; }
 }
@@ -1101,7 +1118,7 @@ button.cb { padding: 0; border: 0; background: none; color: inherit; cursor: poi
 button.cb.on { background: var(--fg); color: var(--bg); }
 .cbody { flex: 1; min-height: 0; display: flex; }
 .cbody > .tool-b { flex: 1; min-width: 0; }
-.ctree { position: relative; width: var(--tree-width, 236px); flex: none; overflow: auto; padding: 4px 8px 12px; border-left: 1px solid var(--line); font-size: 12.500px; }
+.ctree { position: relative; width: var(--tree-width, 236px); flex: none; overflow: auto; padding: 4px 8px 12px; font-size: 12.500px; }
 @container (max-width: 620px) { .ctree { display: none; } }
 .tq { height: 28px; display: flex; align-items: center; gap: 6px; margin: 2px 0 6px; padding: 0 8px; border-radius: 7px; background: var(--hover); color: var(--fg-3); }
 .tq input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: inherit; }
@@ -1210,3 +1227,15 @@ svg.fi { width: 14px; height: 14px; flex: none; display: block; overflow: visibl
 .mv-steps li.now { color: var(--fg); } .mv-steps li.done { color: var(--fg-2); }
 .mv-steps li.done svg.i { width: 12px; height: 12px; color: var(--green); }
 .btn[disabled] { opacity: .4; pointer-events: none; }
+
+/* Settings, Agent work: a finished turn at the density under the pointer (or the key cursor), below the choice */
+.dprev { position: absolute; z-index: 2; right: 6px; top: calc(100% - 4px); width: 280px; display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; background: var(--pop); border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow); font-size: 12.500px; color: var(--fg-2); pointer-events: none; animation: fadeUp .14s ease; }
+.dprev svg.i { margin-left: 4px; vertical-align: -1px; color: var(--fg-3); }
+.dp-fold, .dp-run { color: var(--fg-3); }
+.dp-steps { display: flex; flex-direction: column; gap: 6px; padding-left: 10px; border-left: 1px solid var(--line-2); }
+.dp-step b { font-weight: 500; color: var(--fg); }
+.dp-diff { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; }
+.dp-diff i { height: 5px; border-radius: 3px; background: var(--add-bg); }
+.dp-diff i.del { background: var(--del-bg); }
+.dp-diff i.short { width: 60%; }
+.dp-answer { margin-top: 2px; color: var(--fg); }

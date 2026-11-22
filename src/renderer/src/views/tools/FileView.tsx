@@ -32,7 +32,7 @@ import { fileNav, openFile, readText } from './open';
 import { ProjectTree, toggleDir, useLister, type TreeState } from './ProjectTree';
 import { ctxOf, join, refreshNow, useRepo, viewState } from './repo';
 import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
-import { dragEdge, TREE_EDGE } from '../../ui/resize';
+import { dragEdge, ResizeHandle, resetEdge, TREE_EDGE } from '../../ui/resize';
 
 const resizeTree = dragEdge(TREE_EDGE);
 
@@ -409,7 +409,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
           {v.mode === 'read' && preview && doc.disk != null && <article className="doc prose" data-src={`file:${path}`} onMouseUp={mouseUp}><Markdown text={text} /></article>}
         </div>
         {side.show && (<>
-          <div className="tree-resize" title="Drag to resize" onPointerDown={resizeTree} />
+          <ResizeHandle axis="x" label="Resize file tree" onPointerDown={resizeTree} onDoubleClick={() => resetEdge(TREE_EDGE)} />
           <aside className="ctree" aria-label="Project files">
             <ProjectTree l={lister} st={v.ts} active={path} label="Project files" onOpen={(n, split) => { if (n.dir) toggleDir(lister, v.ts, n.rel); else openFile(ctx, n.rel, { from: t, split }); }} />
           </aside>

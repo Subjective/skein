@@ -177,6 +177,47 @@ await test('edit and resend: click a message, esc cancels, enter rewinds and res
   assert.equal(await p.locator('.pane.focus .tool', { hasText: 'export/markdown.ts' }).count(), 0, 'its reply is gone');
 });
 
+await test('edit in place: the bubble grows into the box with its words where they were, and shrinks back', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  const geo = () => p.evaluate(() => {
+    const r = el => el && el.getBoundingClientRect();
+    const u = document.querySelector('.pane.focus .m-user'), e = document.querySelector('.pane.focus .m-edit');
+    return { u: r(u), t: r(u?.querySelector('.mt')), c: r(e?.querySelector('.comp')), w: r(e?.querySelector('.taw')),
+      font: e && getComputedStyle(e.querySelector('textarea')).font, running: e ? e.getAnimations({ subtree: true }).length : 0,
+      ghosts: document.querySelectorAll('.m-ghost').length };
+  });
+  const idle = () => p.waitForFunction(() => !document.getAnimations().some(a => a.playState === 'running' && a.effect?.target?.closest?.('.m-edit')));
+  const before = await geo();
+  for (let round = 0; round < 2; round++) {   // twice: a box that shrank back must grow to full size again
+    await p.locator('.pane.focus .m-user').first().click();
+    await p.locator('.pane.focus .m-edit .comp').waitFor();
+    assert.ok((await geo()).running > 0, 'the box animates out of the bubble');
+    await idle();
+    const g = await geo();
+    assert.equal(Math.round(g.c.top), Math.round(before.u.top), 'the box starts where the bubble did (no first-message jump)');
+    assert.equal(Math.round(g.w.top), Math.round(before.t.top), 'its words sit on the line the bubble had them on');
+    assert.match(g.font, /^14px \/ 21\.7px/, 'the bubble\'s type, so the words keep their size');
+    assert.ok(g.c.height > before.u.height + 20, `the box has its full height (${g.c.height})`);
+    assert.equal(g.ghosts, 0, 'nothing of the bubble is left over the box');
+    await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+    await p.locator('.pane.focus .m-user').first().waitFor();
+    assert.equal(await p.locator('.pane.focus .m-edit').count(), 0);
+  }
+  const after = await geo();
+  assert.equal(Math.round(after.u.top), Math.round(before.u.top), 'the bubble comes back in its place');
+  assert.equal(await mode(p), 'NORMAL', 'esc esc still puts the reader on the message');
+});
+
+await test('edit in place with reduced motion: the box just appears', async p => {
+  await p.emulateMedia({ reducedMotion: 'reduce' });
+  await openChat(p, 'Add timestamps to chat rows');
+  await p.locator('.pane.focus .m-user').first().click();
+  await p.locator('.pane.focus .m-edit .comp').waitFor();
+  assert.equal(await p.evaluate(() => document.querySelector('.pane.focus .m-edit').getAnimations({ subtree: true }).length), 0);
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  assert.equal(await p.locator('.pane.focus .m-edit').count(), 0, 'and goes at once');
+});
+
 await test('edit from the reader: x on your message edits it in NORMAL', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await composer(p).press('Escape');
@@ -1257,8 +1298,8 @@ await test('edit box: a long message scrolls with the NORMAL cursor (j, G, gg), 
     const r = el.getBoundingClientRect(), hc = el.closest('.taw').querySelector('.hc i');
     if (hc) { const b = hc.getBoundingClientRect(); return b.top >= r.top - 1 && b.bottom <= r.bottom + 1; }
     const lh = parseFloat(getComputedStyle(el).lineHeight), line = el.value.slice(0, el.selectionStart).split('\n').length - 1;
-    const y = 4 + line * lh - el.scrollTop;   // no line here wraps
-    return y >= 0 && y + lh <= el.clientHeight + 1;
+    const y = parseFloat(getComputedStyle(el).paddingTop) + line * lh - el.scrollTop;   // no line here wraps
+    return y >= -1 && y + lh <= el.clientHeight + 1;   // a pixel either way: lines are 21.7px, scrollTop rounds
   });
   assert.ok(await box.evaluate(el => el.scrollHeight > el.clientHeight), 'the box scrolls');
   await keys(p, 'G');
@@ -1662,4 +1703,17 @@ await test('reader: "Worked for" is not part of the answer\'s selection (mouse, 
   await keys(p, 'v l'); s = await sel();
   assert.equal(await mode(p), 'VISUAL'); assert.ok(s.length > 0 && !/Worked/.test(s), `v on the header: ${JSON.stringify(s)}`);
   await keys(p, 'Escape');
+});
+
+await test('/ menu: shrinks to fit as you type, on the side it opened on', async p => {
+  await p.setViewportSize({ width: 1100, height: 620 });
+  await p.locator('.pane.focus .comp textarea').first().click();
+  await p.keyboard.type('/'); await settle(p, 250);
+  const menu = p.locator('.menu.composer-menu');
+  const full = await menu.boundingBox();
+  await p.keyboard.type('model'); await settle(p);
+  const one = await menu.boundingBox(), row = await menu.locator('.mi').first().boundingBox();
+  assert.equal(await menu.locator('.mi').count(), 1);
+  assert.ok(one.height < row.height + 24, `fits its one row (${Math.round(one.height)}px for a ${Math.round(row.height)}px row)`);
+  assert.equal(Math.round(one.y), Math.round(full.y), 'same side, same edge');
 });

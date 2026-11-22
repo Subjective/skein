@@ -2,8 +2,8 @@
 import { createElement } from 'react';
 import type { ThreadEvent, ThreadMeta } from '@shared/types';
 import { api } from '../../api';
-import { allTabs, mkTab, type Tab } from '../../state/layout';
-import { S, thread, toast, update, ws } from '../../state/store';
+import { activeTab, allTabs, mkTab, type Pane, type Tab } from '../../state/layout';
+import { S, subscribe, thread, toast, update, ws } from '../../state/store';
 import * as A from '../../state/actions';
 import { openMenu } from '../../shell/overlays';
 import { Icon, Spinner } from '../../ui/primitives';
@@ -17,6 +17,24 @@ interface Live { thread: string; draft: string; composer: { current: ComposerHan
 const live = new Map<string, Live>();
 export function registerChatTab(tabId: string, l: Live) { live.set(tabId, l); return () => { if (live.get(tabId) === l) live.delete(tabId); }; }
 export const liveTab = (tabId: string) => live.get(tabId);
+
+// ---- the thread a quote from a file or tool goes to ----
+/** Thread tabs, the most recently focused first. */
+const recent: string[] = [];
+subscribe(() => {
+  const t = A.currentTab();
+  if (t.kind === 'thread' && recent[0] !== t.id) { const i = recent.indexOf(t.id); if (i >= 0) recent.splice(i, 1); recent.unshift(t.id); if (recent.length > 50) recent.pop(); }
+});
+/** Where a quote from a tab with no thread of its own goes: a thread on screen (the last focused one), else the
+ *  last focused thread in this workspace. */
+export function quoteTarget(): Tab | undefined {
+  const w = ws();
+  const rank = (t: Tab) => { const i = recent.indexOf(t.id); return i < 0 ? recent.length : i; };
+  const shown = (x: { tab: Tab; pane: Pane | null }) => !x.pane || activeTab(x.pane).id === x.tab.id;
+  const ts = allTabs(w).filter(x => x.tab.kind === 'thread' && x.tab.thread);
+  const pick = (xs: typeof ts) => xs.sort((a, b) => rank(a.tab) - rank(b.tab))[0]?.tab;
+  return pick(ts.filter(shown)) || pick(ts);
+}
 
 /** Show a tab as a popup (or focus it if it is already open somewhere). */
 export function popTab(match: (t: Tab) => boolean, make: () => Tab) {
@@ -150,7 +168,7 @@ export function quoteSelection(side: boolean): boolean {
   const key = src?.dataset.src || '';
   const tabId = host.dataset.tab!;
   const lt = live.get(tabId);
-  const threadId = lt?.thread || allTabs(ws()).find(x => x.tab.id === tabId)?.tab.thread;
+  const threadId = lt?.thread || allTabs(ws()).find(x => x.tab.id === tabId)?.tab.thread || quoteTarget()?.thread;
   lt?.reader().clear(); s.removeAllRanges();
   const q: Quote = { id: 'q' + Date.now(), text, src: key, ...(src && src.contains(r.endContainer) ? offsetsIn(src, r) : {}) };
   if (!side) {

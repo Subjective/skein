@@ -25,6 +25,7 @@ import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
 import { rawAt } from './markdown';
 import { recentMouse } from '../../ui/VimField';
+import { bubbleShape, morphIn, morphOut, type Shape } from './editMorph';
 import './chat.css';
 
 type Sub = Extract<ThreadEvent, { t: 'sub' }>;
@@ -257,10 +258,34 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   };
 
   // ---- edit and resend (G8) ----
+  // the bubble turns into the box and back (editMorph.ts): its shape is measured before the swap, the box grows out
+  // of it once React has drawn the box, and on the way out the box stays until it has shrunk back into the bubble
+  const shapes = useRef(new Map<string, Shape>());
+  const growing = useRef<string | null>(null);
+  const closing = useRef<{ id: string; as: Animation[] } | null>(null);
+  const keepBottom = () => { const s = scroller.current; if (s && stick.current) s.scrollTop = s.scrollHeight; };
+  useLayoutEffect(() => {
+    const id = growing.current; growing.current = null;
+    if (id && id === tc.edit?.event) morphIn(read.current?.querySelector<HTMLElement>('.m-edit'), shapes.current.get(id) ?? null, keepBottom);
+  }, [tc.edit?.event]); // eslint-disable-line react-hooks/exhaustive-deps
+  /** Close the edit box, shrinking it back into the bubble first; `then` runs once the bubble is back. */
+  const closeEdit = (then?: () => void) => {
+    const id = tc.edit?.event; if (!id) return then?.();
+    if (closing.current) return;
+    const done = () => { if (closing.current?.id !== id) return; closing.current = null; if (tc.edit?.event === id) { tc.edit = undefined; bump(); } then?.(); };
+    const as = morphOut(read.current?.querySelector<HTMLElement>('.m-edit'), shapes.current.get(id) ?? null, keepBottom);
+    closing.current = { id, as };
+    if (!as.length) return done();
+    void as[0].finished.then(done, () => {});
+  };
   const startEdit = (id: string, offset?: number, key?: string) => {
     if (t.kind === 'sub' || mirror) return;
     const e = lg.events.find(x => x.id === id); if (!e || e.t !== 'user') return;
     reader.clear();
+    // back in while the box is still shrinking: drop that box now (its animations go with it)
+    if (closing.current) { closing.current.as.forEach(a => a.cancel()); closing.current = null; tc.edit = undefined; }
+    const sh = bubbleShape(read.current, id); if (sh) shapes.current.set(id, sh); else shapes.current.delete(id);
+    growing.current = id;
     tc.edit = { event: id, draft: { ...blank(), text: e.text, images: e.images || [] } }; bump();
     requestAnimationFrame(() => {
       const f = editor.current?.field(); if (!f) return;
@@ -315,14 +340,14 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   };
   // esc out of an edit box puts the reader's cursor back on that message (the mockup's editCancel), not the composer
   const cancelEdit = () => {
-    const id = tc.edit?.event; tc.edit = undefined; bump();
-    requestAnimationFrame(() => {
+    const id = tc.edit?.event;
+    closeEdit(() => requestAnimationFrame(() => {
       const root = read.current, el = id && root?.querySelector(`.m-user[data-ev="${CSS.escape(id)}"] .mt`);
       if (root && el) { reader.root = root; reader.at(el); } else composer.current?.focus(false);
-    });
+    }));
   };
   const resend = () => {
-    const ed = tc.edit; if (!ed) return;
+    const ed = tc.edit; if (!ed || closing.current) return;
     const text = outgoing(ed.draft); if (!text && !ed.draft.images.length) return;
     rewindTo(th.id, ed.event);
     void api.chat.send(th.id, { text, images: ed.draft.images, rewind: ed.event, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) });
@@ -419,7 +444,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
       if (ev.detail >= 2 && !target.closest('.diff .dl > .n') && !onText(ev.clientX, ev.clientY) && !onText(downAt.current.x, downAt.current.y)) { s?.removeAllRanges(); setSel(null); if (reader.on && reader.mode !== 'n') reader.clear(); return; }
       if (s && !s.isCollapsed && root.contains(s.anchorNode)) setSel(s.toString());
       reader.fromMouse(ev, root, downAt.current);   // first, while the text under the pointer is where it was clicked
-      if (tc.edit && (!s || s.isCollapsed)) { tc.edit = undefined; bump(); }
+      if (tc.edit && (!s || s.isCollapsed)) closeEdit();
       if (!reader.on) {
         const el = document.activeElement as HTMLElement | null;
         if (el && el.matches('textarea, input') && scroller.current?.parentElement?.contains(el)) el.blur();

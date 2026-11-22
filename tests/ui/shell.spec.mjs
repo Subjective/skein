@@ -306,14 +306,68 @@ test('machines popover: machines with marks, picking one opens a new thread ther
 });
 
 test('sidebar: the edge drags to resize, open threads are tinted', async p => {
-  const h = await p.locator('#side .side-resize').boundingBox();
+  const h = await p.locator('#side > .rsz').boundingBox();
   const w0 = (await p.locator('#side').boundingBox()).width;
-  await p.mouse.move(h.x + 4, h.y + 200); await p.mouse.down();
-  await p.mouse.move(h.x + 84, h.y + 200, { steps: 5 }); await p.mouse.up();
+  await p.mouse.move(h.x + 3, h.y + 200); await p.mouse.down();
+  await p.mouse.move(h.x + 83, h.y + 200, { steps: 5 }); await p.mouse.up();
   const w1 = (await p.locator('#side').boundingBox()).width;
   assert.ok(Math.abs(w1 - w0 - 80) < 4, `${w0} -> ${w1}`);
   await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
   await p.locator('#side .row.vis').first().waitFor();
+});
+
+// Josh, 2026-11-22: the sidebar's edge showed a thick grey bar, a split's divider a thin blue line. Every resize
+// edge is one component now (ui/resize.tsx): same hairline, line, delay, cursor and hit area.
+test('resize edges: the sidebar, the file tree and both split dividers look and behave the same', async p => {
+  await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click();
+  await settle(p, 450);
+  await keys(p, 'Escape'); await p.keyboard.type(':'); await p.keyboard.type('filesview'); await keys(p, 'Enter');
+  await p.locator('.pane.focus .files-v .ptree').getByText('README.md', { exact: true }).click();
+  await p.locator('.pane.focus .file-v').waitFor();
+  if (!(await p.locator('.pane.focus .ctree').count())) await p.locator('.pane.focus .file-v').getByRole('button', { name: 'Project files' }).click();
+  const edges = { sidebar: '#side > .rsz', tree: '.file-v .rsz', across: '.split.d-row > .rsz', down: '.split.d-col > .rsz' };
+  const look = sel => p.locator(sel).first().evaluate(e => {
+    const s = getComputedStyle(e), b = getComputedStyle(e, '::before'), a = getComputedStyle(e, '::after'), r = e.getBoundingClientRect();
+    const across = r.width === 1;
+    return { cursor: s.cursor, rest: s.backgroundColor, line: a.backgroundColor, lineW: across ? a.width : a.height, hit: across ? b.width : b.height, opacity: a.opacity, thick: across ? r.width : r.height, on: e.classList.contains('on') };
+  });
+  const seen = {};
+  for (const [name, sel] of Object.entries(edges)) {
+    if (name === 'across') {   // split after the tree is checked: a narrow pane hides its tree
+      await keys(p, 'Escape'); await p.keyboard.type(':'); await p.keyboard.type('vsplit'); await keys(p, 'Enter');
+      await keys(p, 'Escape'); await p.keyboard.type(':'); await p.keyboard.type('split'); await keys(p, 'Enter');
+    }
+    const h = p.locator(sel).first(), r = await h.boundingBox(), x = r.x + r.width / 2, y = r.y + Math.min(r.height / 2, 200);
+    await p.mouse.move(640, 790); await settle(p, 250);
+    const rest = await look(sel);
+    assert.equal(rest.opacity, '0', `${name}: no line at rest`);
+    assert.equal(rest.thick, 1, `${name}: a 1px hairline`);
+    await p.mouse.move(r.width === 1 ? x + 4 : x, r.width === 1 ? y : y + 4);   // the edge of the hit area
+    await settle(p, 40);
+    assert.equal((await look(sel)).opacity, '0', `${name}: passing over it does not flash the line`);
+    await settle(p, 400);
+    const hover = await look(sel);
+    assert.equal(hover.opacity, '1', `${name}: the line shows on hover`);
+    await p.mouse.down(); await p.mouse.move(x, y, { steps: 2 });
+    assert.ok((await look(sel)).on, `${name}: held while dragging`);
+    await p.mouse.up(); await settle(p, 60);
+    assert.ok(!(await look(sel)).on, `${name}: let go`);
+    seen[name] = { ...hover, cursor: hover.cursor };
+  }
+  const { sidebar, tree, across, down } = seen, same = o => JSON.stringify({ rest: o.rest, line: o.line, lineW: o.lineW, hit: o.hit });
+  for (const [name, o] of Object.entries({ tree, across, down })) assert.equal(same(o), same(sidebar), `${name} matches the sidebar's edge`);
+  assert.equal(await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--blue').trim() !== ''), true);
+  assert.deepEqual([sidebar.cursor, tree.cursor, across.cursor, down.cursor], ['col-resize', 'col-resize', 'col-resize', 'row-resize']);
+});
+
+test('resize edges: double-click puts the sidebar back to its default width', async p => {
+  const side = () => p.locator('#side').boundingBox().then(b => Math.round(b.width));
+  const w0 = await side(), h = await p.locator('#side > .rsz').boundingBox();
+  await p.mouse.move(h.x, h.y + 200); await p.mouse.down(); await p.mouse.move(h.x + 60, h.y + 200, { steps: 3 }); await p.mouse.up();
+  assert.equal(await side(), w0 + 60);
+  await p.mouse.dblclick(h.x + 60, h.y + 200);
+  assert.equal(await side(), w0, 'back to the default');
+  assert.equal(await p.evaluate(() => localStorage.getItem('skein.sidebarWidth')), null, 'the kept width is forgotten');
 });
 
 test('toasts: one at a time, names in bold', async p => {
@@ -350,7 +404,7 @@ test('settings: General has On launch, Appearance has the theme, the vimrc row s
   await p.locator('.s-row', { hasText: 'On launch' }).getByText('Start empty').click();
   await p.waitForFunction(() => window.__skein.S.settings.launch === 'empty');
   await p.locator('.settings-nav button', { hasText: 'Notifications' }).click();
-  assert.match(await p.locator('.s-body').innerText(), /A thread counts as read/);
+  assert.match(await p.locator('.s-body').innerText(), /Notify me/);
   await p.locator('.settings-nav button', { hasText: 'Vim' }).click();
   assert.match(await p.locator('.s-row', { hasText: 'vimrc' }).innerText(), /~\/\.config\/skein\/vimrc/);
   await p.evaluate(() => window.__skein.api.app.setSettings({ launch: 'restore' }));

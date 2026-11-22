@@ -68,7 +68,7 @@ export function update(fn?: (s: AppState) => void) {
   queued = true;
   queueMicrotask(() => { queued = false; for (const f of subs) f(); });
 }
-const subscribe = (f: () => void) => { subs.add(f); return () => subs.delete(f); };
+export const subscribe = (f: () => void) => { subs.add(f); return () => subs.delete(f); };
 /** Re-render this component on every state change. */
 export function useApp(): AppState { useSyncExternalStore(subscribe, () => version); return S; }
 

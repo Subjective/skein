@@ -4,6 +4,7 @@ import * as A from '../state/actions';
 import { activeTab, leaves, type Node, type Pane, type Split, type Tab } from '../state/layout';
 import { S, thread, update, useApp, ws } from '../state/store';
 import { cx, Icon, IconButton, Seg, Spinner } from '../ui/primitives';
+import { hold, ResizeHandle } from '../ui/resize';
 import { log, useChat } from '../views/chat/state';
 import { LangBadge } from '../views/tools/code';
 import { fileDirty } from '../views/tools/FileView';
@@ -120,19 +121,18 @@ function SplitEl({ n }: { n: Split }) {
     if (e.button !== 0) return;
     e.preventDefault();
     const dv = e.currentTarget as HTMLElement, [a, , b] = [...ref.current!.children] as HTMLElement[];
-    dv.setPointerCapture(e.pointerId); dv.classList.add('on');
     const mv = (ev: PointerEvent) => {
       const r = ref.current!.getBoundingClientRect();
       n.ratio = Math.min(0.88, Math.max(0.12, n.dir === 'row' ? (ev.clientX - r.left) / r.width : (ev.clientY - r.top) / r.height));
       a.style.flex = String(n.ratio); b.style.flex = String(1 - n.ratio);
     };
-    const up = () => { dv.classList.remove('on'); dv.removeEventListener('pointermove', mv); dv.removeEventListener('pointerup', up); dv.removeEventListener('lostpointercapture', up); update(); A.save(); };
-    dv.addEventListener('pointermove', mv); dv.addEventListener('pointerup', up); dv.addEventListener('lostpointercapture', up);
+    dv.addEventListener('pointermove', mv);
+    hold(dv, e.pointerId, () => { dv.removeEventListener('pointermove', mv); update(); A.save(); });
   };
   return (
     <div ref={ref} className={cx('split', `d-${n.dir}`)}>
       <div className="cell" style={{ flex: n.ratio }}><NodeEl n={n.a} /></div>
-      <div className="dv" onPointerDown={drag} onDoubleClick={() => { n.ratio = 0.5; update(); A.save(); }} />
+      <ResizeHandle axis={n.dir === 'row' ? 'x' : 'y'} className="dv" label="Resize panes" onPointerDown={drag} onDoubleClick={() => { n.ratio = 0.5; update(); A.save(); }} />
       <div className="cell" style={{ flex: 1 - n.ratio }}><NodeEl n={n.b} /></div>
     </div>
   );
