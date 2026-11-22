@@ -226,15 +226,23 @@ export function Menu<D>(p: MenuProps<D>) {
   // on its side of the anchor when it fits there, else flipped, else capped and scrolling (ui/place.ts); measured
   // again when the list grows or shrinks, so a menu that fills in after opening still fits
   const [pos, setPos] = useState<React.CSSProperties>({});
+  // an open menu never shrinks: a row that goes away (the model picker's Ultracode, on hovering a model without it)
+  // would otherwise move every row under the pointer of a menu that opens upward. Typing a search may shrink it
+  const tallest = useRef(0), forQ = useRef(q);
+  if (forQ.current !== q) { forQ.current = q; tallest.current = 0; }
   useLayoutEffect(() => {
     if (p.modal || !p.anchor) return;
     const r = p.anchor, w = Math.min(p.width === 'anchor' ? r.width : p.width || 260, innerWidth - 16);
     const place = p.place || 'top-start', el = ref.current;
-    if (el) { el.style.maxHeight = ''; el.style.width = w + 'px'; }
-    const h = el?.offsetHeight ?? 0;
+    if (el) { el.style.maxHeight = ''; el.style.minHeight = ''; el.style.width = w + 'px'; }
+    const h = tallest.current = Math.max(tallest.current, el?.offsetHeight ?? 0);
     const at = placeBy(r, w, h, place.startsWith('top') ? 'top' : 'bottom', place.endsWith('end') ? 'end' : 'start');
-    setPos({ width: w, ...placeStyle(r, at) });
-  }, [p.anchor, p.modal, p.place, p.width, items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    const st = placeStyle(r, at);
+    // the cap is put back by hand too: React skips a style prop that did not change, and it was just cleared above
+    if (el && st.maxHeight != null) el.style.maxHeight = st.maxHeight + 'px';
+    if (el) el.style.minHeight = Math.min(h, st.maxHeight ?? h) + 'px';
+    setPos({ width: w, ...st });
+  }, [p.anchor, p.modal, p.place, p.width, items.length, q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // a click outside closes
   useEffect(() => {

@@ -486,12 +486,12 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
   };
   const m = machine(target.machine), has = (h: Harness) => !m || m.has.includes(h);
   const def = modelDef(v.h, v.model, target.machine);
-  // one rule for every control that depends on the model: it shows what the model under the cursor (else the picked
-  // one) has. A row stays in its place while any listed model has it, dimmed with a note when this one does not, so
-  // moving through the list never makes the menu jump; it eases between the states
+  // every control that depends on the model shows what the model under the cursor (else the picked one) has. The
+  // effort row stays in its place while any listed model has levels, dimmed with a note when this one has none;
+  // Ultracode is listed only for a model that has it (Josh, 2026-11-22)
   const shown = pv ? modelDef(pv.h, pv.id, target.machine) : def, es = shown.efforts, ei = Math.max(0, es.indexOf(pv ? pv.effort : v.effort));
   const listed = target.groups.flatMap(h => harnessOptions(h, target.machine).models.map(x => modelDef(h, x.id, target.machine)));
-  const anyEfforts = listed.find(d => d.efforts.length)?.efforts ?? [], anyUltra = listed.some(d => d.ultra);
+  const anyEfforts = listed.find(d => d.efforts.length)?.efforts ?? [];
   // one function per state, so the menu re-lists only when the choice changes (not on every app render)
   const items = useMemo(() => (q: string): MenuItem<Row>[] => {
     const match = (s: string) => !q || s.toLowerCase().includes(q.toLowerCase());
@@ -506,7 +506,7 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
     if (q && !out.some(it => it.data?.k === 'model')) return [];
     if (es.length) out.push({ label: 'Effort', block: <EffortTrack stops={es.map(e => effortLabel(e))} i={ei} onTo={effortTo} preview={!!pv} />, data: { k: 'effort' }, pin: true });
     else if (anyEfforts.length) out.push({ label: 'Effort', block: <EffortTrack stops={anyEfforts.map(e => effortLabel(e))} i={-1} onTo={() => {}} none={`${shown.label} has no effort levels`} />, data: { k: 'effort' }, pin: true, dis: true });
-    if (anyUltra) out.push({ label: 'Ultracode', right: <span className={cx('sw', shown.ultra && v.ultra && 'on')} />, hint: shown.ultra ? undefined : `not on ${shown.label}`, data: { k: 'ultra' }, pin: true, dis: !shown.ultra });
+    if (shown.ultra) out.push({ label: 'Ultracode', right: <span className={cx('sw', v.ultra && 'on')} />, data: { k: 'ultra' }, pin: true });
     return out;
   }, [v, pv, ...opts]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
