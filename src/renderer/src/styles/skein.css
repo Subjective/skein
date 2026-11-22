@@ -15,6 +15,8 @@
   --mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono", Consolas, monospace;
   --mono-w: 350;
   --ease: 120ms ease;
+  /* every drag-to-resize edge (.rsz): the line it shows on hover and while dragging, and how wide it can be grabbed */
+  --rsz-line: var(--blue); --rsz-w: 2px; --rsz-hit: 9px; --rsz-delay: 150ms;
   --sel: rgba(74, 163, 255, .3);   /* every selection: text, VISUAL, V-LINE rows */
   --quote-hot: rgba(74, 163, 255, .14);   /* a quote chip under the pointer */
   color-scheme: dark;
@@ -88,13 +90,21 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 #main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 
 /* ---------- sidebar ---------- */
-#side { position: relative; background: var(--side); display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
-.side-resize { position: absolute; inset: 0 -4px 0 auto; width: 8px; z-index: 3; cursor: col-resize; touch-action: none; }
-.side-resize:hover::after, .side-resize:active::after { content: ""; position: absolute; inset: 0 3px; background: var(--fg-3); }
-/* the file tree's left edge, the same handle as the sidebar's (ui/resize.ts) */
-.tree-resize { position: relative; flex: none; width: 0; z-index: 3; }
-.tree-resize::before { content: ""; position: absolute; inset: 0 -4px; cursor: col-resize; touch-action: none; }
-.tree-resize:hover::after, .tree-resize:active::after { content: ""; position: absolute; inset: 0 -1px; background: var(--fg-3); }
+#side { position: relative; background: var(--side); display: flex; flex-direction: column; min-height: 0; }
+/* Every drag-to-resize edge (ui/resize.tsx ResizeHandle): the sidebar's right edge, the file tree's left edge, a split's
+   divider. The handle is the 1px hairline itself; ::before is the hit area, ::after the line shown on hover (after
+   --rsz-delay, so passing over it does not flash) and at once while it is held. */
+.rsz { position: relative; flex: none; z-index: 3; background: var(--line); touch-action: none; }
+.rsz.x { width: 1px; cursor: col-resize; } .rsz.y { height: 1px; cursor: row-resize; }
+.rsz::before, .rsz::after { content: ""; position: absolute; }
+.rsz.x::before { top: 0; bottom: 0; left: calc((1px - var(--rsz-hit)) / 2); width: var(--rsz-hit); }
+.rsz.y::before { left: 0; right: 0; top: calc((1px - var(--rsz-hit)) / 2); height: var(--rsz-hit); }
+.rsz::after { background: var(--rsz-line); opacity: 0; transition: opacity var(--ease); }
+.rsz.x::after { top: 0; bottom: 0; left: calc((1px - var(--rsz-w)) / 2); width: var(--rsz-w); }
+.rsz.y::after { left: 0; right: 0; top: calc((1px - var(--rsz-w)) / 2); height: var(--rsz-w); }
+.rsz:hover::after { opacity: 1; transition-delay: var(--rsz-delay); }
+.rsz.on::after { opacity: 1; transition-delay: 0s; }
+#side > .rsz { position: absolute; top: 0; bottom: 0; right: 0; }
 .s-top { height: 40px; flex: none; display: flex; align-items: center; gap: 2px; padding: 0 8px; }
 .s-nav { padding: 6px 8px 2px; }
 .nav { width: 100%; height: 32px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 8px; font-size: 13.500px; transition: background var(--ease); }
@@ -174,11 +184,6 @@ kbd { font: 11px var(--mono); padding: 1px 5px; border-radius: 4px; background: 
 .split { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .split.d-col { flex-direction: column; }
 .cell { min-width: 0; min-height: 0; display: flex; }
-.dv { flex: 0 0 1px; background: var(--line); position: relative; z-index: 3; transition: background var(--ease); }
-.dv::after { content: ""; position: absolute; }
-.split.d-row > .dv { cursor: col-resize; } .split.d-row > .dv::after { inset: 0 -4px; }
-.split.d-col > .dv { cursor: row-resize; } .split.d-col > .dv::after { inset: -4px 0; }
-.dv:hover, .dv.on { background: var(--blue); }
 
 .pane { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; container-type: inline-size; background: var(--bg); }
 .body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -1083,6 +1088,7 @@ button[aria-expanded="true"] > .i-down { transform: rotate(180deg); }
   #app:not(.noside) { grid-template-columns: minmax(0, 1fr); }
   #app:not(.noside) #side { position: fixed; left: 0; top: 0; bottom: 0; width: min(280px, 80vw); z-index: 45; box-shadow: var(--shadow); animation: slide .18s ease; }
   #app:not(.noside) #main { grid-column: 1; }
+  #app:not(.noside) #side > .rsz { pointer-events: none; }   /* a floating sidebar has a fixed width */
   .wc i { width: 34px; }
   .tb .seg button { width: 24px; }
 }
@@ -1112,7 +1118,7 @@ button.cb { padding: 0; border: 0; background: none; color: inherit; cursor: poi
 button.cb.on { background: var(--fg); color: var(--bg); }
 .cbody { flex: 1; min-height: 0; display: flex; }
 .cbody > .tool-b { flex: 1; min-width: 0; }
-.ctree { position: relative; width: var(--tree-width, 236px); flex: none; overflow: auto; padding: 4px 8px 12px; border-left: 1px solid var(--line); font-size: 12.500px; }
+.ctree { position: relative; width: var(--tree-width, 236px); flex: none; overflow: auto; padding: 4px 8px 12px; font-size: 12.500px; }
 @container (max-width: 620px) { .ctree { display: none; } }
 .tq { height: 28px; display: flex; align-items: center; gap: 6px; margin: 2px 0 6px; padding: 0 8px; border-radius: 7px; background: var(--hover); color: var(--fg-3); }
 .tq input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--fg); font: inherit; }

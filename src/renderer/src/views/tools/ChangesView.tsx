@@ -26,7 +26,7 @@ import { baseName, langOf, tokenize, type HlState } from './highlight';
 import { openFile, splitKey } from './open';
 import { ctxOf, refreshNow, turnFor, useRepo, viewState } from './repo';
 import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
-import { dragEdge, TREE_EDGE } from '../../ui/resize';
+import { dragEdge, ResizeHandle, resetEdge, TREE_EDGE } from '../../ui/resize';
 
 const resizeTree = dragEdge(TREE_EDGE);
 
@@ -498,7 +498,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
             })}
         </div>
         {side.show && (<>
-          <div className="tree-resize" title="Drag to resize" onPointerDown={resizeTree} />
+          <ResizeHandle axis="x" label="Resize file tree" onPointerDown={resizeTree} onDoubleClick={() => resetEdge(TREE_EDGE)} />
           <aside className="ctree" aria-label="Changed files">
             <label className="tq"><Icon name="search" size="sm" />
               <VimField ref={tq} tabId={t.id} value={v.tq} onChange={x => { v.tq = x.replace(/\n/g, ''); update(); }} placeholder="Search files" className="tq-f"
