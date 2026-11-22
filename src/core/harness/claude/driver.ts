@@ -145,6 +145,8 @@ export class ClaudeDriver implements ChatDriver {
     this.sentText.set(uuid, text);
     const content = [...imageBlocks(images), ...(text ? [{ type: 'text' as const, text }] : [])];
     this.ev({ t: 'user', id: uuid, text, ...(images?.length ? { images } : {}), at: Date.now() });
+    // a turn you start resumes a paused queue: it goes on when this turn ends (as Codex's does)
+    if (this.t.queuePaused) this.setQueue(this.queue, false);
     if (!this.running) this.startTurn(uuid);
     this.inbox!.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, uuid: uuid as SDKUserMessage['uuid'] } as SDKUserMessage);
   }

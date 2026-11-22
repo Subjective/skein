@@ -212,7 +212,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   // while a turn runs, enter queues (or steers, by the setting) and mod-enter does the other; subagents only steer
   const send = (alt?: boolean) => {
     const d = tc.draft, text = outgoing(d);
-    if (!text && !d.images.length) return;
+    if (!text && !d.images.length) { if (canContinue) { stick.current = true; void api.chat.send(th.id, { text: '', resume: true, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) }); } return; }
     stick.current = true;
     const queue = running && t.kind !== 'sub' && ((S.settings.followUp ?? 'queue') === 'queue') !== !!alt;
     const sent = t.kind === 'sub' ? api.chat.send(th.id, { text, images: d.images, sub: t.sub })
@@ -226,6 +226,8 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     saveDraft(key, '');
   };
   const stop = () => void api.chat.interrupt(th.id);
+  // Codex: the last turn was stopped, so with nothing typed send continues it (Codex's ▶; Claude Code has no such call)
+  const canContinue = th.harness === 'codex' && t.kind !== 'sub' && !running && events.filter(e => e.t !== 'worked').at(-1)?.t === 'interrupted';
 
   // ---- the queue: messages waiting for the running turn (QueueTray) ----
   const queue = t.kind === 'sub' ? [] : th.queue ?? [];
@@ -500,7 +502,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
             placeholder={t.kind === 'sub' ? `Message ${sub?.name || 'subagent'}` : th.side ? 'Ask in this side chat' : undefined}
             showContext={!th.side && t.kind !== 'sub'} bare={t.kind === 'sub'} onCommand={onCommand} onLeave={() => { if (ws().pf === t.id) A.closeFocusedPopup(); else { (document.activeElement as HTMLElement | null)?.blur(); idle(); } }}
             onLeaveUp={() => { if (toQueue()) return; if (read.current && !reader.enter(read.current, 'view')) composer.current?.focus(false); }} onNormalKey={onNormalKey}
-            onFocus={() => setQcur(null)} />
+            onFocus={() => setQcur(null)} canContinue={canContinue} />
           </>
         )}
         {t.kind === 'sub' && sub && (

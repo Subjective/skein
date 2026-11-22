@@ -41,6 +41,8 @@ export interface ComposerProps {
   onSend(alt?: boolean): void;
   /** The text got the keys (a click, or focus from elsewhere). */
   onFocus?(): void;
+  /** Codex: a stop interrupted the last turn, so with nothing typed send (enter, the ▶ button) continues it. */
+  canContinue?: boolean;
   onStop?(): void;
   /** Our own / commands: /model is handled here; the rest go to the view. */
   onCommand?(cmd: string, anchor: DOMRect): void;
@@ -405,7 +407,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             <span className={cx('ring', fill(ctx))} style={{ ['--p' as string]: ctx }} />
           </button>
         )}
-        <SendButton stop={p.running && !hasText} armed={armed} disabled={!p.running && !hasText} onClick={() => { if (armed) { disarm(false); p.onStop?.(); return; } if (p.running && !hasText) p.onStop?.(); else p.onSend(); }} />
+        <SendButton stop={p.running && !hasText} armed={armed} play={!p.running && !hasText && p.canContinue} disabled={!p.running && !hasText && !p.canContinue} onClick={() => { if (armed) { disarm(false); p.onStop?.(); return; } if (p.running && !hasText) p.onStop?.(); else p.onSend(); }} />
       </div>
       {hot && createPortal(<button ref={tokx} type="button" className="tokx" title="Remove" aria-label="Remove quote" style={{ left: hot.right - 4, top: hot.top - 9 }}
         onMouseDown={e => { e.preventDefault(); e.stopPropagation(); dropQuote(hot.i); }}><Icon name="x" /></button>, document.body)}

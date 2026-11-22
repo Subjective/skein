@@ -53,6 +53,9 @@ export interface ChatSend {
   retry?: boolean;
   /** While a turn runs: wait in the thread's queue for it to end (true), or steer it now (absent). */
   queue?: boolean;
+  /** Codex only: continue the turn a stop interrupted (`text` empty), a turn with no new message. Claude Code has no
+   *  such call, so its chat doesn't offer it. */
+  resume?: boolean;
 }
 
 export interface NewThread {

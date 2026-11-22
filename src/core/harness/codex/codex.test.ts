@@ -197,6 +197,21 @@ describe('Codex driver', () => {
     await until(() => h.thread('t1').queue?.length === 0);
   });
 
+  it('continues a stopped turn: a turn with no input and a Continued note, live and in history', async () => {
+    const { srv, h, d } = setup({ sessionId: 'cx-1' });
+    await d.send({ text: '', resume: true });
+    expect(srv.got.find(g => g.method === 'turn/start')?.params).toMatchObject({ threadId: 'cx-1', input: [] });
+    expect(h.view().filter(e => e.t === 'user')).toHaveLength(0);
+    expect(h.view().at(-1)).toMatchObject({ t: 'notice', id: 'c-turn-1', text: 'Continued' });
+    const user = (id: string) => ({ type: 'userMessage', id, clientId: null, content: [{ type: 'text', text: 'go', text_elements: [] }] });
+    const turns = [
+      { id: 'a', status: 'interrupted', error: null, durationMs: 10, items: [user('u1')] },
+      { id: 'b', status: 'completed', error: null, durationMs: 10, items: [{ type: 'agentMessage', id: 'm1', text: 'ok' }] },
+      { id: 'c', status: 'completed', error: null, durationMs: 10, items: [{ type: 'agentMessage', id: 'm2', text: 'ok' }] },   // not after a stop: no note
+    ];
+    expect(turnEvents(turns as never).events.filter(e => e.t === 'notice')).toEqual([{ t: 'notice', id: 'c-b', text: 'Continued' }]);
+  });
+
   it('records the model and effort Codex resumed a thread with when the thread has none', async () => {
     const srv = fakeServer(method => (method === 'thread/resume' ? { thread: { id: 'cx-old' }, model: 'gpt-5.2', reasoningEffort: 'low' } : method === 'turn/start' ? { turn: { id: 'turn-1' } } : {}));
     const h = fakeHost([{ id: 'o', harness: 'codex', sessionId: 'cx-old' }, { id: 'p', harness: 'codex', sessionId: 'cx-pick', model: 'gpt-6.2-sol', effort: 'high' }]);

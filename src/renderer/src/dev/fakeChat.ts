@@ -161,7 +161,9 @@ export function fakeChat(emit: (e: SkeinEvent) => void, threads: ThreadMeta[]) {
       }
       if (m.queue && th(thread)?.status === 'running') { setQueue(thread, [...(th(thread).queue ?? []), { id: 'q' + ++qn, text: m.text, ...(m.images?.length ? { images: m.images } : {}) }]); return; }
       if (m.retry) { const list = ev(thread); const e = list[list.length - 1]; if (e?.t === 'error') { list.pop(); emit({ type: 'chat', thread, event: { t: 'notice', id: e.id, text: 'Retrying' }, replace: true }); } }
+      else if (m.resume) push(thread, { t: 'notice', id: id(), text: 'Continued' });
       else push(thread, user(m.text, m.images));
+      if (th(thread).queuePaused) setQueue(thread, th(thread).queue ?? [], false);   // a turn you start resumes the queue
       reply(thread, 'This is the browser preview, so no agent is attached. In the app the reply streams in here, and the same turn shows in the thread\'s terminal view.');
     },
     interrupt: async (thread: string) => {

@@ -13,8 +13,8 @@ const texts = p => rows(p).locator('.qtext').allInnerTexts();
 const cur = p => p.evaluate(() => [...document.querySelectorAll('.pane.focus .qrow')].findIndex(r => r.classList.contains('cur')));
 const users = p => p.locator('.pane.focus .m-user').allInnerTexts();
 /** The running sample thread (Claude) with three queued messages. */
-async function queued(p, n = 3) {
-  await openChat(p, 'Fix session-restore race');
+async function queued(p, n = 3, title = 'Fix session-restore race') {
+  await openChat(p, title);
   for (const m of ['alpha', 'bravo', 'charlie'].slice(0, n)) { await composer(p).fill(m); await composer(p).press('Enter'); await settle(p, 60); }
   await p.waitForFunction(n => document.querySelectorAll('.pane.focus .qrow').length === n, n);
 }
@@ -165,7 +165,9 @@ await test('more menu: . opens it, esc gives the keys back to the row; Move to t
   await menu.getByText('Edit message').click();
   await p.locator('.pane.focus .qrow.editing textarea').waitFor();
   assert.equal(await p.locator('.pane.focus .qrow.editing textarea').inputValue(), 'alpha');
+  await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'INSERT');
   await keys(p, 'Escape Escape');
+  await p.waitForFunction(() => !document.querySelector('.qrow.editing'));
   await rows(p).nth(1).hover(); await rows(p).nth(1).getByRole('button', { name: 'More' }).click();
   await menu.getByText('Turn off queueing').click();
   await settle(p, 200);
@@ -202,5 +204,47 @@ await test('a stop pauses the queue: Resume (or r) starts the next; then it drai
   assert.deepEqual(await texts(p), ['bravo']);
   // alpha's turn ends, then bravo starts by itself
   await p.locator('.pane.focus .m-user', { hasText: 'bravo' }).waitFor({ timeout: 12000 });
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .qtray'));
+});
+
+await test('Codex: after a stop, an empty composer continues the turn (▶, enter): a Continued note, no message', async p => {
+  await openChat(p, 'Refactor queue worker');
+  const send = p.locator('.pane.focus .send');
+  assert.equal(await send.getAttribute('aria-label'), 'Stop');
+  await composer(p).press('Escape'); await keys(p, 'Escape Escape');
+  await p.locator('.pane.focus .note-row', { hasText: 'Interrupted' }).waitFor();
+  assert.equal(await send.getAttribute('aria-label'), 'Continue the stopped turn');
+  assert.equal(await send.isDisabled(), false);
+  await composer(p).click(); await composer(p).fill('x');
+  assert.equal(await send.getAttribute('aria-label'), 'Send');   // typing makes it send again
+  await composer(p).fill('');
+  const before = (await users(p)).length;
+  await composer(p).press('Enter');
+  await p.locator('.pane.focus', { hasText: 'Continued' }).waitFor();
+  assert.equal((await users(p)).length, before);
+  await p.waitForFunction(() => document.querySelector('.pane.focus .send')?.getAttribute('aria-label') === 'Stop');
+});
+
+await test('Claude Code: no continue after a stop (send stays disabled); a new message resumes a paused queue', async p => {
+  await queued(p, 1);
+  await composer(p).press('Escape'); await keys(p, 'Escape Escape');
+  await p.locator('.pane.focus .qhead').waitFor();
+  const send = p.locator('.pane.focus .send');
+  assert.equal(await send.getAttribute('aria-label'), 'Send');
+  assert.ok(await send.isDisabled());
+  await composer(p).click(); await composer(p).press('Enter'); await settle(p, 200);
+  assert.ok(!(await p.locator('.pane.focus').innerText()).includes('Continued'));
+  await composer(p).fill('go on'); await composer(p).press('Enter');
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .qhead'));
+  await p.locator('.pane.focus .m-user', { hasText: 'alpha' }).waitFor({ timeout: 12000 });
+});
+
+await test('Codex: continue with a paused queue, and the queue goes on after the continued turn', async p => {
+  await queued(p, 1, 'Refactor queue worker');
+  await composer(p).press('Escape'); await keys(p, 'Escape Escape');
+  await p.locator('.pane.focus .qhead').waitFor();
+  await p.locator('.pane.focus .send').click();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .qhead'));
+  await p.locator('.pane.focus .m-user', { hasText: 'alpha' }).waitFor({ timeout: 12000 });
   await p.waitForFunction(() => !document.querySelector('.pane.focus .qtray'));
 });

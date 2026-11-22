@@ -16,7 +16,7 @@ import { spawnOn } from '../../exec';
 import { log } from '../../log';
 import { which } from '../../shell';
 import { errorKind, throttle, tidy } from '../common';
-import { codexHistory } from './history';
+import { codexHistory, continuedId } from './history';
 import { agentStates, commandStep, itemEvents, turnError } from './items';
 import type { QueuedSubmission } from './protocol/v2/QueuedSubmission';
 import type { ThreadItem } from './protocol/v2/ThreadItem';
@@ -248,7 +248,7 @@ export class CodexDriver implements ChatDriver {
     }
 
     const clientId = randomUUID();
-    const input = await this.inputOf(text, images);
+    const input = msg.resume ? [] : await this.inputOf(text, images);
     // queued: Codex keeps it (thread/queue/*) and starts it as a turn of its own when this one ends; its message
     // shows in the transcript when that turn starts (item/started), so it isn't one of ours to show now
     if (msg.queue && this.turn) {
@@ -256,9 +256,11 @@ export class CodexDriver implements ChatDriver {
       catch (e) { this.error((e as Error).message); }
       return;
     }
-    this.sent.add(clientId);
-    this.lastUser = { id: clientId, text, images };
-    this.ev({ t: 'user', id: clientId, text, ...(images?.length ? { images } : {}), at: Date.now() });
+    if (!msg.resume) {
+      this.sent.add(clientId);
+      this.lastUser = { id: clientId, text, images };
+      this.ev({ t: 'user', id: clientId, text, ...(images?.length ? { images } : {}), at: Date.now() });
+    }
 
     const t = this.t;
     try {
@@ -276,6 +278,8 @@ export class CodexDriver implements ChatDriver {
           ...(perm ? { approvalPolicy: perm.approvalPolicy, approvalsReviewer: perm.approvalsReviewer, sandboxPolicy: perm.sandboxPolicy } : {}),
         });
         this.beginTurn(r.turn.id);
+        // a turn with no input goes on from where the stop left it (Codex tells the model the user interrupted)
+        if (msg.resume) this.ev({ t: 'notice', id: continuedId(r.turn.id), text: 'Continued' });
       }
     } catch (e) {
       this.error((e as Error).message);
