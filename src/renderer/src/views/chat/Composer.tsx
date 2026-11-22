@@ -415,7 +415,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         onMouseDown={e => { e.preventDefault(); e.stopPropagation(); dropQuote(hot.i); }}><Icon name="x" /></button>, document.body)}
       <input ref={file} type="file" accept="image/*" multiple hidden onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
       {open && box.current && (
-        <Menu<string> items={items} anchor={box.current.getBoundingClientRect()} place="top-start" width="anchor" className="composer-menu" empty="Loading…"
+        <Menu<string> items={items} filter={pop?.q} anchor={box.current.getBoundingClientRect()} place="top-start" width="anchor" className="composer-menu" empty="Loading…"
           surface={s => { menu.current = s; }} onPick={pick} onClose={() => setPop(null)} />
       )}
     </div>
