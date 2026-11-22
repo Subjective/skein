@@ -629,7 +629,9 @@ await test('permission chip: one label, a 200px menu of every mode the harness h
   assert.equal(await menu.locator('.mi .mic').count(), 0, 'no icons');
   assert.equal(await menu.locator('.mi .mh').count(), 0, 'no hints');
   assert.equal(await menu.locator('.mi.sel', { hasText: 'Accept edits' }).locator('.i-check').count(), 1);
-  assert.equal(Math.round((await menu.boundingBox()).width), 200);
+  assert.ok(Math.round((await menu.boundingBox()).width) >= 200, 'at least its set width');
+  // every label shows in full: the menu widens to its longest one
+  assert.deepEqual(await menu.locator('.mi .ml').evaluateAll(xs => xs.filter(x => x.scrollWidth > x.clientWidth).map(x => x.textContent)), [], 'no label is cut off');
   await p.keyboard.press('Escape');
 });
 
