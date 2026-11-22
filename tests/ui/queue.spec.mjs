@@ -39,7 +39,13 @@ await test('mod-enter steers while a turn runs (into the transcript, not the que
 
 await test('setting: enter steers and mod-enter queues', async p => {
   await openChat(p, 'Fix session-restore race');
-  await p.evaluate(async () => { const { api } = await import('/src/api.ts'), { update } = await import('/src/state/store.ts'); const v = await api.app.setSettings({ followUp: 'steer' }); update(s => { s.settings = v; }); });
+  // the setting, through ⋯ > Turn off queueing (the same row as Settings, General)
+  await composer(p).fill('first'); await composer(p).press('Enter');
+  await rows(p).first().hover(); await rows(p).first().getByRole('button', { name: 'More' }).click();
+  await p.locator('.menu').getByText('Turn off queueing').click();
+  await p.waitForFunction(() => !document.querySelector('.menu'));
+  await rows(p).first().hover(); await rows(p).first().getByRole('button', { name: 'Delete' }).click();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .qtray'));
   await composer(p).fill('now'); await composer(p).press('Enter');
   await p.locator('.pane.focus .m-user', { hasText: 'now' }).waitFor();
   await composer(p).fill('later'); await composer(p).press(`${mod}+Enter`);
