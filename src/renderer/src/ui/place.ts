@@ -6,12 +6,13 @@ export interface Placed { side: Side; left: number; maxHeight?: number }
 
 const GAP = 6, EDGE = 8;
 
-/** `h` is the popup's natural height; `align` lines its start or end edge up with the trigger's. */
-export function placeBy(r: DOMRect, w: number, h: number, prefer: Side, align: 'start' | 'end'): Placed {
+/** `h` is the popup's natural height; `align` lines its start or end edge (or its middle) up with the trigger's. */
+export function placeBy(r: DOMRect, w: number, h: number, prefer: Side, align: 'start' | 'end' | 'center'): Placed {
   const room = { top: r.top - GAP - EDGE, bottom: innerHeight - r.bottom - GAP - EDGE };
   const other: Side = prefer === 'top' ? 'bottom' : 'top';
   const side = h <= room[prefer] ? prefer : h <= room[other] ? other : room[other] > room[prefer] ? other : prefer;
-  const left = Math.max(EDGE, Math.min(align === 'end' ? r.right - w : r.left, innerWidth - w - EDGE));
+  const at = align === 'end' ? r.right - w : align === 'center' ? r.left + r.width / 2 - w / 2 : r.left;
+  const left = Math.max(EDGE, Math.min(at, innerWidth - w - EDGE));
   return { side, left, ...(h > room[side] ? { maxHeight: Math.max(80, room[side]) } : {}) };
 }
 
