@@ -37,7 +37,10 @@ export interface ComposerProps {
   onDraft(d: Draft): void;
   placeholder?: string;
   running?: boolean;
-  onSend(): void;
+  /** `alt`: mod-enter, which does the other of queue and steer while a turn runs. */
+  onSend(alt?: boolean): void;
+  /** The text got the keys (a click, or focus from elsewhere). */
+  onFocus?(): void;
   onStop?(): void;
   /** Our own / commands: /model is handled here; the rest go to the view. */
   onCommand?(cmd: string, anchor: DOMRect): void;
@@ -289,6 +292,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     else if (open && menu.current && ['up', 'down', 'ctrl-n', 'ctrl-p', 'ctrl-j', 'ctrl-k', 'tab', 'shift-tab', 'enter'].includes(k)) return menu.current.key(k === 'tab' || k === 'shift-tab' ? 'enter' : k, { key: '', code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
     if (open && k === 'esc') { setPop(null); return false; }   // the field goes to NORMAL too
     if (k === 'esc' && mode === 'NORMAL' && escStop()) return true;
+    if (!open && (k === 'mod-enter' || k === 'ctrl-enter' || k === 'cmd-enter')) { if (!ourCommand()) props.current.onSend(true); return true; }
     if (mode === 'NORMAL' && props.current.onNormalKey?.(k)) return true;
     // NORMAL has no paste event (the keys don't type): ctrl-v / cmd-v still attach an image on the clipboard
     if (mode === 'NORMAL' && (k === 'ctrl-v' || k === 'cmd-v')) { void pasteFromClipboard(); return true; }
@@ -374,7 +378,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const th = p.thread, ctx = th.ctx;
   const hasText = !!p.draft.text.trim() || p.draft.images.length > 0;
   return (
-    <div ref={box} className={cx('comp', p.className)} onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
+    <div ref={box} className={cx('comp', p.className)} onFocus={() => p.onFocus?.()} onDragOver={e => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }}
       onDrop={e => { const fs = clipImages(e.dataTransfer); if (fs.length) { e.preventDefault(); addFiles(fs); } }}>
       {p.draft.images.length > 0 && (
         <div className="atts">{p.draft.images.map((src, i) => (

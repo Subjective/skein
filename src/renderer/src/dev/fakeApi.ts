@@ -129,7 +129,7 @@ export const fakeApi: SkeinBridge = {
       if (t?.harness === 'claude') for (const [pid, th] of termOf) if (th === id) { termOf.delete(pid); emit({ type: 'pty.exit', id: pid, code: null, handoff: true }); }
       return chat.send(id, msg);
     },
-    interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); }, follow: () => {},
+    interrupt: chat.interrupt, answer: chat.answer, drive: async (id, view) => { await fakeApi.threads.update(id, { drive: view }); }, follow: () => {}, steerQueued: chat.queue.steer, dropQueued: chat.queue.remove, editQueued: chat.queue.edit, orderQueue: chat.queue.order, resumeQueue: chat.queue.resume,
   },
   pty: {
     spawn: async spec => {

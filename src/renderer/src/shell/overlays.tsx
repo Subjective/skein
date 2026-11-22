@@ -489,7 +489,7 @@ interface Row { label: string; desc?: string; seg?: [string, string][]; get?: ()
 
 const SECTIONS = ['General', 'Appearance', 'Vim', 'Notifications', 'Machines'];
 export function openSettings(section?: string, row?: number) { openLayer(close => <Settings close={close} section={section} row={row} />); }
-const setSetting = async (patch: Partial<typeof S.settings>) => { const s = await api.app.setSettings(patch); update(st => { st.settings = s; }); };
+export const setSetting = async (patch: Partial<typeof S.settings>) => { const s = await api.app.setSettings(patch); update(st => { st.settings = s; }); };
 
 // Keys (VIM-MODEL section 4, Settings): two lists side by side. The section list has the keys first: j / k move
 // over sections (the page follows), l / enter / tab go into the section's rows. In the rows, j / k move,
@@ -504,6 +504,7 @@ function Settings({ close, section, row: row0 }: { close: () => void; section?: 
     ['General', 'sliders', [
       { label: 'New threads open as', desc: 'Any thread can be switched from its tab', seg: [['chat', 'Chat'], ['term', 'Terminal']], get: () => s.settings.defaultView, set: v => setSetting({ defaultView: v as never }) },
       { label: 'Sidebar', desc: 'How threads are listed', seg: [['grouped', 'By folder'], ['recent', 'Recent']], get: () => s.settings.sideView, set: v => setSetting({ sideView: v as never }) },
+      { label: 'While a turn runs, enter', desc: `Queue waits for the turn to end; Steer sends into it now. ${kb('mod-enter')} does the other`, seg: [['queue', 'Queues'], ['steer', 'Steers']], get: () => s.settings.followUp || 'queue', set: v => setSetting({ followUp: v as never }) },
       { label: 'On launch', desc: 'Workspaces, layouts, popups, drafts and reading positions', seg: [['restore', 'Restore'], ['empty', 'Start empty']], get: () => s.settings.launch || 'restore', set: v => setSetting({ launch: v as never }) },
     ]],
     ['Appearance', 'sun', [

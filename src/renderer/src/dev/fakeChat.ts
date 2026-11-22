@@ -2,7 +2,7 @@
 // Mirrors the mockup's data (mockups/data.js) so every chat state can be looked at and tested:
 // a running turn with subagents, approvals (1 of 3), a terminal-driven mirror, errors, side chats.
 import type { ChatSend, NewThread, SkeinEvent } from '@shared/api';
-import type { ThreadEvent, ThreadMeta } from '@shared/types';
+import type { Queued, ThreadEvent, ThreadMeta } from '@shared/types';
 
 const shot = 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="system-ui,sans-serif">
 <rect width="640" height="360" fill="#1b1b1b"/><rect width="150" height="360" fill="#151515"/>
@@ -121,7 +121,33 @@ export function fakeChat(emit: (e: SkeinEvent) => void, threads: ThreadMeta[]) {
     const rid = id(), parts = words.split(' ');
     later(thread, 500, () => push(thread, tool('Read', 'README.md', { meta: '120 lines' })));
     parts.forEach((_, i) => later(thread, 900 + i * 40, () => push(thread, { t: 'text', id: rid, text: parts.slice(0, i + 1).join(' '), streaming: i < parts.length - 1 }, true)));
-    later(thread, 950 + parts.length * 40, () => { push(thread, { t: 'worked', id: id(), ms: 2_000 }); status(thread, 'idle'); });
+    later(thread, 950 + parts.length * 40, () => { push(thread, { t: 'worked', id: id(), ms: 2_000 }); status(thread, 'idle'); next(thread); });
+  };
+  // the queue (ThreadMeta.queue): each waits for the turn before it to end, then starts a turn of its own
+  const th = (thread: string) => threads.find(x => x.id === thread)!;
+  const setQueue = (thread: string, q: Queued[], paused = th(thread).queuePaused) => {
+    const t = th(thread); t.queue = q; t.queuePaused = q.length ? paused : false; emit({ type: 'thread', thread: { ...t } });
+  };
+  const turn = (thread: string, m: { text: string; images?: string[] }) => {
+    push(thread, user(m.text, m.images));
+    reply(thread, 'This is the browser preview, so no agent is attached. In the app the reply streams in here, and the same turn shows in the thread\'s terminal view.');
+  };
+  const next = (thread: string) => {
+    const t = th(thread), [head, ...rest] = t.queue ?? [];
+    if (!head || t.queuePaused || t.status === 'running') return;
+    setQueue(thread, rest); turn(thread, head);
+  };
+  let qn = 0;
+  const queue = {
+    steer: async (thread: string, qid: string) => {
+      const t = th(thread), m = t.queue?.find(x => x.id === qid); if (!m) return;
+      setQueue(thread, t.queue!.filter(x => x !== m));
+      if (t.status === 'running') push(thread, user(m.text, m.images)); else turn(thread, m);
+    },
+    remove: async (thread: string, qid: string) => setQueue(thread, (th(thread).queue ?? []).filter(x => x.id !== qid)),
+    edit: async (thread: string, qid: string, text: string) => setQueue(thread, (th(thread).queue ?? []).map(x => x.id === qid ? { ...x, text } : x)),
+    order: async (thread: string, ids: string[]) => { const q = th(thread).queue ?? []; setQueue(thread, ids.map(i => q.find(x => x.id === i)!).filter(Boolean)); },
+    resume: async (thread: string) => { setQueue(thread, th(thread).queue ?? [], false); next(thread); },
   };
   return {
     history: async (thread: string) => [...ev(thread)],
@@ -133,6 +159,7 @@ export function fakeChat(emit: (e: SkeinEvent) => void, threads: ThreadMeta[]) {
           later(thread, 900, () => { s.events = [...(s.events || []), text('Done. Nothing else failed.')]; s.status = 'done'; push(thread, { ...s }, true); }); }
         return;
       }
+      if (m.queue && th(thread)?.status === 'running') { setQueue(thread, [...(th(thread).queue ?? []), { id: 'q' + ++qn, text: m.text, ...(m.images?.length ? { images: m.images } : {}) }]); return; }
       if (m.retry) { const list = ev(thread); const e = list[list.length - 1]; if (e?.t === 'error') { list.pop(); emit({ type: 'chat', thread, event: { t: 'notice', id: e.id, text: 'Retrying' }, replace: true }); } }
       else push(thread, user(m.text, m.images));
       reply(thread, 'This is the browser preview, so no agent is attached. In the app the reply streams in here, and the same turn shows in the thread\'s terminal view.');
@@ -144,6 +171,7 @@ export function fakeChat(emit: (e: SkeinEvent) => void, threads: ThreadMeta[]) {
       if (last?.t === 'text' && last.streaming) push(thread, { ...last, streaming: false }, true);
       push(thread, { t: 'interrupted', id: id() });
       status(thread, 'idle');
+      if (th(thread).queue?.length) setQueue(thread, th(thread).queue!, true);
     },
     answer: async (thread: string, requestId: string, optionId: string) => {
       const list = ev(thread), a = list.find(x => x.t === 'approval' && x.request.requestId === requestId);
@@ -152,6 +180,7 @@ export function fakeChat(emit: (e: SkeinEvent) => void, threads: ThreadMeta[]) {
       push(thread, { t: 'tool', id: a.id, name: 'Bash', arg: a.request.body, status: ok ? 'done' : 'failed', meta: ok ? a.request.from : 'denied', out: ok && !a.request.from ? '✓ built in 3.4s\n✓ wrote shots/composer.png' : undefined }, true);
       if (!list.some(x => x.t === 'approval')) status(thread, 'idle');
     },
+    queue,
     fork: (spec: NewThread, t: ThreadMeta) => {
       const src = spec.parent && ev(spec.parent.id);
       if (src && !t.side) { const i = src.findIndex(x => x.id === spec.parent!.at); histories[t.id] = src.slice(0, i + 1).map(x => ({ ...x })); }
