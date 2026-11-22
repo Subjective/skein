@@ -35,7 +35,7 @@
 .thread details.tool[open]::details-content { block-size: auto; }
 @media (prefers-reduced-motion: reduce) { .thread details.tool::details-content { transition: none; } }
 .appr .plan-body { max-height: 320px; overflow: auto; padding: 8px 12px; border-radius: 10px; background: var(--bg-2); }
-.appr, .err-row, .mirror, .link-note, .m-edit { animation: fadeUp .16s ease both; }
+.appr, .err-row, .mirror, .link-note { animation: fadeUp .16s ease both; }
 .chat .empty .spin { width: 16px; height: 16px; }
 .seltb .btn { height: 24px; border: 0; background: none; }
 .seltb .btn:hover { background: var(--hover); }
