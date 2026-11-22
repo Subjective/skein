@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import type { Density, Harness } from '@shared/types';
 import { bundledOptions, EFFORTS, PERMS, effortId, findModel, modelId as sharedModelId, permId, type HarnessOptions, type ModelDef } from '@shared/models';
-import { bundledCommands, type HarnessCommand, type HarnessCommands } from '@shared/commands';
+import { bundledCommands, CORE, type HarnessCommand, type HarnessCommands } from '@shared/commands';
 import { api } from '../../api';
 import { bump } from './state';
 
@@ -75,21 +75,35 @@ export const permChoices = (h: Harness, machine?: string): Opt[] => known(h, mac
 // harness and folder like the pickers' options); shared/commands.ts's lists until it answers or when it can't
 // be asked. Ours act at once; the rest go through as text. ----
 export interface Slash { cmd: string; hint: string; display: string; icon: string }
-const ICONS: Record<string, string> = { clear: 'compose', new: 'plus', compact: 'layers', model: 'agent', plan: 'tree', resume: 'clock',
-  review: 'check', init: 'file', mcp: 'clip', permissions: 'shield', approvals: 'shield', status: 'host',
-  diff: 'diff', mention: 'clip', side: 'chat', sidechats: 'chat', subagents: 'agent' };
+const ICONS: Record<string, string> = { clear: 'compose', new: 'plus', compact: 'layers', model: 'agent', effort: 'sliders', plan: 'tree', resume: 'clock',
+  review: 'check', 'code-review': 'check', 'security-review': 'lock', init: 'file', mcp: 'plug', permissions: 'shield', approvals: 'shield',
+  status: 'host', usage: 'host', context: 'brain', diff: 'diff', mention: 'clip', rename: 'pencil', loop: 'retry', 'reload-plugins': 'retry',
+  'reload-skills': 'retry', debug: 'alert', doctor: 'alert', config: 'wrench', color: 'sun', side: 'chat', sidechats: 'chat', subagents: 'agent', 'list-agents': 'agent' };
 const displayOf = (name: string) => ({ mcp: 'MCP', side: 'Side chat', sidechats: 'Side chats' } as Record<string, string>)[name] || (name[0].toUpperCase() + name.slice(1)).replace(/-/g, ' ');
 const slash = ([cmd, hint]: [string, string]): Slash => {
   const name = cmd.slice(1);
   return { cmd, hint, display: displayOf(name), icon: ICONS[name] || 'bolt' };
 };
-const fromHarness = (c: HarnessCommand): Slash => ({ cmd: c.cmd, hint: c.hint ?? '', display: displayOf(c.name), icon: ICONS[c.name] || 'bolt' });
+/** A harness's description cut to its first clause, so a row reads like Codex's ('Start a new session with empty
+ *  context; loops carry over…' -> 'Start a new session with empty context'). */
+export const shortHint = (s = '') => s.split(/;\s|\.\s|\s[—–-]\s|\s\(/)[0].replace(/[.:,]$/, '').trim();
+const fromHarness = (c: HarnessCommand, hint = shortHint(c.hint)): Slash => ({ cmd: c.cmd, hint, display: displayOf(c.name), icon: ICONS[c.name] || 'bolt' });
 
-export interface SlashLists { commands: Slash[]; skills: Slash[]; source: HarnessCommands['source'] }
+/** The / menu's sections: the everyday commands (CORE, in its order), the harness's skills, and its other built-ins. */
+export interface SlashLists { commands: Slash[]; skills: Slash[]; more: Slash[]; source: HarnessCommands['source'] }
 const asSlash = new WeakMap<HarnessCommands, SlashLists>();
-const slashOf = (c: HarnessCommands): SlashLists => {
+const slashOf = (h: Harness, c: HarnessCommands): SlashLists => {
   let r = asSlash.get(c);
-  if (!r) { r = { commands: c.commands.map(fromHarness), skills: c.skills.map(fromHarness), source: c.source }; asSlash.set(c, r); }
+  if (!r) {
+    const all = [...c.commands, ...c.skills], core = CORE[h], isCore = (x: HarnessCommand) => core.some(k => k.name === x.name);
+    r = {
+      commands: core.flatMap(k => { const x = all.find(y => y.name === k.name); return x ? [fromHarness(x, k.hint)] : []; }),
+      skills: c.skills.filter(x => !isCore(x)).map(x => fromHarness(x)),
+      more: c.commands.filter(x => !isCore(x)).map(x => fromHarness(x)),
+      source: c.source,
+    };
+    asSlash.set(c, r);
+  }
   return r;
 };
 const BUNDLED_CMDS: Record<Harness, HarnessCommands> = { claude: bundledCommands('claude'), codex: bundledCommands('codex') };
@@ -113,7 +127,7 @@ function askCommands(h: Harness, machine: string, dir: string): Promise<void> {
 /** The harness's commands and skills in a folder on a machine (the bundled lists until it answers). */
 export function harnessCommands(h: Harness, machine = 'local', dir = '~'): SlashLists {
   void askCommands(h, machine, dir);
-  return slashOf(keptCmds.get(`${machine}:${h}:${dir}`)?.c ?? BUNDLED_CMDS[h]);
+  return slashOf(h, keptCmds.get(`${machine}:${h}:${dir}`)?.c ?? BUNDLED_CMDS[h]);
 }
 /** The same, re-rendering the caller when the harness answers (the composer, which doesn't follow chat bumps). */
 export function useHarnessCommands(h: Harness, machine = 'local', dir = '~'): SlashLists {
@@ -123,7 +137,7 @@ export function useHarnessCommands(h: Harness, machine = 'local', dir = '~'): Sl
     void askCommands(h, machine, dir).then(() => { if (live) redraw(n => n + 1); });
     return () => { live = false; };
   }, [h, machine, dir]);
-  return slashOf(keptCmds.get(`${machine}:${h}:${dir}`)?.c ?? BUNDLED_CMDS[h]);
+  return slashOf(h, keptCmds.get(`${machine}:${h}:${dir}`)?.c ?? BUNDLED_CMDS[h]);
 }
 /** A typed /word matches a row by its name: '/rel' finds a Codex skill's '$release-notes' too. */
 export const slashHit = (c: Slash, q: string) => c.cmd.slice(1).startsWith(q.replace(/^[/$]/, ''));

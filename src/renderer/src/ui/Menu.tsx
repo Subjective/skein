@@ -10,7 +10,7 @@ import { init, step, typed, vrange, type TextState } from '../input/vimtext';
 import { forPut, getReg, setReg } from '../input/register';
 import { S, update } from '../state/store';
 import { cx, Icon } from './primitives';
-import { placeBy, placeStyle } from './place';
+import { placeBy, placeStyle, type Side } from './place';
 
 export interface MenuItem<D = unknown> {
   label: string;
@@ -223,16 +223,21 @@ export function Menu<D>(p: MenuProps<D>) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // place next to the anchor
-  // on its side of the anchor when it fits there, else flipped, else capped and scrolling (ui/place.ts); measured
-  // again when the list grows or shrinks, so a menu that fills in after opening still fits
+  // on its side of the anchor when it fits there, else flipped, else capped and scrolling (ui/place.ts). The side is
+  // chosen once, when it opens: a list that grows or shrinks later (a search, a list that fills in) is measured again
+  // and capped on that side, but never jumps to the other one
   const [pos, setPos] = useState<React.CSSProperties>({});
+  const side = useRef<Side | undefined>(undefined);
   useLayoutEffect(() => {
     if (p.modal || !p.anchor) return;
     const r = p.anchor, w = Math.min(p.width === 'anchor' ? r.width : p.width || 260, innerWidth - 16);
     const place = p.place || 'top-start', el = ref.current;
+    // measured without the cap; the cap goes straight back on, since React only rewrites a style that changed
     if (el) { el.style.maxHeight = ''; el.style.width = w + 'px'; }
     const h = el?.offsetHeight ?? 0;
-    const at = placeBy(r, w, h, place.startsWith('top') ? 'top' : 'bottom', place.endsWith('end') ? 'end' : 'start');
+    const at = placeBy(r, w, h, place.startsWith('top') ? 'top' : 'bottom', place.endsWith('end') ? 'end' : 'start', side.current);
+    side.current = at.side;
+    if (el) el.style.maxHeight = at.maxHeight != null ? at.maxHeight + 'px' : '';
     setPos({ width: w, ...placeStyle(r, at) });
   }, [p.anchor, p.modal, p.place, p.width, items.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
