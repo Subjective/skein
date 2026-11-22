@@ -23,7 +23,7 @@ import { colAt, nodeAt, selEnds, useToolSel } from './mousesel';
 import { registerHooks } from './hooks';
 import { openCommit, type CommitAction } from './CommitDialog';
 import { baseName, langOf, tokenize, type HlState } from './highlight';
-import { openFile } from './open';
+import { openFile, splitKey } from './open';
 import { ctxOf, refreshNow, turnFor, useRepo, viewState } from './repo';
 import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
 import { dragEdge, TREE_EDGE } from '../../ui/resize';
@@ -219,11 +219,11 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
       setTimeout(() => { if (v.flash === p) { v.flash = undefined; update(); } }, 700);
     });
   };
-  const openAt = (r: Row) => {
+  const openAt = (r: Row, split = false) => {
     if (r.k !== 'line' || !repo) return;
     const line = r.l.b ?? r.l.a ?? 1;
     if (r.f.status === 'D' || r.l.k === '-' && r.l.b == null && v.scope !== 'commits') { /* the line is gone; open the file where it was */ }
-    openFile({ machine: ctx.machine, dir: repo.root }, r.f.path, { line, from: t, newTab: true });
+    openFile({ machine: ctx.machine, dir: repo.root }, r.f.path, { line, from: t, newTab: true, split });
   };
 
   // ---------- header menus ----------
@@ -345,6 +345,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
       if (k === 'g') { v.g = true; return true; }   // keeps the count for 5gg
       const explicit = v.count.explicit, n = v.count.take();
       if (v.search.key(k, n)) return true;
+      if (splitKey(k)) { if (r?.k === 'line') openAt(r, true); return true; }   // shift-enter or O: the file in a new split
       switch (k) {
         case 'j': case 'down': go(v.cur + n); return true;
         case 'k': case 'up': go(v.cur - n); return true;

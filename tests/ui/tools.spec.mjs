@@ -438,7 +438,7 @@ await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', 
   assert.equal(await mode(p), 'NORMAL');
   await p.keyboard.press('Escape');
   await settle(p);
-  assert.ok(await F(p).getByRole('button', { name: 'Save' }).isVisible());
+  assert.equal(await F(p).getByRole('button', { name: 'Save' }).count(), 0, 'no Save button: :w, mod-s or the ⋯ menu');
   assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 1, 'the tab marks unsaved edits');
   const dd = p.locator('.pane.focus .tab.on.dirty .tx .dd');
   assert.ok(await dd.isVisible(), 'a dot where the close button is');
@@ -455,7 +455,7 @@ await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', 
   assert.ok((await ed.inputValue()).startsWith('Hello'));
   await p.keyboard.press('Escape');
   await cmd(p, 'w');
-  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .tool-h .btn.mod'));
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .tab.on.dirty'));
   assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 0, 'saved: no dot');
   // the change shows in Changes
   await cmd(p, 'changes');
@@ -951,6 +951,194 @@ await test('file: v and V paint one selection colour; the cursor line is not sha
   await keys(p, 'Escape v l');
   assert.ok(await F(p).locator('.src .vs').count(), 'v paints the characters');
   assert.equal(await F(p).locator('.src .dl.vsel').count(), 0);
+});
+
+// ---------- where files open (Josh, 2026-11-21: opening files kept splitting panes) ----------
+
+const panes = p => p.locator('.pane[data-pane]').count();
+const focusTabs = p => p.locator('.pane.focus .tab').count();
+/** ctrl-p, a name, then enter (or shift-enter to split on purpose). */
+async function findFile(p, q, { split = false } = {}) {
+  await p.keyboard.press(`${mod}+p`);
+  await p.locator('.menu.files').waitFor();
+  await p.keyboard.type(q);
+  await p.waitForFunction(q => document.querySelector('.menu.files .mi.sel')?.textContent?.includes(q), q);
+  await p.keyboard.press(split ? 'Shift+Enter' : 'Enter');
+  await settle(p, 200);
+}
+async function threadOnly(p) {
+  await p.locator('#side').getByText(THREAD, { exact: true }).first().click();
+  await settle(p, 450);
+}
+const FV = p => p.locator('.pane.focus .file-v:visible');
+const onTab = (p, name) => p.waitForFunction(n => document.querySelector('.pane.focus .tab.on')?.textContent?.includes(n), name);
+const cRow = p => p.locator('.pane.focus .changes .rowcur, .pane.focus .changes .curl').first();
+
+await test('open: from a thread a file opens beside it; more files join that pane as tabs, not new splits', async p => {
+  await threadOnly(p);
+  assert.equal(await panes(p), 1);
+  await findFile(p, 'store.ts');
+  await FV(p).locator('.src').waitFor();
+  assert.equal(await panes(p), 2, 'one split beside the thread');
+  await findFile(p, 'theme.css');
+  await onTab(p, 'theme.css');
+  assert.equal(await panes(p), 2, 'still two panes');
+  assert.equal(await focusTabs(p), 2, 'the second file is a tab beside the first');
+  // back in the thread, a third file goes to that side pane too
+  await keys(p, 'Control+Space h');
+  await findFile(p, 'README.md');
+  await onTab(p, 'README.md');
+  assert.equal(await panes(p), 2, 'the thread pane reuses the side pane');
+  assert.equal(await focusTabs(p), 3);
+});
+
+await test('open: from a thread with Changes beside it, a file joins Changes\' pane', async p => {
+  await openChanges(p);
+  await keys(p, 'Control+Space h');
+  await findFile(p, 'package.json');
+  await FV(p).locator('.src').waitFor();
+  assert.equal(await panes(p), 2);
+  assert.equal(await focusTabs(p), 2, 'Changes and the file');
+});
+
+await test('open: Files and Changes open files as tabs in their own pane', async p => {
+  await openFiles(p);
+  await p.locator('.pane.focus .files-v .ptree').getByText('package.json').click();
+  await FV(p).locator('.src').waitFor();
+  assert.equal(await panes(p), 2, 'no third pane');
+  assert.equal(await focusTabs(p), 2, 'Files and the file share a pane');
+  await cmd(p, 'changes');
+  await C(p).locator('.cfile').first().waitFor();
+  while ((await cRow(p).evaluate(e => e.closest('.cfile').dataset.p)) !== 'sessions/store.ts') await keys(p, '}');
+  await keys(p, 'j j Enter');
+  await FV(p).locator('.src').waitFor();
+  assert.equal(await panes(p), 2, 'a line opened from Changes stays in its pane');
+});
+
+await test('open: shift-enter in ctrl-p, O in Files, shift-enter in Changes and a modifier click in Files split on purpose, as in the sidebar', async p => {
+  await openFiles(p);
+  await findFile(p, 'package.json', { split: true });
+  await FV(p).locator('.src').waitFor();
+  assert.equal(await panes(p), 3, 'ctrl-p shift-enter splits');
+  await keys(p, 'Control+Space h');
+  await p.locator('.pane.focus .files-v').waitFor();
+  await p.locator('.pane.focus .files-v .ptree').getByText('README.md').click({ modifiers: ['Shift'] });
+  await p.locator('.pane.focus .file-v').waitFor();
+  assert.equal(await panes(p), 4, 'a shift-click in Files splits');
+  await keys(p, 'Control+Space h');
+  await p.locator('.pane.focus .files-v').waitFor();
+  await keys(p, 'g g');
+  for (let i = 0; i < 40 && (await p.locator('.pane.focus .files-v .ptree .rowcur .t').innerText()) !== 'package.json'; i++) await keys(p, 'j');
+  await keys(p, 'O');
+  await p.locator('.pane.focus .file-v').waitFor();
+  assert.equal(await panes(p), 5, 'O in Files splits');
+  await keys(p, 'Control+Space z');
+  await cmd(p, 'only');
+  await openChanges(p);
+  const before = await panes(p);
+  while ((await cRow(p).evaluate(e => e.closest('.cfile').dataset.p)) !== 'sessions/store.ts') await keys(p, '}');
+  await keys(p, 'j j Shift+Enter');
+  await FV(p).locator('.src').waitFor();
+  assert.equal(await panes(p), before + 1, 'shift-enter on a line in Changes splits');
+});
+
+// ---------- the open file's ⋯ menu ----------
+
+const more = p => FV(p).locator('[data-k=more]');
+const fileMenu = p => p.locator('.menu.file-menu');
+const rows = p => fileMenu(p).locator('.mi:not(.head)').evaluateAll(es => es.map(e => e.querySelector('.ml').textContent));
+
+await test('file menu: Cursor\'s actions Skein has, in its order; discard only with unsaved edits', async p => {
+  await openFile(p, 'package.json');
+  await more(p).click();
+  await fileMenu(p).waitFor();
+  const [reveal, ...rest] = await rows(p);
+  assert.match(reveal, /^Reveal in (Finder|File Explorer)$|^Show in folder$/);
+  assert.deepEqual(rest, ['Copy relative path', 'Copy remote URL', 'Diff view', 'Line numbers', 'Word wrap']);
+  assert.equal(await fileMenu(p).locator('.mx:has(.msep)').count(), 2, 'rules between the groups');
+  await p.keyboard.press('Escape');
+  await fileMenu(p).waitFor({ state: 'detached' });
+  await keys(p, 'i');
+  await p.keyboard.type('x');
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  await more(p).click();
+  assert.deepEqual((await rows(p)).slice(0, 2), ['Save', 'Discard changes'], 'Save and Discard lead the menu');
+  await fileMenu(p).getByText('Discard changes').click();
+  await fileMenu(p).waitFor({ state: 'detached' });
+  assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 0, 'the edit is gone');
+  assert.ok(!(await FV(p).locator('.src .dl').first().innerText()).startsWith('x'));
+  // Save from the menu writes the file
+  await keys(p, 'i');
+  await p.keyboard.type('y');
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+  await more(p).click();
+  await fileMenu(p).locator('.mi', { hasText: /^Save/ }).click();
+  await p.waitForFunction(() => /Saved package\.json/.test(document.querySelector('.toast')?.textContent || ''));
+  assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 0, 'saved: no dot');
+});
+
+await test('file menu: works from the keyboard; toggles keep it open and redraw; line numbers and word wrap apply', async p => {
+  await openFile(p, 'package.json');
+  await cmd(p, 'filemenu');
+  await fileMenu(p).waitFor();
+  const sel = () => fileMenu(p).locator('.mi.sel .ml').innerText();
+  while ((await sel()) !== 'Line numbers') await keys(p, 'j');
+  assert.ok(await fileMenu(p).locator('.mi.sel .sw.on').count(), 'line numbers start on');
+  await keys(p, 'Enter');
+  await p.waitForFunction(() => document.querySelector('.pane.focus .file-v')?.classList.contains('nonum'));
+  assert.ok(await fileMenu(p).isVisible(), 'the menu stays open');
+  assert.equal(await fileMenu(p).locator('.mi.sel .sw.on').count(), 0, 'its switch turned off');
+  assert.equal(await sel(), 'Line numbers', 'the cursor stays on the row');
+  assert.ok(!(await FV(p).locator('.src .dl .n').first().isVisible()), 'no line numbers');
+  await keys(p, 'j Enter');
+  await p.waitForFunction(() => document.querySelector('.pane.focus .file-v')?.classList.contains('wrap'));
+  assert.equal(await FV(p).locator('.src .dl .c').first().evaluate(e => getComputedStyle(e).whiteSpace), 'pre-wrap');
+  await keys(p, 'Escape');
+  await fileMenu(p).waitFor({ state: 'detached' });
+  assert.ok(await FV(p).locator('.src .curl').count(), 'the keys are back in the file');
+  // both are settings: another file has them too, and they come back on from ctrl-k
+  await p.keyboard.press(`${mod}+k`);
+  await p.keyboard.type('line numbers');
+  await p.keyboard.press('Enter');
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v')?.classList.contains('nonum'));
+  await cmd(p, 'wrap');
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v')?.classList.contains('wrap'));
+});
+
+await test('file menu: diff view shows the last commit\'s removed lines and marks added ones; only for a changed file', async p => {
+  await openFile(p, 'package.json');
+  await more(p).click();
+  assert.equal(await fileMenu(p).locator('.mi', { hasText: 'Diff view' }).getAttribute('aria-disabled'), 'true', 'an unchanged file has no diff');
+  await p.keyboard.press('Escape');
+  await findFile(p, 'store.ts');
+  await onTab(p, 'store.ts');
+  await FV(p).locator('.src').waitFor();
+  await p.waitForFunction(() => document.querySelector('.pane.focus .file-v .src [class*=g-]'));
+  await more(p).click();
+  await fileMenu(p).locator('.mi', { hasText: 'Diff view' }).click();
+  await FV(p).locator('.src.diffv').waitFor();
+  assert.ok(await FV(p).locator('.src .dl.add').count(), 'added lines marked');
+  const del = FV(p).locator('.src .dl.del');
+  if (await del.count()) assert.equal(await del.first().getAttribute('data-ln'), null, 'removed rows are not lines of the file');
+  await keys(p, 'Escape G');
+  assert.equal(Number(await FV(p).locator('.curl .n').innerText()), await FV(p).locator('.src .dl[data-ln]').count(), 'the cursor walks only the file\'s lines');
+  await cmd(p, 'diffview');
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .src.diffv'));
+});
+
+await test('file menu: reveal, copy relative path and copy remote URL', async p => {
+  await openFile(p, 'package.json');
+  await more(p).click();
+  await fileMenu(p).locator('.mi').first().click();
+  await p.waitForFunction(() => (window.__revealed || []).some(x => x.endsWith('/package.json')));
+  await more(p).click();
+  await fileMenu(p).getByText('Copy relative path').click();
+  await p.waitForFunction(() => /Copied package\.json/.test(document.querySelector('.toast')?.textContent || ''));
+  await p.keyboard.press(`${mod}+k`);
+  await p.keyboard.type('copy remote');
+  await p.locator('.menu.pal .mi.sel', { hasText: 'Copy remote URL' }).waitFor();
+  await p.keyboard.press('Enter');
+  await p.waitForFunction(() => /remote URL/.test(document.querySelector('.toast')?.textContent || ''));
 });
 
 await test('commit button: with nothing to commit it is one secondary button, the menu still reachable, with the reason on hover', async p => {

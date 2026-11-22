@@ -63,8 +63,9 @@ export interface ThreadMeta {
   status: ThreadStatus;
   /** Claude Code only: which view drives the thread (G4). */
   drive?: ViewKind;
-  /** Side chats are real forks: the thread they branched from and the event they branched at. */
-  parent?: { id: string; at?: string };
+  /** Side chats are real forks: the thread they branched from and the event they branched at. `carried`: how
+   *  many of your messages the fork took along as context; its history leaves those turns out (src/core/side.ts). */
+  parent?: { id: string; at?: string; carried?: number };
   side?: boolean;
   /** true when found in the harness's history rather than started from Skein. */
   discovered?: boolean;
@@ -125,6 +126,9 @@ export interface Settings {
   /** How much of an agent's steps a turn shows (absent: compact). */
   density?: Density;
   termFontSize?: number;
+  /** The open file's ⋯ menu: line numbers (on unless false) and word wrap. */
+  fileNumbers?: boolean;
+  fileWrap?: boolean;
 }
 
 export type Density = 'compact' | 'balanced' | 'detailed';

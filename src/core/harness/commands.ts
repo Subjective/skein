@@ -2,8 +2,9 @@
 // depend on it):
 //   Claude Code: the initialize response's `commands` (the SDK's SlashCommand: name, description, argumentHint,
 //     builtin), from the same no-prompt query the model list uses, run with cwd = the folder. Built-in rows are
-//     the commands; the rest (user, project, plugin and MCP commands and skills: the SDK does not tell them
-//     apart) go under Skills.
+//     the commands, except those the same query's reloadSkills names (Claude Code's own skills: /simplify,
+//     /code-review); those and the rest (user, project, plugin and MCP commands and skills) go under Skills.
+//     Rows Claude Code marks "(removed)" are left out.
 //   Codex: `skills/list` for the folder (picked as `$name`, which the driver sends as a skill input). The
 //     app-server lists no commands, so its built-in commands are shared/commands.ts's.
 // Cached like the pickers' options, keyed by machine, harness and folder.
@@ -19,17 +20,18 @@ export interface ClaudeCommandInfo { name: string; description?: string; argumen
 
 const byName = (a: HarnessCommand, b: HarnessCommand) => a.name.localeCompare(b.name);
 
-export function claudeCommands(list: ClaudeCommandInfo[]): HarnessCommands {
+export function claudeCommands(list: ClaudeCommandInfo[], skillNames: string[] = []): HarnessCommands {
+  const isSkill = new Set(skillNames);
   const seen = new Set<string>(), commands: HarnessCommand[] = [], skills: HarnessCommand[] = [];
   for (const x of list) {
     // internal entry points (`__remote-workflow`) are not for people; a name shadowed by a built-in runs the built-in
-    if (!x.name || x.name.startsWith('_') || seen.has(x.name)) continue;
+    if (!x.name || x.name.startsWith('_') || seen.has(x.name) || /^\(removed\)/i.test(x.description ?? '')) continue;
     seen.add(x.name);
     const row: HarnessCommand = {
       cmd: '/' + x.name, name: x.name, ...(x.description ? { hint: x.description } : {}),
       ...(x.argumentHint ? { args: x.argumentHint } : {}), source: x.builtin ? 'built-in' : 'custom',
     };
-    (x.builtin ? commands : skills).push(row);
+    (x.builtin && !isSkill.has(x.name) ? commands : skills).push(row);
   }
   return { commands: commands.sort(byName), skills: skills.sort(byName), source: 'harness' };
 }
@@ -61,9 +63,9 @@ export function harnessCommands(query: () => Promise<QueryFn>, servers: CodexSer
     get(m: Machine, h: Harness, dir: string): Promise<HarnessCommands> {
       return kept.get(`${m.id}:${h}:${dir}`, async () => {
         if (h === 'claude') {
-          const init = await claudeInit(m, await query(), dir);
+          const init = await claudeInit(m, await query(), dir, true);
           if (!init.commands?.length) throw new Error('Claude Code listed no commands');
-          return claudeCommands(init.commands as ClaudeCommandInfo[]);
+          return claudeCommands(init.commands as ClaudeCommandInfo[], init.skills);
         }
         return codexCommands(await codexSkills(await servers.get(m), absDir(m, dir, home)));
       });

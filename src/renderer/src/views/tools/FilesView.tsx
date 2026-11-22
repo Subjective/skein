@@ -1,11 +1,12 @@
 // Files: the folder's project tree. j k move, l / enter open a folder or the file, h closes a folder or goes to
-// its parent, / searches every file, gg G ends, ctrl-d ctrl-u half pages. A file opens in a tab of its own.
+// its parent, / searches every file, gg G ends, ctrl-d ctrl-u half pages. A file opens as a tab in this pane;
+// shift-enter or O (or a click with a modifier) opens it in a new split, as the sidebar does for a thread.
 import { useRef } from 'react';
 import type { Tab } from '../../state/layout';
 import { machine as machineOf, update, useApp } from '../../state/store';
 import { Icon, IconButton } from '../../ui/primitives';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
-import { openFile } from './open';
+import { openFile, splitKey } from './open';
 import { ProjectTree, toggleDir, useLister, visible, type Node, type TreeState } from './ProjectTree';
 import { ctxOf, refreshNow, useRepo, viewState } from './repo';
 import { halfPage, nativeTarget, useSurface } from './surface';
@@ -22,9 +23,9 @@ export function FilesView({ t, focused }: { t: Tab; focused: boolean }) {
   const at = Math.max(0, rows.findIndex(r => r.rel === st.cur));
   if (rows.length && !rows.some(r => r.rel === st.cur)) st.cur = rows[Math.min(at, rows.length - 1)].rel;
 
-  const open = (n: Node) => {
+  const open = (n: Node, split = false) => {
     if (n.dir) toggleDir(l, st, n.rel);
-    else openFile(ctx, n.rel, { from: t });
+    else openFile(ctx, n.rel, { from: t, split });
   };
   const go = (i: number) => { const r = rows[Math.max(0, Math.min(rows.length - 1, i))]; if (r) { st.cur = r.rel; update(); } };
   const { own } = useSurface(t.id, focused, {
@@ -33,6 +34,7 @@ export function FilesView({ t, focused }: { t: Tab; focused: boolean }) {
       if (nativeTarget() && (k === 'enter' || k === 'space')) return false;
       const r = rows[at];
       if (st.g) { st.g = false; if (k === 'g') go(0); return true; }
+      if (splitKey(k)) { if (r && !r.dir) open(r, true); return true; }   // shift-enter or O: the file in a new split
       switch (k) {
         case 'j': case 'down': go(at + 1); return true;
         case 'k': case 'up': go(at - 1); return true;
@@ -72,7 +74,7 @@ export function FilesView({ t, focused }: { t: Tab; focused: boolean }) {
             onEnter={() => { const first = visible(l, st)[0]; own(); (document.activeElement as HTMLElement | null)?.blur(); if (first && !first.dir) openFile(ctx, first.rel, { from: t }); }}
             onLeave={() => { own(); (document.activeElement as HTMLElement | null)?.blur(); }} />
         </label>
-        <ProjectTree l={l} st={st} cursor={focused} onOpen={n => { own(); open(n); }} label="Files" />
+        <ProjectTree l={l} st={st} cursor={focused} onOpen={(n, split) => { own(); open(n, split); }} label="Files" />
       </div>
     </div>
   );

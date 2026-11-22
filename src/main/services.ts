@@ -19,6 +19,7 @@ import { cwdOf, harnessOf, harnessUnder, listProcs } from '../core/detect';
 import { Follows } from '../core/follow';
 import { discoverLocal, discoverRemote } from '../core/discover';
 import type { Store } from '../core/store';
+import { carriedPrompts, ownEvents } from '../core/side';
 import { Threads } from '../core/threads';
 
 export const DEFAULT_VIMRC = `" Skein vimrc
@@ -36,6 +37,8 @@ export interface ShellHooks {
   version: string;
   home: string;
   openExternal(url: string): Promise<void>;
+  /** Show a local file in the system's file manager. */
+  reveal(path: string): void;
   notify(title: string, body: string, thread?: string): void;
   /** The keys Skein keeps while a Browser tab's page has focus (main's before-input-event reads them). */
   browserKeys?(keys: string[]): void;
@@ -88,6 +91,11 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
     read: t => harnesses.history(t, M(t.machine)),
     unknown: () => { void threads.discover('local').then(added => { for (const t of added) emit({ type: 'thread', thread: t }); }, () => {}); },
   });
+  /** A thread's whole record, read through the follower, so live pushes pick up exactly where it ends. */
+  const historyOf = async (id: string) => {
+    const t = threads.get(id);
+    return (await follows.history(id).catch(() => null)) ?? harnesses.history(t, M(t.machine));
+  };
   // Claude Code: one writer per session between the chat driver and Skein's terminal (core/handoff)
   const handoff = new Handoff({
     hasTerm: id => ptys.hasThread(id),
@@ -145,6 +153,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       settings: async () => ({ ...DEFAULT_SETTINGS, ...store.get<Partial<Settings>>('settings') }),
       setSettings: async patch => { const s = { ...DEFAULT_SETTINGS, ...store.get<Partial<Settings>>('settings'), ...patch }; store.set('settings', s); return s; },
       openExternal: url => shell.openExternal(url),
+      reveal: async p => shell.reveal(files.expandLocal(p)),
       notify: async (title, body, thread) => shell.notify(title, body, thread),
     },
     machines: {
@@ -167,7 +176,9 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       discover: async m => threads.discover(m, m === 'local' ? undefined : machines.get(m)),
       create: async spec => {
         // store the folder as an absolute path, the way discovered sessions record it, so both land in one project
-        const t = threads.create({ ...spec, dir: await files.resolve(M(spec.machine), spec.dir).catch(() => spec.dir) });
+        // a side chat counts the messages it carries over now, while the parent still holds them (an edit there can drop them)
+        const parent = spec.side && spec.parent ? { ...spec.parent, carried: carriedPrompts(await historyOf(spec.parent.id).catch(() => []), spec.parent.at) } : spec.parent;
+        const t = threads.create({ ...spec, parent, dir: await files.resolve(M(spec.machine), spec.dir).catch(() => spec.dir) });
         if (!harnesses.start) return t;
         // Codex: the thread exists on the app-server before either view opens, so both views share one session id
         try { const s = await harnesses.start(t, host); return s.sessionId && s.sessionId !== t.sessionId ? threads.update(t.id, { sessionId: s.sessionId }) : t; }
@@ -177,10 +188,12 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
         return threads.update(id, patch);
       },
       history: async id => {
-        const t = threads.get(id);
-        // read through the follower, so live pushes pick up exactly where this ends
-        const evs = await follows.history(id).catch(() => null);
-        return evs ?? harnesses.history(t, M(t.machine));
+        const t = threads.get(id), evs = await historyOf(id);
+        if (!t.side || !t.parent) return evs;
+        // a side chat shows only its own turns; the parent's stay with the model as context. Side chats made before
+        // `carried` was recorded count against the parent as it is now.
+        const carried = t.parent.carried ?? carriedPrompts(await historyOf(t.parent.id).catch(() => []), t.parent.at);
+        return ownEvents(evs, carried);
       },
       sub: async (id, sub) => {
         const t = threads.get(id);
@@ -275,6 +288,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       push: (m, r) => git.push(M(m), r),
       snapshot: (m, r) => git.snapshot(M(m), r),
       files: (m, r) => git.files(M(m), r),
+      webUrl: (m, r, p) => git.webUrl(M(m), r, p),
     },
     browser: {
       forward: (m, port) => forwards.forward(m, port),
