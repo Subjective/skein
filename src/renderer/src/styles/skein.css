@@ -1112,13 +1112,13 @@ button[aria-expanded="true"] > .i-down { transform: rotate(180deg); }
 .nums { display: inline-flex; gap: 5px; font: var(--mono-w) 12px var(--mono); font-variant-numeric: tabular-nums; }
 .nums.sm { font-size: 11.500px; }
 .menu .mr .nums { margin-right: 2px; }
-.split { display: inline-flex; margin-left: 4px; }
-.split .btn { margin-left: 0; }
-.split .btn:first-child { border-radius: 7px 0 0 7px; }
-.split .caret { width: 24px; padding: 0; border-radius: 0 7px 7px 0; box-shadow: inset 1px 0 0 rgba(0, 0, 0, .18); }
+.splitbtn { display: inline-flex; margin-left: 4px; }
+.splitbtn .btn { margin-left: 0; }
+.splitbtn .btn:first-child { border-radius: 7px 0 0 7px; }
+.splitbtn .caret { width: 24px; padding: 0; border-radius: 0 7px 7px 0; box-shadow: inset 1px 0 0 rgba(0, 0, 0, .18); }
 /* only the menu can run: one secondary button, the action's label dimmed (not the half-transparent primary) */
-.split.part .btn[disabled] { opacity: 1; color: var(--fg-4); }
-.split.part .caret { box-shadow: inset 1px 0 0 var(--line-2); }
+.splitbtn.part .btn[disabled] { opacity: 1; color: var(--fg-4); }
+.splitbtn.part .caret { box-shadow: inset 1px 0 0 var(--line-2); }
 .tool-h .ib.on { color: var(--fg); }
 button.cb { padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
 button.cb.on { background: var(--fg); color: var(--bg); }
