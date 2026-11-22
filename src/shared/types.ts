@@ -126,6 +126,9 @@ export interface Settings {
   /** How much of an agent's steps a turn shows (absent: compact). */
   density?: Density;
   termFontSize?: number;
+  /** The open file's ⋯ menu: line numbers (on unless false) and word wrap. */
+  fileNumbers?: boolean;
+  fileWrap?: boolean;
 }
 
 export type Density = 'compact' | 'balanced' | 'detailed';

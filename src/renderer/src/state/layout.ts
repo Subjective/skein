@@ -126,6 +126,20 @@ export function neighbour(rects: Map<string, Rect>, from: string, d: 'h' | 'j' |
   return best;
 }
 
+/** Tabs that show a folder's files or tools. A pane showing one of these is where more files open. */
+const DOC_KINDS = new Set<TabKind>(['file', 'files', 'changes', 'browser', 'vimrc']);
+export const showsDocs = (p: Pane) => DOC_KINDS.has(activeTab(p).kind);
+
+/** Where a file or tool opens from pane `src` (VS Code's rule, Josh 2026-11-21): a pane that shows files or tools
+ *  takes it as a tab. From a thread or a shell it goes beside: to a pane that shows files or tools (the one to the
+ *  right first), else to the pane to the right, else to a new split (`'split'`). Splitting on purpose is the
+ *  caller's: shift-enter (or O, or a modifier click) in ctrl-p, Files and Changes. */
+export function placeFor(tree: Node, src: Pane, right: Pane | null): Pane | 'split' {
+  if (showsDocs(src)) return src;
+  if (right && showsDocs(right)) return right;
+  return leaves(tree).find(p => p !== src && showsDocs(p)) || right || 'split';
+}
+
 /** Every tab in the workspace, with its pane (null for a popup). */
 export function allTabs(w: Workspace): { tab: Tab; pane: Pane | null }[] {
   return [...leaves(w.tree).flatMap(p => p.tabs.map(tab => ({ tab, pane: p as Pane | null }))), ...w.pops.map(p => ({ tab: p.tab, pane: null }))];

@@ -90,6 +90,7 @@ export const fakeApi: SkeinBridge = {
     info: async () => ({ platform: /Mac/.test(navigator.platform) ? 'mac' : 'win', version: 'dev', home: '~', pty: true }),
     load: async k => kv.get(k), save: async (k, v) => { kv.set(k, v); },
     settings: async () => settings, setSettings: async p => (settings = { ...settings, ...p }),
+    reveal: async p => { (window as unknown as { __revealed?: string[] }).__revealed = [...((window as unknown as { __revealed?: string[] }).__revealed || []), p]; },
     openExternal: async url => { (window as unknown as { __external?: string[] }).__external = [...((window as unknown as { __external?: string[] }).__external || []), url]; }, notify: async () => {},
   },
   machines: {
