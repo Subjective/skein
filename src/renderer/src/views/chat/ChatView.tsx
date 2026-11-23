@@ -258,15 +258,18 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   };
 
   // ---- edit and resend (G8) ----
-  const startEdit = (id: string, offset?: number, key?: string) => {
+  // `insert`: a click on the message, so INSERT with the caret before the clicked character; else the reader's
+  // NORMAL cursor carried over. A message's trailing newlines stay out of the box (the bubble never shows them).
+  const startEdit = (id: string, offset?: number, key?: string, insert?: boolean) => {
     if (t.kind === 'sub' || mirror) return;
     const e = lg.events.find(x => x.id === id); if (!e || e.t !== 'user') return;
     reader.clear();
-    tc.edit = { event: id, draft: { ...blank(), text: e.text, images: e.images || [] } }; bump();
+    tc.edit = { event: id, draft: { ...blank(), text: e.text.replace(/\s+$/, ''), images: e.images || [] } }; bump();
     requestAnimationFrame(() => {
       const f = editor.current?.field(); if (!f) return;
       if (offset === undefined) { f.focus(true); return; }
       const raw = f.state().text, at = offset;   // an offset in the raw text (rawAt)
+      if (insert) { f.focus(true); f.set(raw, Math.min(at, raw.length)); return; }
       // NORMAL never rests past the end of a line (the mockup's Vim.block)
       let pos = Math.min(at, raw.length);
       if (pos > 0 && (pos === raw.length || raw[pos] === '\n') && raw[pos - 1] !== '\n') pos--;
@@ -276,15 +279,18 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   };
   // a double-click on your own message: the first click opened the edit box; the second (and a third) select the
   // word (the line) there in VISUAL instead of landing on whatever the box put under the pointer (the model chip)
+  /** The raw-text offset of the character under a point in your message's text, if the point is on it. */
+  const offsetAt = (own: Element, x: number, y: number) => {
+    const c = document.caretRangeFromPoint?.(x, y);
+    return c && own.contains(c.startContainer) ? rawAt(own, (own as HTMLElement).dataset.md ?? '', c.startContainer, c.startOffset) : undefined;
+  };
   const bubble = useRef<{ x: number; y: number; off: number; t: number } | null>(null);
   const tcRef = useRef(tc); tcRef.current = tc;
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       const own = e.detail === 1 && (e.target as Element | null)?.closest?.('.m-user.can-edit .mt');
       if (own) {   // note where a click on your own message was: it opens the edit box under the pointer
-        const c = document.caretRangeFromPoint?.(e.clientX, e.clientY); let off = 0;
-        if (c && own.contains(c.startContainer)) off = rawAt(own, (own as HTMLElement).dataset.md ?? '', c.startContainer, c.startOffset);
-        bubble.current = { x: e.clientX, y: e.clientY, off, t: Date.now() }; return;
+        bubble.current = { x: e.clientX, y: e.clientY, off: offsetAt(own, e.clientX, e.clientY) ?? 0, t: Date.now() }; return;
       }
       const b = bubble.current;
       if (!b || !tcRef.current.edit || e.detail < 2 || Date.now() - b.t > 900 || Math.hypot(e.clientX - b.x, e.clientY - b.y) > 8) return;
@@ -392,7 +398,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
         {laterSides > 0 && <div className="edit-note"><Icon name="branch" /><span>Resending keeps {laterSides === 1 ? 'the side chat' : `the ${laterSides} side chats`} from later replies, unlinked</span></div>}
       </>
     ),
-    onEdit: t.kind === 'sub' || mirror ? undefined : id => startEdit(id),
+    onEdit: t.kind === 'sub' || mirror ? undefined : (id, x, y) => {
+      const own = x === undefined ? null : read.current?.querySelector(`.m-user[data-ev="${CSS.escape(id)}"] .mt`);
+      startEdit(id, own ? offsetAt(own, x!, y!) : undefined, undefined, true);
+    },
     onSide: t.kind === 'sub' || th.side ? undefined : at => void newSide(th, at).then(openSide),
     onFork: t.kind === 'sub' || th.side ? undefined : at => void forkAt(th, at),
     onOpenSub: id => openSub(th, id),
