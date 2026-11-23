@@ -88,6 +88,12 @@ function triggerOf(r: DOMRect | null | undefined): HTMLElement | null {
   return Math.abs(q.left - r.left) < 1 && Math.abs(q.top - r.top) < 1 && Math.abs(q.width - r.width) < 1 ? b : null;
 }
 
+// The selection follows the pointer in every menu, the one cursor the keys move too (Josh, 2026-11-23). Only a
+// pointer that really moved counts: rows scrolling under a still pointer (j / k, a search) send moves at the same spot.
+let pt = [NaN, NaN], prevPt = [NaN, NaN];
+if (typeof document !== 'undefined') document.addEventListener('pointermove', e => { prevPt = pt; pt = [e.clientX, e.clientY]; }, true);
+const pointerMoved = () => pt[0] !== prevPt[0] || pt[1] !== prevPt[1];
+
 const defaultMatch = (it: MenuItem, q: string) => !q || (it.label + ' ' + (it.hint || '')).toLowerCase().includes(q.toLowerCase());
 
 export function Menu<D>(p: MenuProps<D>) {
@@ -223,8 +229,7 @@ export function Menu<D>(p: MenuProps<D>) {
   useEffect(() => { if (ins) { inp.current?.focus(); paintField(); } else if (p.search) (document.activeElement as HTMLElement | null)?.blur?.(); }, [ins, p.search]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { ref.current?.querySelector('.mi.sel, .mx.sel')?.scrollIntoView({ block: 'nearest' }); }, [i]);
 
-  // a menu opened from a composer's controls or the new-thread row has the composer look, and its selection
-  // follows the pointer; other menus keep the keyboard's selection under a hover (as in the mockup)
+  // a menu opened from a composer's controls or the new-thread row has the composer look
   const [composer] = useState(() => !!p.className?.split(' ').includes('composer-menu') || !!(!p.modal && triggerOf(p.anchor)?.closest('.comp, .under.pick')));
   const trigger = useRef<HTMLElement | null>(null);
   useEffect(() => {
@@ -301,7 +306,7 @@ export function Menu<D>(p: MenuProps<D>) {
     : <div key={'x' + n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-label={it.label} className={cx('mx', n === i && 'sel')}>{it.block}</div>) : it.head
     ? <div key={'h' + n} className="mi head" role="presentation">{it.icon}{it.label}</div>
     : <div key={n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-disabled={it.dis || undefined} className={cx('mi', n === i && 'sel', it.dis && 'off', it.warn && 'warn')}
-        onPointerMove={e => { if (composer && e.pointerType !== 'touch' && n !== i && !it.dis) setI(n); }}
+        onPointerMove={e => { if (e.pointerType !== 'touch' && n !== i && !it.dis && pointerMoved()) setI(n); }}
         onMouseDown={e => { e.preventDefault(); if (!it.dis) { st.current.i = n; pick(false, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey); } }}>
         {it.icon && <span className="mic">{it.icon}</span>}
         <span className="ml">{it.display ?? it.label}</span>

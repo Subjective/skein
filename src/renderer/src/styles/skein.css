@@ -933,6 +933,7 @@ textarea.vn.hollow.drawn { caret-color: transparent; }
 /* Menu triggers follow the same disclosure motion as expandable summaries. */
 button > .i-down, .mi .mr > .i-chev { transition: transform var(--ease); }
 button[aria-expanded="true"] > .i-down { transform: rotate(180deg); }
+button[aria-expanded="true"]:focus-visible { outline: 0; }   /* its menu is open: the menu shows where the keys are */
 .mi[aria-expanded="true"] .mr > .i-chev { transform: rotate(90deg); }
 @media (prefers-reduced-motion: reduce) {
   button > .i-down, .mi .mr > .i-chev, details > summary .ch, .s-h .ch { transition: none; }
