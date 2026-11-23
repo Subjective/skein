@@ -726,3 +726,15 @@ test('sidebar NORMAL: k from the top heading reaches New thread, enter opens one
   await keys(p, 'Enter'); await settle(p, 300);
   assert.equal((await tabsIn(p)).reduce((a, b) => a + b, 0), before.reduce((a, b) => a + b, 0) + 1, 'enter on New thread opens a new-thread tab');
 });
+
+for (const os of ['mac', 'win']) test(`sidebar toggle (${os}): the sidebar and search buttons keep their place when the sidebar hides, with one pane or a split`, async p => {
+  const at = () => p.evaluate(() => [...document.querySelectorAll('[aria-label="Hide sidebar"], [aria-label="Show sidebar"], [aria-label="Search"]')]
+    .filter(e => e.offsetParent && e.closest('.s-top, .tb.corner')).map(e => { const r = e.getBoundingClientRect(); return [Math.round(r.x * 2) / 2, Math.round(r.y * 2) / 2]; }));
+  for (const split of [false, true]) {
+    if (split) { await p.locator('#side').getByText('Fix session-restore race', { exact: true }).first().click(); await keys(p, 'Escape'); await p.evaluate(() => window.dispatchEvent(new Event('focus'))); await p.locator('.pane.focus [aria-label="Search this pane"]').click(); await p.keyboard.type('split right'); await keys(p, 'Enter'); assert.equal(await p.locator('.pane').count(), 2); }
+    const shown = await at();
+    await p.locator('[aria-label="Hide sidebar"]').click(); await settle(p, 500);
+    { const hid = await at(); assert.deepEqual(hid, shown, `${split ? 'split' : 'one pane'}: same place hidden as shown ${JSON.stringify([shown, hid])}`); }
+    await p.locator('[aria-label="Show sidebar"]').click(); await settle(p, 500);
+  }
+}, { os });

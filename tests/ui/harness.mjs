@@ -23,8 +23,8 @@ export async function page(o = {}) {
   p.errors = [];
   p.on('pageerror', e => p.errors.push(e.message));
   p.on('console', m => { if (m.type() === 'error') p.errors.push(m.text()); });
-  // { os: 'mac' } runs the app as on a Mac (cmd is mod), whatever this machine is
-  if (o.os === 'mac') await p.addInitScript(() => Object.defineProperty(Navigator.prototype, 'platform', { get: () => 'MacIntel' }));
+  // { os: 'mac' | 'win' } runs the app as on that OS (on a Mac cmd is mod), whatever this machine is
+  if (o.os === 'mac' || o.os === 'win') await p.addInitScript(os => Object.defineProperty(Navigator.prototype, 'platform', { get: () => os }), o.os === 'mac' ? 'MacIntel' : 'Win32');
   await p.goto(URL);
   await p.waitForSelector('#side');
   return p;
