@@ -65,6 +65,8 @@ export function startKeyboard() {
   window.addEventListener('keydown', e => {
     if (!d) return;
     if (capture && capture(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    // Show more / Show less under a long message, reached with tab: enter and space press it, as any button
+    if ((e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey && (e.target as Element | null)?.closest?.('.m-more')) return;
     d.keymap = keymap();
     if (d.handle(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
   }, true);

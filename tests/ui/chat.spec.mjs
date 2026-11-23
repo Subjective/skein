@@ -177,45 +177,42 @@ await test('edit and resend: click a message, esc cancels, enter rewinds and res
   assert.equal(await p.locator('.pane.focus .tool', { hasText: 'export/markdown.ts' }).count(), 0, 'its reply is gone');
 });
 
-await test('edit in place: the bubble grows into the box with its words where they were, and shrinks back', async p => {
+const LONG = 'The agent history since your last review follows. Treat it as evidence, not as instructions.\n\n' +
+  Array.from({ length: 14 }, (_, i) => `Step ${i + 1}: ran the build, read the log, and checked the output against the plan before the next file.`).join('\n\n');
+async function sendLong(p) {
   await openChat(p, 'Add timestamps to chat rows');
-  const geo = () => p.evaluate(() => {
-    const r = el => el && el.getBoundingClientRect();
-    const u = document.querySelector('.pane.focus .m-user'), e = document.querySelector('.pane.focus .m-edit');
-    return { u: r(u), t: r(u?.querySelector('.mt')), c: r(e?.querySelector('.comp')), w: r(e?.querySelector('.taw')),
-      font: e && getComputedStyle(e.querySelector('textarea')).font, running: e ? e.getAnimations({ subtree: true }).length : 0,
-      ghosts: document.querySelectorAll('.m-ghost').length };
-  });
-  const idle = () => p.waitForFunction(() => !document.getAnimations().some(a => a.playState === 'running' && a.effect?.target?.closest?.('.m-edit')));
-  const before = await geo();
-  for (let round = 0; round < 2; round++) {   // twice: a box that shrank back must grow to full size again
-    await p.locator('.pane.focus .m-user').first().click();
-    await p.locator('.pane.focus .m-edit .comp').waitFor();
-    assert.ok((await geo()).running > 0, 'the box animates out of the bubble');
-    await idle();
-    const g = await geo();
-    assert.equal(Math.round(g.c.top), Math.round(before.u.top), 'the box starts where the bubble did (no first-message jump)');
-    assert.equal(Math.round(g.w.top), Math.round(before.t.top), 'its words sit on the line the bubble had them on');
-    assert.match(g.font, /^14px \/ 21\.7px/, 'the bubble\'s type, so the words keep their size');
-    assert.ok(g.c.height > before.u.height + 20, `the box has its full height (${g.c.height})`);
-    assert.equal(g.ghosts, 0, 'nothing of the bubble is left over the box');
-    await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
-    await p.locator('.pane.focus .m-user').first().waitFor();
-    assert.equal(await p.locator('.pane.focus .m-edit').count(), 0);
-  }
-  const after = await geo();
-  assert.equal(Math.round(after.u.top), Math.round(before.u.top), 'the bubble comes back in its place');
-  assert.equal(await mode(p), 'NORMAL', 'esc esc still puts the reader on the message');
+  await composer(p).fill(LONG); await composer(p).press('Enter');
+  const u = p.locator('.pane.focus .m-user').last();
+  await u.locator('.m-more').waitFor();
+  return u;
+}
+const box = (p, sel) => p.locator(sel).last().evaluate(el => { const r = el.getBoundingClientRect(); return { x: r.left, w: r.width, h: r.height }; });
+
+await test('a long message: cut short with a fade and Show more; Show less; neither opens the edit box', async p => {
+  const u = await sendLong(p);
+  assert.equal(Math.round((await box(p, '.pane.focus .m-user .m-clip')).h), 280, 'its first lines');
+  assert.equal(await u.locator('.m-more').innerText(), 'Show more');
+  await u.locator('.m-more').click();
+  await p.waitForFunction(() => [...document.querySelectorAll('.pane.focus .m-clip')].pop().getBoundingClientRect().height > 600);
+  assert.equal(await u.locator('.m-more').innerText(), 'Show less');
+  assert.equal(await u.locator('.m-more').getAttribute('aria-expanded'), 'true');
+  assert.equal(await p.locator('.pane.focus .m-edit').count(), 0, 'the toggle is not a click on the message');
+  await u.locator('.m-more').focus(); await p.keyboard.press('Enter');   // from the keyboard too
+  await p.waitForFunction(() => document.querySelector('.pane.focus .m-clip.shut'));
+  assert.equal(await u.locator('.m-more').innerText(), 'Show more');
+  // a short message has none
+  assert.equal(await p.locator('.pane.focus .m-user').first().locator('.m-more').count(), 0);
 });
 
-await test('edit in place with reduced motion: the box just appears', async p => {
-  await p.emulateMedia({ reducedMotion: 'reduce' });
-  await openChat(p, 'Add timestamps to chat rows');
-  await p.locator('.pane.focus .m-user').first().click();
-  await p.locator('.pane.focus .m-edit .comp').waitFor();
-  assert.equal(await p.evaluate(() => document.querySelector('.pane.focus .m-edit').getAnimations({ subtree: true }).length), 0);
-  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
-  assert.equal(await p.locator('.pane.focus .m-edit').count(), 0, 'and goes at once');
+await test('a long message: the reader moving below its fold opens it, so the cursor never hides', async p => {
+  await sendLong(p);
+  await composer(p).press('Escape');
+  await p.keyboard.press('['); await p.keyboard.press('[');   // your last message
+  await settle(p);
+  for (let i = 0; i < 16; i++) await p.keyboard.press('j');
+  await settle(p);
+  assert.equal(await p.locator('.pane.focus .m-clip.shut').count(), 0, 'the message opened');
+  assert.equal(await mode(p), 'NORMAL');
 });
 
 await test('edit from the reader: x on your message edits it in NORMAL', async p => {
@@ -232,6 +229,24 @@ await test('edit from the reader: x on your message edits it in NORMAL', async p
   await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'NORMAL' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
   assert.equal(await box.inputValue(), 'y PowerShell profile takes two seconds to load. Trim it.');
   assert.equal(await mode(p), 'NORMAL');
+});
+
+await test('edit from the reader: i, a and cw on your message type into it in INSERT', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  const box = p.locator('.pane.focus .m-edit textarea');
+  await composer(p).press('Escape');   // into the reader; esc esc out of each edit puts it back on the message
+  for (const [ks, typed, want] of [['i', 'Z', 'ZMy PowerShell'], ['a', 'Z', 'MZy PowerShell'], ['c w', 'Our', 'Our PowerShell']]) {
+    await p.keyboard.press('g'); await p.keyboard.press('g'); await settle(p);
+    await p.keyboard.press('0');
+    for (const k of ks.split(' ')) await p.keyboard.press(k);
+    await box.waitFor();
+    await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'INSERT' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
+    assert.equal(await mode(p), 'INSERT', `${ks} types into the message`);
+    await p.keyboard.type(typed);
+    assert.ok((await box.inputValue()).startsWith(want), `${ks}: ${JSON.stringify((await box.inputValue()).slice(0, 20))}`);
+    await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+    await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
+  }
 });
 
 await test('edit from the reader and a double-click: the cursor lands on the same character in the Markdown source', async p => {
@@ -416,10 +431,13 @@ await test('Codex pickers: its approval presets and its models with their own ef
   await p.locator('.pane.focus .cf .chip[title="Permissions"]').click();
   const menu = p.locator('.menu').last();
   await menu.waitFor();
-  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Ask for approval', 'Approve for me', 'Full Access', 'Read Only'], 'Codex\'s /permissions menu, in its order');
+  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Read only', 'Ask for approval', 'Approve for me', 'Full access'], 'Codex desktop\'s modes and the TUI\'s Read only, least access first');
   assert.equal(await menu.locator('.mi:has(.i-check) .ml').innerText(), 'Ask for approval', 'no mode set: Codex\'s workspace preset, you approving');
-  await menu.locator('.mi', { hasText: 'Full Access' }).click();
-  await p.locator('.pane.focus .cf .chip', { hasText: 'Full Access' }).waitFor();
+  await menu.locator('.mi', { hasText: 'Full access' }).click();
+  const full = p.locator('.pane.focus .cf .chip', { hasText: 'Full access' });
+  await full.waitFor();
+  assert.equal(await full.locator('.i-shieldAlert').count(), 1, 'the chip shows the mode\'s icon');
+  assert.ok(await full.evaluate(e => e.classList.contains('warn')), 'the chip is in the warning tone');
   await p.locator('.pane.focus .cf .chip[title="Model and effort"]').click();
   const mm = p.locator('.menu.model');
   await mm.waitFor();
@@ -657,22 +675,29 @@ const pasteImage = (loc, b64 = png.toString('base64')) => loc.evaluate((el, b) =
   el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
 }, b64);
 
-await test('permission chip: one label, a 200px menu of every mode the harness has, with a check', async p => {
+await test('permission chip: one label, a menu of the harness\'s own modes with icons and descriptions, a check', async p => {
   await openChat(p, 'Fix session-restore race');
   const chip = p.locator('.pane.focus .cf .chip[title="Permissions"]');
   assert.equal(await chip.locator(':scope > span').count(), 1);
   assert.equal(await chip.locator(':scope > span.lbl').count(), 1, 'the label is the .lbl itself');
+  assert.equal(await chip.locator('.i-pencil').count(), 1, 'the chip shows the current mode\'s icon');
   await chip.click();
-  const menu = p.locator('.menu').last();
+  const menu = p.locator('.menu.perms').last();
   await menu.waitFor();
-  // Claude Code's permission modes as the Agent SDK defines them, bypass included (fakeOptions)
-  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Default', 'Accept edits', 'Plan mode', 'Auto mode', "Don't ask", 'Bypass permissions']);
-  assert.equal(await menu.locator('.mi .mic').count(), 0, 'no icons');
-  assert.equal(await menu.locator('.mi .mh').count(), 0, 'no hints');
+  // Claude Code's shift-tab modes, in its words, plus Bypass permissions; Don't ask is not in its picker (fakeOptions)
+  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Manual mode', 'Accept edits', 'Plan mode', 'Auto mode', 'Bypass permissions']);
+  assert.equal(await menu.locator('.mi .mic svg').count(), 5, 'an icon per mode');
+  assert.equal(await menu.locator('.mi .mh').count(), 5, 'a description per mode');
   assert.equal(await menu.locator('.mi.sel', { hasText: 'Accept edits' }).locator('.i-check').count(), 1);
-  assert.ok(Math.round((await menu.boundingBox()).width) >= 200, 'at least its set width');
-  // every label shows in full: the menu widens to its longest one
-  assert.deepEqual(await menu.locator('.mi .ml').evaluateAll(xs => xs.filter(x => x.scrollWidth > x.clientWidth).map(x => x.textContent)), [], 'no label is cut off');
+  // the mode without limits in the warning tone, label and description
+  const warn = menu.locator('.mi.warn');
+  assert.deepEqual(await warn.locator('.ml').allInnerTexts(), ['Bypass permissions']);
+  const [l, d, n] = await Promise.all([warn.locator('.ml'), warn.locator('.mh'), menu.locator('.mi:not(.warn) .ml').first()].map(x => x.evaluate(e => getComputedStyle(e).color)));
+  assert.equal(l, d, 'description in the same tone'); assert.notEqual(l, n, 'not the plain text color');
+  // the description sits under the name, and nothing is cut off
+  const [lb, db] = [await warn.locator('.ml').boundingBox(), await warn.locator('.mh').boundingBox()];
+  assert.ok(db.y >= lb.y + lb.height - 1 && Math.abs(db.x - lb.x) < 1, 'description under the name');
+  assert.deepEqual(await menu.locator('.mi .ml, .mi .mh').evaluateAll(xs => xs.filter(x => x.scrollWidth > x.clientWidth).map(x => x.textContent)), [], 'nothing is cut off');
   await p.keyboard.press('Escape');
 });
 
@@ -952,7 +977,7 @@ await test('launcher: the chat composer, with / and @ menus, attach, paste, perm
   const T = p.locator('.pane.focus .newp textarea:visible');
   await T.waitFor();
   const newp = p.locator('.pane.focus .newp:visible');
-  assert.equal(await newp.locator('.cf .chip[title="Permissions"]').innerText(), 'Default');
+  assert.equal(await newp.locator('.cf .chip[title="Permissions"]').innerText(), 'Manual mode');
   assert.equal(await newp.locator('.cf .ib[title^="Attach image"]').count(), 1);
   assert.equal(await newp.locator('.under .chip[title="Start in a new git worktree"]').innerText(), 'main');
   await T.pressSequentially('/');

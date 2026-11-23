@@ -23,7 +23,7 @@ import { FileIcon } from '../../ui/FileIcon';
 import { VimField, type VimFieldHandle } from '../../ui/VimField';
 import { openLightbox } from '../../ui/Lightbox';
 import { useDialogSurface } from '../../ui/Dialog';
-import { effortId, effortLabel, harnessOptions, INSTALL, modelDef, modelId, modelLabel, OURS, permChoices, permLabel, permOf, slashHit, THREAD_SLASH, useHarnessCommands, type Slash } from './options';
+import { effortId, effortLabel, harnessOptions, INSTALL, modelDef, modelId, modelLabel, OURS, permChoices, permLabel, permOf, permRow, slashHit, THREAD_SLASH, useHarnessCommands, type Slash } from './options';
 import { hoverQuote, paintQuotes, QI, revealQuote, saveDraft, setUltra, syncQuotes, TK, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
 
 export interface ComposerHandle { focus(insert?: boolean): void; caret(): number; field(): VimFieldHandle | null }
@@ -195,12 +195,16 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       set: v => { choose({ ...(v.h !== props.current.thread.harness ? { harness: v.h } : {}), model: v.model, effort: v.effort }); setUltra(th.id, v.ultra); },
     });
   };
-  // the mockup's act.pickPerm: plain labels, a check on the current one; every mode the harness offers on the machine
-  const pickPerm = (anchor: DOMRect) => openMenu<string>({
-    anchor, place: 'top-start', width: 200,
-    items: permChoices(h, props.current.thread.machine).map(o => ({ label: o.label, on: permOf(h, props.current.thread.perm) === o.id, data: o.id })),
-    onPick: it => choose({ perm: it.data }),
-  });
+  // like Codex desktop's: each mode's icon, name and one line on what it allows, a check on the current one; the mode
+  // without limits in the warning tone
+  const pickPerm = (anchor: DOMRect) => {
+    const t = props.current.thread, cur = permOf(h, t.perm);
+    openMenu<string>({
+      anchor, place: 'top-start', width: 460, className: 'perms',
+      items: permChoices(h, t.machine, cur).map(o => ({ label: o.label, hint: o.hint, icon: o.icon && <Icon name={o.icon} />, warn: o.warn, on: cur === o.id, data: o.id })),
+      onPick: it => choose({ perm: it.data }),
+    });
+  };
 
   // ---- images ----
   const addFiles = (fs: Iterable<File>) => {
@@ -399,7 +403,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       </div>
       <div className="cf" ref={cf}>
         <IconButton icon="plus" label="Attach image · or paste one" onMouseDown={e => e.preventDefault()} onClick={() => file.current?.click()} />
-        {!p.bare && <Chip icon="shield" lbl="lbl" label={permLabel(h, th.perm)} title="Permissions" onClick={e => pickPerm(e.currentTarget.getBoundingClientRect())} />}
+        {!p.bare && <Chip icon={permRow(h, th.perm)?.icon ?? 'shield'} className={cx(permRow(h, th.perm)?.warn && 'warn')} lbl="lbl" label={permLabel(h, th.perm)} title="Permissions" onClick={e => pickPerm(e.currentTarget.getBoundingClientRect())} />}
         <span className="sp" />
         {!p.bare && <Chip icon={h} caret raw title="Model and effort" label={<><span>{modelLabel(h, th.model)}</span><span className="lbl dim">{effortLabel(th.effort)}{ultraOf(th.id) && modelDef(h, th.model).ultra ? ' · Ultracode' : ''}</span></>}
           onClick={e => pickModel(e.currentTarget.getBoundingClientRect())} />}
