@@ -15,6 +15,10 @@ import { buildMenu } from './menu';
 import { createServices } from './services';
 
 loadLoginEnv();
+// Rubber-band overscroll: macOS Chromium already bounces inner scroll areas; Windows needs this
+// feature for precision touchpads and touch screens (a notched mouse wheel never bounces).
+if (process.platform === 'win32') app.commandLine.appendSwitch('enable-features', 'ElasticOverscroll');
+
 const store = new Store(join(app.getPath('userData'), 'skein.db'));
 let win: BrowserWindow | null = null;
 const send = (e: SkeinEvent) => { if (win && !win.isDestroyed()) win.webContents.send('skein.event', e); };

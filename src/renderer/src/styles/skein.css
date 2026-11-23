@@ -952,7 +952,8 @@ button[aria-expanded="true"] > .i-down { transform: rotate(180deg); }
 .ring.warn, #context-usage .cu-bar.warn { --c: var(--amber); }
 .ring.full, #context-usage .cu-bar.full { --c: var(--red); }
 
-:is(.thread, .term, .s-list, .tool-b) { overscroll-behavior-y: none; }
+/* Scroll areas rubber-band at their ends (Chromium's native elastic overscroll, as in Codex) but never chain to the page */
+:is(.thread, .term, .newp, .s-list, .tool-b, .r-body, .s-body, .k-list, .ctree, .m-l) { overscroll-behavior: contain; }
 
 /* ===== Polish pass (audit 2026-11-20). Later rules win. ===== */
 
