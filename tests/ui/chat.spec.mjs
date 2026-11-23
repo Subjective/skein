@@ -177,37 +177,6 @@ await test('edit and resend: click a message, esc cancels, enter rewinds and res
   assert.equal(await p.locator('.pane.focus .tool', { hasText: 'export/markdown.ts' }).count(), 0, 'its reply is gone');
 });
 
-await test('edit in place: the bubble grows into the box with its words where they were, and shrinks back', async p => {
-  await openChat(p, 'Add timestamps to chat rows');
-  const geo = () => p.evaluate(() => {
-    const r = el => el && el.getBoundingClientRect();
-    const u = document.querySelector('.pane.focus .m-user'), e = document.querySelector('.pane.focus .m-edit');
-    return { u: r(u), t: r(u?.querySelector('.mt')), c: r(e?.querySelector('.comp')), w: r(e?.querySelector('.taw')),
-      font: e && getComputedStyle(e.querySelector('textarea')).font, running: e ? e.getAnimations({ subtree: true }).length : 0,
-      ghosts: document.querySelectorAll('.m-ghost').length };
-  });
-  const idle = () => p.waitForFunction(() => !document.getAnimations().some(a => a.playState === 'running' && a.effect?.target?.closest?.('.m-edit')));
-  const before = await geo();
-  for (let round = 0; round < 2; round++) {   // twice: a box that shrank back must grow to full size again
-    await p.locator('.pane.focus .m-user').first().click();
-    await p.locator('.pane.focus .m-edit .comp').waitFor();
-    assert.ok((await geo()).running > 0, 'the box animates out of the bubble');
-    await idle();
-    const g = await geo();
-    assert.equal(Math.round(g.c.top), Math.round(before.u.top), 'the box starts where the bubble did (no first-message jump)');
-    assert.equal(Math.round(g.w.top), Math.round(before.t.top), 'its words sit on the line the bubble had them on');
-    assert.match(g.font, /^14px \/ 21\.7px/, 'the bubble\'s type, so the words keep their size');
-    assert.ok(g.c.height > before.u.height + 20, `the box has its full height (${g.c.height})`);
-    assert.equal(g.ghosts, 0, 'nothing of the bubble is left over the box');
-    await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
-    await p.locator('.pane.focus .m-user').first().waitFor();
-    assert.equal(await p.locator('.pane.focus .m-edit').count(), 0);
-  }
-  const after = await geo();
-  assert.equal(Math.round(after.u.top), Math.round(before.u.top), 'the bubble comes back in its place');
-  assert.equal(await mode(p), 'NORMAL', 'esc esc still puts the reader on the message');
-});
-
 const LONG = 'The agent history since your last review follows. Treat it as evidence, not as instructions.\n\n' +
   Array.from({ length: 14 }, (_, i) => `Step ${i + 1}: ran the build, read the log, and checked the output against the plan before the next file.`).join('\n\n');
 async function sendLong(p) {
@@ -235,23 +204,6 @@ await test('a long message: cut short with a fade and Show more; Show less; neit
   assert.equal(await p.locator('.pane.focus .m-user').first().locator('.m-more').count(), 0);
 });
 
-await test('a long message: the edit box opens at the bubble\'s width and height, cut short or whole', async p => {
-  const u = await sendLong(p);
-  const idle = () => p.waitForFunction(() => !document.getAnimations().some(a => a.playState === 'running' && a.effect?.target?.closest?.('.m-edit, .m-clip')));
-  for (const open of [false, true]) {
-    if (open) { await u.locator('.m-more').click(); await idle(); }
-    const b = await box(p, '.pane.focus .m-user'), t = await box(p, '.pane.focus .m-user .m-clip');
-    await u.click({ position: { x: 60, y: 40 } });
-    await p.locator('.pane.focus .m-edit .comp').waitFor(); await idle();
-    const c = await box(p, '.pane.focus .m-edit .comp'), ta = await box(p, '.pane.focus .m-edit textarea');
-    assert.ok(Math.abs(c.x - b.x) < 1 && Math.abs(c.w - b.w) < 1, `same left edge and width (${c.x},${c.w} vs ${b.x},${b.w})`);
-    assert.ok(Math.abs(ta.w - t.w) < 1, 'the words get the same line width, so they wrap the same');
-    assert.ok(Math.abs(ta.h - t.h) < 2, `the words show as tall as in the bubble (${ta.h} vs ${t.h}, ${open ? 'whole' : 'cut short'})`);
-    await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
-    await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
-  }
-});
-
 await test('a long message: the reader moving below its fold opens it, so the cursor never hides', async p => {
   await sendLong(p);
   await composer(p).press('Escape');
@@ -261,16 +213,6 @@ await test('a long message: the reader moving below its fold opens it, so the cu
   await settle(p);
   assert.equal(await p.locator('.pane.focus .m-clip.shut').count(), 0, 'the message opened');
   assert.equal(await mode(p), 'NORMAL');
-});
-
-await test('edit in place with reduced motion: the box just appears', async p => {
-  await p.emulateMedia({ reducedMotion: 'reduce' });
-  await openChat(p, 'Add timestamps to chat rows');
-  await p.locator('.pane.focus .m-user').first().click();
-  await p.locator('.pane.focus .m-edit .comp').waitFor();
-  assert.equal(await p.evaluate(() => document.querySelector('.pane.focus .m-edit').getAnimations({ subtree: true }).length), 0);
-  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
-  assert.equal(await p.locator('.pane.focus .m-edit').count(), 0, 'and goes at once');
 });
 
 await test('edit from the reader: x on your message edits it in NORMAL', async p => {
@@ -287,6 +229,24 @@ await test('edit from the reader: x on your message edits it in NORMAL', async p
   await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'NORMAL' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
   assert.equal(await box.inputValue(), 'y PowerShell profile takes two seconds to load. Trim it.');
   assert.equal(await mode(p), 'NORMAL');
+});
+
+await test('edit from the reader: i, a and cw on your message type into it in INSERT', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  const box = p.locator('.pane.focus .m-edit textarea');
+  await composer(p).press('Escape');   // into the reader; esc esc out of each edit puts it back on the message
+  for (const [ks, typed, want] of [['i', 'Z', 'ZMy PowerShell'], ['a', 'Z', 'MZy PowerShell'], ['c w', 'Our', 'Our PowerShell']]) {
+    await p.keyboard.press('g'); await p.keyboard.press('g'); await settle(p);
+    await p.keyboard.press('0');
+    for (const k of ks.split(' ')) await p.keyboard.press(k);
+    await box.waitFor();
+    await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'INSERT' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
+    assert.equal(await mode(p), 'INSERT', `${ks} types into the message`);
+    await p.keyboard.type(typed);
+    assert.ok((await box.inputValue()).startsWith(want), `${ks}: ${JSON.stringify((await box.inputValue()).slice(0, 20))}`);
+    await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+    await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
+  }
 });
 
 await test('edit from the reader and a double-click: the cursor lands on the same character in the Markdown source', async p => {

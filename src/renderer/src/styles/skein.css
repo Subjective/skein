@@ -537,19 +537,9 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 /* a quote in a sent message: the same icon and blue words */
 .qtok { position: relative; padding-left: 17px; color: var(--blue); }
 
-/* editing a sent message: the normal composer, in place of the bubble. Its words keep the bubble's type and inset
-   (14px/1.55, 9px down and 15px in from the outer edge, 1px of that the border) so they don't change size or rewrap
-   as the bubble becomes the box; editMorph.ts moves the box from the bubble's place to its own */
-.m-edit { position: relative; align-self: flex-end; width: 84%; margin-top: 12px; padding: 0; background: none; border: 0; border-radius: 0; display: block; }
-.m-edit:first-child { margin-top: 0; }
-/* the bubble's width at its widest and its side insets, so a long message keeps its lines; as tall as the bubble
-   showed the words (--edit-fit, set when the box opens), scrolling past that */
-.m-edit .comp { padding: 8px 14px; border-color: var(--line-2); border-radius: 18px; }
-.m-edit .comp textarea { min-height: 0; max-height: var(--edit-fit, 280px); padding: 0; font: 14px/1.550 var(--sans); }
-.m-edit .bk, .m-edit .fk { padding: 0; font: 14px/1.550 var(--sans); }
-/* the bubble's words, over the box for a moment while a rewrapped message fades between the two */
-.m-ghost { position: absolute; z-index: 2; overflow: hidden; pointer-events: none; font-size: 14px; line-height: 1.550; overflow-wrap: anywhere; color: var(--fg); }
-.m-ghost.shut { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 64px), transparent); }
+/* editing a sent message: the normal composer, in place of the bubble */
+.m-edit { align-self: stretch; margin-top: 12px; padding: 0; background: none; border: 0; border-radius: 0; display: block; }
+.m-edit .comp { border-color: var(--line-2); }
 
 /* drag preview: glide between targets instead of jumping */
 .tab.ghost { animation: none; background: var(--hover); box-shadow: inset 0 0 0 1px var(--line-2); }
@@ -604,7 +594,6 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
   .col, .newp .col { width: calc(100% - 28px); }
   .lbl, .under .br { display: none; }
   .m-user { max-width: 92%; }
-  .m-edit { width: 92%; }
   .hov { right: 0; top: -24px; }
 }
 @container (max-width: 400px) {
