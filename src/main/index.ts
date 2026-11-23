@@ -34,6 +34,7 @@ const { api, dispose } = createServices(store, {
   home: homedir(),
   openExternal: url => shell.openExternal(url),
   reveal: p => shell.showItemInFolder(p),
+  openPath: p => shell.openPath(p),
   browserKeys: keys => { keptKeys = new Set(keys); },
   notify: (title, body, thread) => {
     if (!Notification.isSupported()) return;

@@ -27,10 +27,13 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   // back from a popup or dialog (the model picker, a menu, a confirm): the keys go back to the composer, in the mode
   // it had, as in a thread (rule 15)
   const was = useRef(focused);
+  const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const back = focused && !was.current; was.current = focused;
+    // take the keys unless something else in this tab has them (a card, a picker). Focus left in another tab counts as
+    // nothing: a file's editor keeps it while its tab hides, and the keys would then reach no field (i did nothing).
     const el = document.activeElement;
-    if (back && (!el || el === document.body || el.closest('.comp'))) comp.current?.focus();
+    if (back && (!el || el.closest('.comp') || !root.current?.contains(el))) comp.current?.focus(A.steppedInsert());   // stepping tabs keeps the mode
   });
   const m = machine(t.machine) || s.machines[0];
   const h = harnessOf(t);
@@ -108,7 +111,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   const open = (kind: 'shell' | 'changes' | 'files' | 'browser') => update(x => { Object.assign(t, mkTab(kind, { machine: t.machine, dir: t.dir }), { id: t.id }); x.tick++; });
 
   return (
-    <div className="newp"><div className="col">
+    <div className="newp" ref={root}><div className="col">
       <Composer ref={comp} tabId={t.id} thread={stand} draft={draft} onDraft={setDraft} placeholder="Ask anything" autoFocus={focused}
         startMode={t.startNormal ? 'NORMAL' : 'INSERT'} onSend={() => void start()} fresh={{ onSettings }} />
       <div className="under pick">

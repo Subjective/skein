@@ -8,7 +8,8 @@
 .tool-h .chip .nums { margin-left: 7px; }
 .cfile > summary.rowcur { box-shadow: none; }
 .tool-h .splitbtn:not(.part) .btn[disabled] { opacity: .45; cursor: default; }
-.tool-h .splitbtn .btn:focus-visible, .tool-h .ib:focus-visible, .tool-h .chip:focus-visible, .crumb:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 1px; }
+/* not while the button's menu is open: the menu shows where the keys are */
+.tool-h :is(.splitbtn .btn, .ib, .chip):focus-visible:not([aria-expanded="true"]), .crumb:focus-visible:not([aria-expanded="true"]) { outline: 2px solid var(--fg-3); outline-offset: 1px; }
 
 /* rows under the reader's cursor */
 .diff .dl, .src .dl { scroll-margin: 36px 0 8px; }
@@ -17,9 +18,6 @@
 .diff.flat .dl.del.curl { background: color-mix(in srgb, var(--del-bg) 100%, var(--fg) 6%); }
 .diff.flat .dl.curl .n { color: var(--fg-2); }
 .dl.vsel, .cfile > summary.vsel { background: var(--sel) !important; }
-/* a file's V-LINE shades the text area only, never the gutter, and only paints: no padding, border or size changes */
-.src .dl.vsel { background: linear-gradient(to right, transparent 48px, var(--sel) 48px) !important; }
-
 .dl.note .c { font-family: var(--sans); font-size: 12px; }
 .cfile > summary { padding: 0 2px; border-radius: 6px; transition: background var(--ease); }
 .cfile > summary .f { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -47,8 +45,8 @@
 .igi { box-shadow: inset 1px 0 0 var(--line); }
 .vc { background: var(--fg); color: var(--bg) !important; border-radius: 1px; }
 .vs { background: var(--sel); }
-.hit { background: rgba(226, 165, 60, .28); border-radius: 2px; }
-.hit.now { background: rgba(226, 165, 60, .6); }
+.hit { background: var(--hit); border-radius: 2px; }
+.hit.now { background: var(--hit-now); }
 
 /* Files: the project tree as the tab's body */
 .files-v .tool-b { padding: 4px 8px 14px; }
@@ -72,15 +70,9 @@
 .ptree .none { padding: 6px; color: var(--fg-4); font-size: 12.5px; }
 .files-v .tq, .ctree .tq { flex: none; }
 
-/* the open file */
-.file-v .src { margin: 0 -14px 10px; }
-.file-v .src .dl { min-height: 19.8px; }
-.file-v .src .dl .n { cursor: default; }
-.file-v .src .dl.g-del .n { box-shadow: inset 3px -2px 0 -1px var(--red); }
-.file-v .tool-b.rd { cursor: text; }
-.file-v .ed { position: relative; }
-.file-v .ed textarea.file-ed { flex: 1; min-width: 0; height: auto; border: 0; outline: 0; resize: none; background: none; color: var(--fg); overflow: hidden; tab-size: 4; }
-.src .c { tab-size: 4; }
+/* the open file: the code editor (ui/editor) fills the body and scrolls itself */
+.file-v .tool-b.code { padding: 0; overflow: hidden; }
+.file-v .tool-b.code > .src { flex: 1; min-height: 0; }
 .tool-h svg.fi { margin-left: 2px; }
 .tool-h .crumbs { flex: 0 1 auto; }
 .file-v .doc { padding-top: 10px; }
@@ -110,8 +102,6 @@
 .file-v .cbody { position: relative; }
 .link-tip { position: absolute; left: 10px; bottom: 10px; z-index: 2; max-width: min(520px, calc(100% - 20px)); padding: 3px 9px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--pop); color: var(--fg-2); font: var(--mono-w) 11.500px/18px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; animation: eff-in .12s ease; }
 @media (prefers-reduced-motion: reduce) { .doc [data-slug].flash, .link-tip { animation: none; } }
-.src .dl { content-visibility: auto; contain-intrinsic-size: auto 19.8px; }
-.src .dl.curl, .src .dl.vsel { content-visibility: visible; }
 .ib.flip svg.i { transform: rotate(180deg); }
 
 /* narrow panes: the header's chips give way before its actions */
@@ -136,26 +126,9 @@
 .br-page > webview, .br-page > iframe { flex: 1; width: 100%; height: 100%; border: 0; }
 .br-page .r-empty { text-align: center; padding: 24px; }
 /* line numbers are not part of a quoted selection (mod-l from a reader's VISUAL selects the painted text) */
-.file-v .src .dl .n, .diff.flat .dl .n { user-select: none; }
-/* a mouse selection turned VISUAL is drawn by the painted selection, not twice */
-.file-v .src.msel ::selection { background: transparent; }
-/* a keyboard selection (v, V) is painted once, in the selection colour: the browser's own selection that rides along
-   (for copy and Add to Chat) is not drawn over it, and the cursor line's shade waits until the selection ends */
-.file-v .src.vis ::selection { background: transparent; }
-.file-v .src.vis .dl.curl:not(.vsel) { background: none; }
+.diff.flat .dl .n { user-select: none; }
 
-/* The open file's ⋯ menu (fileactions.tsx): rule rows between groups, switches on the right. */
+/* The open file's ⋯ menu (fileactions.tsx): rule rows between groups, switches on the right. Its line numbers, word
+   wrap and diff view toggles are the code editor's (ui/editor/theme.ts). */
 .mx:has(.msep) { margin: 4px 0; padding: 0; height: 0; }
 .file-menu .mr .sw { margin-left: 6px; }
-/* its toggles: line numbers off, word wrap on (reading and editing), and the diff view's added and removed rows */
-.file-v.nonum .src .dl .n, .file-v.nonum .ed-n { display: none; }
-.file-v.nonum .src .dl .c, .file-v.nonum .file-ed { padding-left: 14px; }
-.file-v.wrap .src { overflow-x: hidden; }
-.file-v.wrap .src .dl { min-width: 0; }
-.file-v.wrap .src .dl .c { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.file-v.wrap .file-ed { white-space: pre-wrap; overflow-wrap: anywhere; }
-.file-v.wrap .ed-n { display: none; }
-.file-v.wrap:not(.nonum) .file-ed { padding-left: 14px; }
-.src.diffv .dl.add { box-shadow: inset 3px 0 0 var(--green); }
-.src.diffv .dl.del { box-shadow: inset 3px 0 0 var(--red); user-select: none; }
-.src.diffv .dl.add.curl { background: color-mix(in srgb, var(--add-bg) 100%, var(--fg) 6%); }

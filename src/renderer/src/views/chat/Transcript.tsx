@@ -4,6 +4,7 @@ import { openLightbox } from '../../ui/Lightbox';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import type { Density, Harness, StepKind, ThreadEvent, ThreadMeta } from '@shared/types';
+import { dur } from '@shared/duration';
 import { api } from '../../api';
 import { machine, S, toast } from '../../state/store';
 import type { IconName } from '../../ui/icons';
@@ -24,7 +25,8 @@ export interface TranscriptCtx {
   main: boolean;
   editing?: string;
   editBox?: ReactNode;
-  onEdit?(eventId: string): void;
+  /** Open your message for editing; x and y are where it was clicked (the caret goes there). */
+  onEdit?(eventId: string, x?: number, y?: number): void;
   onSide?(eventId: string): void;
   onFork?(eventId: string): void;
   onOpenSub?(subId: string): void;
@@ -44,7 +46,6 @@ const KIND: Record<StepKind, [string, IconName]> = {
 };
 /** Events from before steps had kinds (and the browser samples) name the tool only. */
 const kindOf = (e: Ev<'tool'>): StepKind => e.kind ?? ({ Read: 'read', Grep: 'search', Glob: 'search', Bash: 'command', Shell: 'command', WebFetch: 'web', WebSearch: 'web' } as Record<string, StepKind>)[e.name] ?? (/^[^:]+: /.test(e.name) ? 'mcp' : 'other');
-export const dur = (ms: number) => { const s = Math.round(ms / 1000); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`; };
 export const ago = (t: number) => { const m = (Date.now() - t) / 60000; return m < 1 ? 'now' : m < 60 ? `${Math.round(m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
 
 /** Unified diff text to numbered lines. */
@@ -222,9 +223,10 @@ function UserMsg({ e, c, src }: { e: Ev<'user'>; c: TranscriptCtx; src: string }
   };
   return (
     <div className={cx('m-user', c.onEdit && 'can-edit', long && 'long')} data-user data-ev={e.id} data-src={src} title={c.onEdit ? 'Click to edit and resend' : undefined}
-      onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img, .m-more')) return; c.onEdit(e.id); }}>
+      onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img, .m-more, .clink, .flink')) return; c.onEdit(e.id, ev.clientX, ev.clientY); }}>
       <div ref={clip} className={cx('m-clip', shut && 'shut')}>
-        {e.images?.map((u, i) => <img key={i} className="m-img" src={u} alt="" data-zoom onClick={ev => { ev.stopPropagation(); openLightbox(u); }} />)}
+        {/* an image is a row for the reader (j / k stop on it, enter opens it); the hidden word is the line it lands on */}
+        {e.images?.map((u, i) => <span key={i} className="m-pic"><img className="m-img" src={u} alt="" data-zoom onClick={ev => { ev.stopPropagation(); openLightbox(u); }} /><span className="m-pic-n">Image</span></span>)}
         {/* your words as you wrote them: line breaks kept, Markdown (lists, code, bold, links) as in a reply */}
         {e.text && <div className="mt prose" data-md={e.text}><Markdown text={e.text} /></div>}
       </div>
@@ -379,7 +381,9 @@ export function Transcript({ events, c, running, since }: { events: ThreadEvent[
     if (live && !streaming) body.push(<Live key="live" since={since} />);
     const texts = g.reply.filter((e): e is Ev<'text'> => e.t === 'text');
     if (!live && texts.length && c.main) body.push(<Acts key="acts" c={c} at={texts[texts.length - 1].id} text={texts.map(x => x.text).join('\n\n')} last={lastGroup} when={groups[gi + 1]?.user?.at} />);
-    if (body.length) out.push(<div key={'r' + gi} className="reply">{body}</div>);
+    // data-edits: the turn changed files (the timeline marks its tick)
+    const edited = g.reply.some(e => e.t === 'edit');
+    if (body.length) out.push(<div key={'r' + gi} className="reply" data-edits={edited ? '' : undefined}>{body}</div>);
   });
   return <>{out}</>;
 }

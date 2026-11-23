@@ -24,6 +24,8 @@ import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, quoteToTab, 
 import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
 import { rawAt } from './markdown';
+import { chatLink, OS_OPENS } from './links';
+import { openFile as openFileAt, splitClick } from '../tools/open';
 import { recentMouse } from '../../ui/VimField';
 import './chat.css';
 
@@ -191,9 +193,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const wasFocused = useRef(false);
   useLayoutEffect(() => {
     // back to the thread from a side chat's anchor line comes up in NORMAL (the mockup's D3); a thread opened from
-    // the sidebar still opens ready to type (VIM-MODEL: the composer is a Field, INSERT)
+    // the sidebar still opens ready to type (VIM-MODEL: the composer is a Field, INSERT). Stepping tabs with H / L
+    // never changes the mode: the composer takes the keys in NORMAL
     const by = recentMouse(), listed = !!by?.closest?.('.sc-anchor');
-    if (focused && !wasFocused.current && !reader.on && qref.current == null) { if (composer.current) composer.current.focus(listed ? false : undefined); else idle(); }
+    if (focused && !wasFocused.current && !reader.on && qref.current == null) { if (composer.current) composer.current.focus(listed ? false : A.steppedInsert()); else idle(); }
     if (!focused && wasFocused.current) {
       const el = document.activeElement as HTMLElement | null;
       if (el && scroller.current?.parentElement?.contains(el)) el.blur();
@@ -257,15 +260,18 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   };
 
   // ---- edit and resend (G8) ----
-  const startEdit = (id: string, offset?: number, key?: string) => {
+  // `insert`: a click on the message, so INSERT with the caret before the clicked character; else the reader's
+  // NORMAL cursor carried over. A message's trailing newlines stay out of the box (the bubble never shows them).
+  const startEdit = (id: string, offset?: number, key?: string, insert?: boolean) => {
     if (t.kind === 'sub' || mirror) return;
     const e = lg.events.find(x => x.id === id); if (!e || e.t !== 'user') return;
     reader.clear();
-    tc.edit = { event: id, draft: { ...blank(), text: e.text, images: e.images || [] } }; bump();
+    tc.edit = { event: id, draft: { ...blank(), text: e.text.replace(/\s+$/, ''), images: e.images || [] } }; bump();
     requestAnimationFrame(() => {
       const f = editor.current?.field(); if (!f) return;
       if (offset === undefined) { f.focus(true); return; }
       const raw = f.state().text, at = offset;   // an offset in the raw text (rawAt)
+      if (insert) { f.focus(true); f.set(raw, Math.min(at, raw.length)); return; }
       // NORMAL never rests past the end of a line (the mockup's Vim.block)
       let pos = Math.min(at, raw.length);
       if (pos > 0 && (pos === raw.length || raw[pos] === '\n') && raw[pos - 1] !== '\n') pos--;
@@ -275,15 +281,18 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   };
   // a double-click on your own message: the first click opened the edit box; the second (and a third) select the
   // word (the line) there in VISUAL instead of landing on whatever the box put under the pointer (the model chip)
+  /** The raw-text offset of the character under a point in your message's text, if the point is on it. */
+  const offsetAt = (own: Element, x: number, y: number) => {
+    const c = document.caretRangeFromPoint?.(x, y);
+    return c && own.contains(c.startContainer) ? rawAt(own, (own as HTMLElement).dataset.md ?? '', c.startContainer, c.startOffset) : undefined;
+  };
   const bubble = useRef<{ x: number; y: number; off: number; t: number } | null>(null);
   const tcRef = useRef(tc); tcRef.current = tc;
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       const own = e.detail === 1 && (e.target as Element | null)?.closest?.('.m-user.can-edit .mt');
       if (own) {   // note where a click on your own message was: it opens the edit box under the pointer
-        const c = document.caretRangeFromPoint?.(e.clientX, e.clientY); let off = 0;
-        if (c && own.contains(c.startContainer)) off = rawAt(own, (own as HTMLElement).dataset.md ?? '', c.startContainer, c.startOffset);
-        bubble.current = { x: e.clientX, y: e.clientY, off, t: Date.now() }; return;
+        bubble.current = { x: e.clientX, y: e.clientY, off: offsetAt(own, e.clientX, e.clientY) ?? 0, t: Date.now() }; return;
       }
       const b = bubble.current;
       if (!b || !tcRef.current.edit || e.detail < 2 || Date.now() - b.t > 900 || Math.hypot(e.clientX - b.x, e.clientY - b.y) > 8) return;
@@ -391,7 +400,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
         {laterSides > 0 && <div className="edit-note"><Icon name="branch" /><span>Resending keeps {laterSides === 1 ? 'the side chat' : `the ${laterSides} side chats`} from later replies, unlinked</span></div>}
       </>
     ),
-    onEdit: t.kind === 'sub' || mirror ? undefined : id => startEdit(id),
+    onEdit: t.kind === 'sub' || mirror ? undefined : (id, x, y) => {
+      const own = x === undefined ? null : read.current?.querySelector(`.m-user[data-ev="${CSS.escape(id)}"] .mt`);
+      startEdit(id, own ? offsetAt(own, x!, y!) : undefined, undefined, true);
+    },
     onSide: t.kind === 'sub' || th.side ? undefined : at => void newSide(th, at).then(openSide),
     onFork: t.kind === 'sub' || th.side ? undefined : at => void forkAt(th, at),
     onOpenSub: id => openSub(th, id),
@@ -407,11 +419,12 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const onMouseUp = (e: React.MouseEvent) => {
     const root = read.current; if (!root || e.button !== 0) return;
     const ev = e.nativeEvent, target = ev.target as Element;
-    // a press on a control is the control's; a drag that only ends on one (from text above it) is still a selection
-    const ctl = target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, [role=dialog], img[data-zoom], .flink');
+    // a press on a control is the control's; a drag that only ends on one (from text above it) is still a selection.
+    // A link in the text is text too: a click puts the cursor on it (and onLinkClick then follows it)
+    const ctl = target.closest('.m-edit, .menu, .seltb, button, input, textarea, a:not(.clink), [role=dialog], img[data-zoom], summary .flink');
     if (ctl && (ctl.contains(document.elementFromPoint(downAt.current.x, downAt.current.y)) || !getSelection()?.toString())) return;
     if (target.closest('summary') && ev.detail < 2) return;   // a click folds; a double-click selects its words (VISUAL)
-    if (target.closest('.m-user.can-edit') && !getSelection()?.toString()) return;   // that click opens the edit box
+    if (target.closest('.m-user.can-edit') && !target.closest('.clink, .flink') && !getSelection()?.toString()) return;   // that click opens the edit box
     setTimeout(() => {
       const s = getSelection();
       // a double-click on blank space (beside a line, the margin, next to a bubble) does nothing: no stray VISUAL
@@ -443,13 +456,24 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     document.addEventListener('selectionchange', gone);
     return () => { document.removeEventListener('mousedown', away, true); document.removeEventListener('selectionchange', gone); };
   }, [sel, reader]);
-  // a file named in a reply or a tool row (.flink): a click opens it beside, in the thread's folder (and does not fold its row)
+  // a link in a reply (.clink) or a file named in a reply or a tool row (.flink): a click follows it (and does not
+  // fold its row); with a modifier a file opens in a new split. The reader's keys (enter, g x, g f) click it too.
+  // A mouse click follows it after onMouseUp has put the cursor there, so the file it opens keeps the focus.
   const onLinkClick = (e: React.MouseEvent) => {
-    const link = (e.target as Element).closest<HTMLElement>('.flink'); if (!link || getSelection()?.toString()) return;
+    const t = e.target as Element, link = t.closest<HTMLElement>('.clink') || t.closest<HTMLElement>('.flink');
+    if (!link || getSelection()?.toString()) return;
     e.preventDefault(); e.stopPropagation();
-    const dir = th.dir.replace(/[\\/]$/, ''), path = link.dataset.p || link.textContent || '';
+    const split = splitClick(e);
+    if (e.detail > 0) setTimeout(() => follow(link, split), 0); else follow(link, split);
+  };
+  const follow = (link: HTMLElement, split: boolean) => {
+    const to = link.matches('.clink') ? chatLink(link.dataset.href || '', th.dir) : chatLink(link.dataset.p || link.textContent || '', th.dir);
+    if (to.kind === 'none') { toast(`Skein does not open ${(link.dataset.href || '').replace(/:.*/, ':')} links`); return; }
+    if (to.kind === 'external') { void api.app.openExternal(to.url); return; }
+    const local = !machine(th.machine)?.ssh, full = to.dir.replace(/[\\/]+$/, '') + '/' + to.path;
+    if (local && !split && OS_OPENS.test(to.path)) { void api.app.openPath(full).catch(() => toast(`No file at ${to.path}`)); return; }
     reader.clear();
-    A.openFile(th.machine, th.dir, path.startsWith(dir + '/') ? path.slice(dir.length + 1) : path);
+    openFileAt({ machine: th.machine, dir: to.dir }, to.path, { line: to.line, col: to.col, split });
   };
   // a field in this tab taking the focus takes the cursor too: the reader's goes (never two cursors)
   const onFocusIn = (e: React.FocusEvent) => { if ((e.target as Element).matches('textarea, input') && reader.on) reader.clear(); };

@@ -39,7 +39,7 @@ const HL = typeof CSS !== 'undefined' && 'highlights' in CSS ? (CSS as unknown a
 declare const Highlight: { new (...r: Range[]): unknown };
 
 /** Lines that are a single thing rather than prose. */
-export const ROWS = '.tool > summary, .tool > .sum, .ag, .sc-link, .sc-anchor, .appr .af, .m-acts, .err-row, .note-row, .think > summary';
+export const ROWS = '.tool > summary, .tool > .sum, .ag, .sc-link, .sc-anchor, .appr .af, .m-acts, .err-row, .note-row, .think > summary, .m-pic, .m-more';
 /** Rows of buttons: h / l move between the buttons, enter / space press one. */
 const KROWS = '.af, .m-acts';
 const BLOCKS = '[data-src], .ag, .sc-link, .sc-anchor';
@@ -50,7 +50,7 @@ const MARGIN = 24;
 export const SEL_BLOCK = '[data-read] > *';
 /** Text a selection may cover: not a reply's action row (copy, fork, side chat and its age), nor its "Worked for"
  *  header. */
-export const selectable = (n: Node) => !n.parentElement?.closest('.m-acts, .turn > summary');
+export const selectable = (n: Node) => !n.parentElement?.closest('.m-acts, .turn > summary, .m-pic, .m-more');
 /** A reply's work (under "Worked for") and its answer are selected apart: a selection stays on the side it began. */
 const part = (n: Node) => n.parentElement?.closest('.turn') ?? null;
 
@@ -103,7 +103,7 @@ export class Reader {
     const root = this.root; if (!n || !root || !root.contains(n)) return false;
     const e = n.parentElement; if (!e) return false;
     if (e.closest('input, textarea, .comp, .dl > .n, .ticks, .tick-pop')) return false;
-    if (e.closest('button') && !e.closest('.ag, .sc-link, .sc-anchor, .af')) return false;
+    if (e.closest('button') && !e.closest('.ag, .sc-link, .sc-anchor, .af, .m-more')) return false;
     return true;
   }
   texts(el: Node): Text[] {
@@ -185,6 +185,14 @@ export class Reader {
     this.host.selection?.(null);
     update(s => { s.tick++; });
   }
+  /** The link the cursor is on: a link in a reply (.clink) or a file named in one (.flink). */
+  private linkAt() { const el = this.f?.n.parentElement; return el?.closest<HTMLElement>('.clink') || el?.closest<HTMLElement>('.flink') || null; }
+  /** Follow a link: the transcript's click handler (ChatView onLinkClick) opens it; the cursor stays on it. */
+  private follow(link: HTMLElement, split = false) {
+    getSelection()?.removeAllRanges();
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0, shiftKey: split }));
+    if (this.on && this.alive()) this.draw();
+  }
   exit(how: 'normal' | 'insert' | 'end' = 'normal') { this.clear(); getSelection()?.removeAllRanges(); this.host.exit(how); }
   /** The node under the cursor went away (the transcript changed): start again at the end. */
   private alive() { return !!this.f && this.f.n.isConnected && !!this.root?.isConnected; }
@@ -216,7 +224,8 @@ export class Reader {
   private reveal(at: Element | Range) {
     // a cursor below the fold of a long message opens it (Show more) before it is brought into view
     const node = at instanceof Range ? at.startContainer : at, clip = (node.nodeType === 1 ? node as Element : node.parentElement)?.closest('.m-clip.shut');
-    if (clip && at.getBoundingClientRect().bottom > clip.getBoundingClientRect().bottom - 32) clip.dispatchEvent(new Event('skein-open'));
+    const low = at instanceof Element && at.matches('.m-pic') ? at.getBoundingClientRect().top + 32 : at.getBoundingClientRect().bottom;   // a picture is on screen once its top is
+    if (clip && low > clip.getBoundingClientRect().bottom - 32) clip.dispatchEvent(new Event('skein-open'));
     if (this.still) return;
     const root = this.root, sc = this.scroller(); if (!root || !sc) return;
     const ns = this.texts(root), f = this.f;
@@ -303,10 +312,32 @@ export class Reader {
     for (;;) { r = step(q, d); if (!r || sp(r) || gap(q, r)) return q; q = r; }
   }
   /** Up or down a line by geometry, which works on any static text. */
+  /** ctrl-d / ctrl-u: the thread scrolls half its height and the cursor goes as many lines, staying where it was on
+   *  screen (as in Vim). At the end of the thread the cursor goes on to the last (or first) line. */
+  private half(d: number) {
+    const sc = (this.root!.closest('.thread') as HTMLElement) || this.root!;
+    const top = () => { const f = this.f!, r = document.createRange(); r.setStart(f.n, f.o); r.setEnd(f.n, Math.min(f.o + 1, f.n.data.length)); return (this.row && this.mode === 'n' ? this.row.getBoundingClientRect() : r.getClientRects()[0])?.top ?? 0; };
+    const at = top(), before = sc.scrollTop;
+    sc.scrollTop += d * Math.round(sc.clientHeight / 2);
+    const moved = sc.scrollTop !== before;
+    let prev: number | null = null;
+    for (let i = 0; i < 400; i++) {
+      const y = top();
+      if (moved && (d > 0 ? y >= at - 2 : y <= at + 2)) {
+        // a tall row overshoots: the step before may be nearer where the cursor was
+        if (prev != null && Math.abs(prev - at) < Math.abs(y - at)) { const keep = sc.scrollTop; this.vert(-d); sc.scrollTop = keep; }
+        break;
+      }
+      prev = y;
+      const keep = sc.scrollTop;
+      if (!this.vert(d)) break;
+      if (moved) sc.scrollTop = keep;   // the screen moved once; the cursor follows it, not the other way round
+    }
+  }
   private vert(d: number): boolean {
     const f = this.f!, root = this.root!;
     const fr = document.createRange(); fr.setStart(f.n, f.o); fr.setEnd(f.n, Math.min(f.o + 1, f.n.data.length));
-    const row = this.mode === 'n' ? this.row : null, rect = row ? row.getBoundingClientRect() : fr.getClientRects()[0]; if (!rect) return false;
+    const row = this.mode === 'n' ? this.row : null, rect = row ? seen(row) : fr.getClientRects()[0]; if (!rect) return false;
     const x = row ? (this.x ?? rect.left + 12) : rect.left + 2; if (!row) this.x = x;
     const sc = (root.closest('.thread') as HTMLElement) || root, lh = row ? 18 : Math.max(14, rect.height);
     const probe = (y: number) => {
@@ -329,6 +360,29 @@ export class Reader {
       const c = probe(y); if (!c) continue;
       return this.land(c.startContainer, c.startOffset);
     }
+    const now = row ? seen(row) : fr.getClientRects()[0];   // the probe may have scrolled
+    return !!now && this.across(d, now, x, row, sc);
+  }
+  /** j / k over a gap taller than the probe reaches (an image, a tall block of anything without text): the next line
+   *  of text in that direction, wherever it is, scrolled into view, at the column nearest the cursor's. */
+  private across(d: number, rect: DOMRect, x: number, row: HTMLElement | null, sc: HTMLElement): boolean {
+    const ns = this.texts(this.root!), i = ns.indexOf(this.f!.n); if (i < 0) return false;
+    for (const n of d > 0 ? ns.slice(i + 1) : ns.slice(0, i).reverse()) {
+      if (row?.contains(n)) continue;
+      const r = document.createRange(); r.selectNodeContents(n);
+      const lines = () => [...r.getClientRects()].filter(q => q.width > 0 && q.height > 0), rs = lines();
+      const k = d > 0 ? rs.findIndex(q => q.top >= rect.bottom - 2) : rs.findLastIndex(q => q.bottom <= rect.top + 2); if (k < 0) continue;
+      // text hidden below a long message's fold is not a line on screen; going up, the fold is passed over
+      const clip = n.parentElement?.closest('.m-clip.shut');
+      if (d < 0 && clip && rs[k].top > clip.getBoundingClientRect().bottom - 8) continue;
+      const b = sc.getBoundingClientRect();
+      if (rs[k].bottom > b.bottom - MARGIN) sc.scrollTop += rs[k].bottom - b.bottom + MARGIN;
+      else if (rs[k].top < b.top + MARGIN) sc.scrollTop += rs[k].top - b.top - MARGIN;
+      const ln = lines()[k] ?? rs[k];
+      const c = caretAt(Math.min(Math.max(x, ln.left + 1), ln.right - 1), (ln.top + ln.bottom) / 2);
+      if (c && c.startContainer === n) return this.land(n, c.startOffset);
+      return this.land(n, d > 0 ? n.data.length - n.data.trimStart().length : 0);
+    }
     return false;
   }
   private jump(list: Element[], d: number) {
@@ -349,7 +403,7 @@ export class Reader {
     const s = getSelection()!;
     const gut = (e.target as Element).closest?.('.diff .dl > .n');   // a diff's line number: the start of that line
     if (gut) { s.removeAllRanges(); const p = gut.nextElementSibling && this.firstText(gut.nextElementSibling); if (p) this.begin(root, 'n', p); return; }
-    const actionable = (e.target as Element).closest('button, input, textarea, summary, img, a, [data-act]');
+    const actionable = (e.target as Element).closest('button, input, textarea, summary, img, a:not(.clink), [data-act]');
     if (s.isCollapsed && (actionable || !root.contains(e.target as Node))) return;
     const c = caretAt(e.clientX, e.clientY);
     const at = c && c.startContainer.nodeType === 3 && this.inside(c.startContainer) && (c.startContainer as Text).data.trim() ? this.textAt(c.startContainer, c.startOffset) : null;
@@ -430,9 +484,9 @@ export class Reader {
         const p = this.mode !== 'n' && this.bound ? this.edge(this.bound, false) : this.firstText(this.root!);
         if (p && this.ok(p)) this.f = p; return settle();
       }
-      // g f: open the file named under the cursor (a path in a reply or a tool row)
-      const link = k === 'f' ? f.n.parentElement?.closest<HTMLElement>('.flink') || this.row?.querySelector<HTMLElement>('.flink') : null;
-      if (link) { this.clear(); getSelection()?.removeAllRanges(); link.click(); }
+      // g x / g f: follow the link under the cursor (a link in a reply, a path in a reply or a tool row)
+      const link = k === 'x' || k === 'f' ? this.linkAt() || this.row?.querySelector<HTMLElement>('.flink') : null;
+      if (link) this.follow(link);
       return true;
     }
     if (this.row && this.mode === 'n') {
@@ -468,11 +522,15 @@ export class Reader {
         // nothing to unfold: a row that names a file (Read) opens it; a button row is pressed
         const link = row.querySelector<HTMLElement>('.flink'), b = row.matches('button') ? row as HTMLButtonElement : row.querySelector('button');
         if (link) { this.clear(); getSelection()?.removeAllRanges(); link.click(); }
-        else if (b) { this.clear(); b.click(); }
+        else if (b) { const keep = row.matches('.m-more'); if (!keep) this.clear(); b.click(); if (keep && this.on && this.alive()) this.draw(); }   // Show more / less stays on its row
+        else row.querySelector<HTMLElement>('[data-zoom]')?.click();   // an image opens large
         return true;
       }
       if ('wbe0$'.includes(k) && k.length === 1) return true;
     }
+    // enter (o, or shift-enter / O for a new split) on a link in the text follows it, as g x does
+    const here = this.mode === 'n' && !this.row && ['enter', 'o', 'shift-enter', 'O'].includes(k) ? this.linkAt() : null;
+    if (here) { this.follow(here, k === 'shift-enter' || k === 'O'); return true; }
     // on one of your messages, an editing key edits it (edit and resend)
     const mine = this.mode === 'n' && !this.row ? f.n.parentElement?.closest<HTMLElement>('.m-user.can-edit[data-ev]') : null;
     if (mine && ['i', 'a', 'I', 'A', 'c', 'C', 'd', 'D', 'x'].includes(k)) {
@@ -494,6 +552,8 @@ export class Reader {
       case '0': case 'home': this.go('backward', 'lineboundary'); break;
       case '$': case 'end': this.go('forward', 'lineboundary'); break;
       case 'k': case 'up': this.vert(-1); break;
+      case 'ctrl-d': case 'pagedown': this.half(1); break;
+      case 'ctrl-u': case 'pageup': this.half(-1); break;
       case 'j': case 'down': if (!this.vert(1) && this.mode === 'n') { this.exit(); return true; } break;
       case 'v': case 'V':
         if (this.mode === 'n') this.a = this.f;
@@ -528,6 +588,12 @@ export function onText(x: number, y: number): boolean {
     for (const b of r.getClientRects()) if (x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2) return true;
   }
   return false;
+}
+/** A row's box as far as it shows: a picture in a long message that is cut short ends at the fold. */
+function seen(row: Element): DOMRect {
+  const r = row.getBoundingClientRect(), clip = row.closest('.m-clip.shut'); if (!clip) return r;
+  const c = clip.getBoundingClientRect(), bottom = Math.min(r.bottom, c.bottom);
+  return new DOMRect(r.left, r.top, r.width, Math.max(0, bottom - r.top));
 }
 function caretAt(x: number, y: number): Range | null {
   const d = document as Document & { caretPositionFromPoint?(x: number, y: number): { offsetNode: Node; offset: number } | null };

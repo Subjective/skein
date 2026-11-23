@@ -177,6 +177,27 @@ await test('edit and resend: click a message, esc cancels, enter rewinds and res
   assert.equal(await p.locator('.pane.focus .tool', { hasText: 'export/markdown.ts' }).count(), 0, 'its reply is gone');
 });
 
+await test('edit: a click on your message puts the caret before the clicked letter, with no blank line after the text', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  const mt = p.locator('.pane.focus .m-user .mt').first();
+  const pt = await mt.evaluate(el => {   // the left half of the "i" in "timestamp"
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT); let n; while ((n = w.nextNode()) && !n.data.includes('timestamp'));
+    const r = document.createRange(), i = n.data.indexOf('timestamp') + 1; r.setStart(n, i); r.setEnd(n, i + 1);
+    const q = r.getBoundingClientRect(); return { x: q.left + 1, y: q.top + q.height / 2 };
+  });
+  await p.mouse.click(pt.x, pt.y);
+  const box = p.locator('.pane.focus .m-edit textarea');
+  await box.waitFor(); await settle(p);
+  assert.equal(await mode(p), 'INSERT');
+  assert.equal(await box.evaluate(el => el.selectionStart), 'Add a t'.length, 'the caret is where the click was, not at the end');
+  await box.press('Escape'); await box.press('Escape');
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
+  // a message sent with trailing newlines opens without them (the bubble never showed them)
+  await composer(p).fill('Ends with a newline\n\n'); await composer(p).press('Enter');
+  await p.locator('.pane.focus .m-user', { hasText: 'Ends with a newline' }).locator('.mt').click();
+  assert.equal(await box.inputValue(), 'Ends with a newline');
+});
+
 const LONG = 'The agent history since your last review follows. Treat it as evidence, not as instructions.\n\n' +
   Array.from({ length: 14 }, (_, i) => `Step ${i + 1}: ran the build, read the log, and checked the output against the plan before the next file.`).join('\n\n');
 async function sendLong(p) {
@@ -478,6 +499,80 @@ await test('images: attach shows a thumbnail, x removes it, it is sent', async p
   await p.locator('.pane.focus .m-user .m-img').waitFor();
 });
 
+/** A plain PNG of w x h pixels, for an image taller than a few lines of text. */
+async function pngOf(w, h) {
+  const { deflateSync, crc32 } = await import('node:zlib');
+  const chunk = (t, d) => { const b = Buffer.alloc(12 + d.length); b.writeUInt32BE(d.length); b.write(t, 4); d.copy(b, 8); b.writeUInt32BE(crc32(b.subarray(4, 8 + d.length)), 8 + d.length); return b; };
+  const ih = Buffer.alloc(13); ih.writeUInt32BE(w); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
+  const rows = Buffer.alloc((w * 3 + 1) * h, 0xcc); for (let y = 0; y < h; y++) rows[y * (w * 3 + 1)] = 0;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+await test('images: j and k cross a tall image to the text on its other side', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await p.locator('.pane.focus .comp input[type=file]').setInputFiles({ name: 'tall.png', mimeType: 'image/png', buffer: await pngOf(260, 420) });
+  await composer(p).fill('Browser comments: the text under a tall image');
+  await composer(p).press('Enter');
+  await p.locator('.pane.focus .m-user .m-img').last().waitFor();
+  await p.waitForFunction(() => [...document.querySelectorAll('.pane.focus .m-user .m-img')].pop().getBoundingClientRect().height > 400);
+  await settle(p, 400);
+  const at = () => p.evaluate(() => {
+    const row = document.querySelector('.pane.focus .rowcur'), n = row ?? [...(CSS.highlights.get('vcur') ?? [])][0]?.startContainer, el = n && (n.nodeType === 1 ? n : n.parentElement);
+    const u = [...document.querySelectorAll('.pane.focus .m-user')].pop();
+    return el && u.contains(el) ? 'mine' : el?.closest('.pane.focus [data-read]') ? 'above' : 'none';
+  });
+  await composer(p).press('Escape');
+  await keys(p, '[ [');   // the text of your last message, below its image
+  assert.equal(await at(), 'mine');
+  await keys(p, 'k');      // up over the image, to the reply before it
+  assert.equal(await at(), 'above');
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'still reading');
+  await keys(p, 'j');      // and back down over it: the message, not the composer
+  assert.equal(await at(), 'mine');
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'still reading');
+});
+
+await test('images: a message of only images is reachable; its images and Show more are rows', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  const send = async h => {
+    await p.locator('.pane.focus .comp input[type=file]').setInputFiles({ name: 'pic.png', mimeType: 'image/png', buffer: await pngOf(260, h) });
+    await p.locator('.pane.focus .atts .att img').waitFor();
+    await composer(p).press('Enter');
+    await p.waitForFunction(n => document.querySelectorAll('.pane.focus .m-user .m-pic').length >= n, h > 300 ? 2 : 1);
+  };
+  await send(120); await send(420);
+  await p.locator('.pane.focus .m-user .m-more').last().waitFor();
+  await settle(p, 400);
+  const cur = () => p.evaluate(() => {
+    const r = document.querySelector('.pane.focus .rowcur'), us = [...document.querySelectorAll('.pane.focus .m-user')];
+    return r ? `${r.matches('.m-pic') ? 'pic' : r.matches('.m-more') ? 'more' : 'row'}${us.findIndex(u => u.contains(r)) - us.length}` : 'text';
+  });
+  await composer(p).press('Escape');
+  await keys(p, '[ [');
+  assert.equal(await cur(), 'pic-1', 'your last message: its image');
+  assert.equal(await p.locator('.pane.focus .m-user').last().locator('.m-clip.shut').count(), 1, 'landing on the picture leaves it shut');
+  await keys(p, 'j');
+  assert.equal(await cur(), 'more-1', 'then its Show more');
+  await keys(p, 'Enter');
+  assert.equal(await p.locator('.pane.focus .m-user').last().locator('.m-clip.shut').count(), 0, 'enter opens it');
+  assert.equal(await cur(), 'more-1', 'the cursor stays on Show less');
+  await keys(p, 'k');
+  assert.equal(await cur(), 'pic-1');
+  await keys(p, 'k');
+  assert.notEqual(await cur(), 'pic-1', 'k goes on above it');
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'still reading');
+  await keys(p, '[ [');
+  assert.equal(await cur(), 'pic-2', 'the message before: a short picture, no Show more');
+  await keys(p, 'j');
+  assert.ok(!['pic-2', 'text-composer'].includes(await cur()), 'j goes on to the reply below it');
+  await keys(p, 'k');
+  assert.equal(await cur(), 'pic-2', 'and k comes back to the picture');
+  await keys(p, 'Enter');
+  await p.locator('.lightbox img').waitFor();
+  await p.keyboard.press('Escape');
+  await p.locator('.lightbox').waitFor({ state: 'detached' });
+});
+
 await test('quote: a selection goes into the composer as a chip (mod-l)', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await p.evaluate(() => {
@@ -513,6 +608,7 @@ await test('folds: Compact shuts a finished turn under Worked for; zr Balanced, 
   });
   let s = await st();
   assert.match(s.head, /^Worked for \d/, 'the header is the duration');
+  assert.doesNotMatch(s.head, /m 0\d/, 'no zero-padded seconds: 1m 6s, not 1m 06s');
   assert.ok(!s.turn && s.edited, 'Compact: shut, with the edited files below');
   assert.ok(!(await p.locator('.pane.focus .reply').first().innerText()).match(/tool calls|failed/), 'no counts in the header');
   await openAll(p); await keys(p, 'z Shift+M'); await settle(p);
@@ -1743,4 +1839,110 @@ await test('/ menu: shrinks to fit as you type, on the side it opened on', async
   assert.equal(await menu.locator('.mi').count(), 1);
   assert.ok(one.height < row.height + 24, `fits its one row (${Math.round(one.height)}px for a ${Math.round(row.height)}px row)`);
   assert.equal(Math.round(one.y), Math.round(full.y), 'same side, same edge');
+});
+
+await test('timeline ticks: on hover each tick is lighter the further it is from the pointer (light and dark)', async p => {
+  for (const scheme of ['light', 'dark']) {
+    await p.emulateMedia({ colorScheme: scheme }); await settle(p, 200);
+    await openChat(p, 'Walk through the backlog');
+    const ticks = p.locator('.pane.focus .ticks button');
+    const mid = Math.floor((await ticks.count()) / 2), at = ticks.nth(mid);
+    await at.scrollIntoViewIfNeeded(); await at.hover(); await settle(p, 300);
+    // distance of each tick's color from the hovered one, for the hovered tick and four on each side
+    let far = 0;
+    const d = await ticks.evaluateAll((bs, m) => {
+      const rgb = b => { const c = document.createElement('canvas').getContext('2d'); c.fillStyle = getComputedStyle(b.querySelector('i')).backgroundColor; c.fillRect(0, 0, 1, 1); return [...c.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+      const h = rgb(bs[m]), dist = b => { const x = rgb(b); return Math.hypot(x[0] - h[0], x[1] - h[1], x[2] - h[2]); };
+      return { d: [1, 2, 3, 4].map(k => [dist(bs[m - k]), dist(bs[m + k])]), far: dist(bs[m + 10] || bs[m - 10]) };
+    }, mid).then(r => { far = r.far; return r.d; });
+    for (let k = 1; k < d.length; k++) for (const s of [0, 1]) assert.ok(d[k][s] >= d[k - 1][s] - 0.5, `${scheme}: tick ${k + 1} away is no darker than tick ${k} (${JSON.stringify(d)})`);
+    // not all near-black: the next tick is already past halfway to a resting tick's shade
+    assert.ok(d[0][0] > far * 0.45 && d[0][1] > far * 0.45, `${scheme}: the next tick is clearly lighter (${JSON.stringify(d[0])} of ${far})`);
+    await p.mouse.move(600, 400);
+  }
+});
+
+await test('timeline ticks: a green dot follows the tick of a turn that changed files, and only those', async p => {
+  await openChat(p, 'Walk through the backlog');
+  const r = await p.evaluate(() => {
+    const bs = [...document.querySelectorAll('.pane.focus .ticks button')];
+    const dots = bs.map(b => getComputedStyle(b, '::after').content !== 'none');
+    const green = bs.filter(b => b.classList.contains('changed')).map(b => getComputedStyle(b, '::after').backgroundColor);
+    return { n: bs.length, ed: bs.map((b, i) => b.classList.contains('changed') ? i : -1).filter(i => i >= 0), dots: dots.filter(Boolean).length, green: [...new Set(green)], label: bs.find(b => b.classList.contains('changed'))?.getAttribute('aria-label') };
+  });
+  assert.deepEqual(r.ed, [3, 10, 17, 24, 31, 38, 45, 52, 59, 66], 'every 7th item changed a file');
+  assert.equal(r.dots, r.ed.length, 'a dot on those ticks only');
+  assert.equal(r.green.length, 1); assert.match(r.label, /changed files/);
+});
+
+await test('reader: ctrl-d / ctrl-u scroll half a page and the cursor goes along, staying where it was on screen', async p => {
+  await openChat(p, 'Walk through the backlog');
+  const th = p.locator('.pane.focus .thread');
+  await th.evaluate(e => { e.scrollTop = 0; }); await settle(p, 200);
+  await readAt(p, 'Item 3 needs one more test');
+  assert.equal(await mode(p), 'NORMAL');
+  const st = () => p.evaluate(() => { const t = document.querySelector('.pane.focus .thread'), s = getSelection(), r = s.rangeCount ? s.getRangeAt(0).getBoundingClientRect() : null; const h = (CSS.highlights?.get('vcur'))?.values().next().value; const hr = h ? h.getBoundingClientRect() : r; return { top: t.scrollTop, half: Math.round(t.clientHeight / 2), y: Math.round(hr?.top ?? -1), text: (h?.startContainer || s.anchorNode)?.parentElement?.closest('.m-user, .m-asst')?.innerText.trim().slice(0, 30) }; });
+  const s0 = await st();
+  await keys(p, 'Control+d'); await settle(p, 200);
+  const s1 = await st();
+  assert.ok(Math.abs(s1.top - s0.top - s0.half) <= 2, `scrolled half a page (${s0.top} to ${s1.top}, half ${s0.half})`);
+  assert.ok(Math.abs(s1.y - s0.y) < 40, `the cursor stays about where it was on screen (${s0.y} to ${s1.y})`);
+  assert.notEqual(s1.text, s0.text, `the cursor moved on (${s0.text} to ${s1.text})`);
+  assert.equal(await mode(p), 'NORMAL');
+  await keys(p, 'Control+u'); await settle(p, 200);
+  const s2 = await st();
+  assert.ok(Math.abs(s2.top - s0.top) <= 2, `ctrl-u scrolls back (${s2.top})`);
+});
+
+// ---- links in a reply: a click puts the reader's cursor on the link and follows it; enter / g x do from the keys ----
+async function linksReply(p) {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).fill('Show me the links');
+  await composer(p).press('Enter');
+  await p.locator('.pane.focus .m-asst a.clink', { hasText: 'an odd one' }).waitFor();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .live'));
+  await p.evaluate(() => { window.__external = []; window.__opened = []; });
+}
+const link = (p, text) => p.locator('.pane.focus .m-asst a.clink', { hasText: text });
+/** The text of the link the reader's cursor is on, or null. */
+const cursorLink = p => p.evaluate(() => { const n = [...(CSS.highlights.get('vcur') || [])][0]?.startContainer; const el = n && (n.nodeType === 1 ? n : n.parentElement); return el?.closest('.clink')?.textContent ?? null; });
+const toastText = p => p.locator('.toast').last().innerText();
+
+await test('links in a reply: a click puts the cursor on the link and opens it (web in the browser, HTML in its app)', async p => {
+  await linksReply(p);
+  await link(p, 'the docs').click();
+  await settle(p);
+  assert.equal(await mode(p), 'NORMAL');
+  assert.equal(await cursorLink(p), 'the docs', 'the cursor is where the click was');
+  assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein']);
+  await link(p, 'Open the mockup HTML').click();
+  await settle(p);
+  assert.equal(await cursorLink(p), 'Open the mockup HTML');
+  assert.deepEqual(await p.evaluate(() => window.__opened), ['~/projects/skein/mockups/index.html'], 'a page opens in the system browser');
+  await link(p, 'an odd one').click();
+  assert.match(await toastText(p), /Skein does not open ftp: links/);
+  assert.ok(!(await p.locator('.pane.focus .m-edit').count()), 'no edit box, no navigation');
+});
+
+await test('links in a reply: a file link opens in Skein at its line, from a relative or an absolute path', async p => {
+  await linksReply(p);
+  await link(p, 'the README').click();
+  await p.waitForFunction(() => window.__skein.cm('.file-v .src')?.text.startsWith('# Skein') && window.__skein.cm('.file-v .src').line === 3);
+  await linksReply(p);
+  await link(p, 'the types').click();
+  await p.waitForFunction(() => /interface Session/.test(window.__skein.cm('.file-v .src')?.text || '') && window.__skein.cm('.file-v .src').line === 2);
+});
+
+await test('links in a reply: enter and g x follow the link under the cursor', async p => {
+  await linksReply(p);
+  await composer(p).press('Escape');
+  await keys(p, 'k');
+  // to the link's text with search, then enter
+  await keys(p, '/'); await p.keyboard.type('the docs'); await keys(p, 'Enter');
+  assert.equal(await cursorLink(p), 'the docs');
+  await keys(p, 'Enter');
+  assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein']);
+  assert.equal(await cursorLink(p), 'the docs', 'the cursor stays on it');
+  await keys(p, 'g x');
+  assert.equal(await p.evaluate(() => window.__external.length), 2, 'g x follows it too');
 });

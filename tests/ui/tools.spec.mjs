@@ -256,7 +256,7 @@ await test('changes: enter on a line opens the file at that line in a new tab', 
   await keys(p, 'Enter');
   await p.locator('.pane.focus .file-v .src').waitFor();
   assert.match(await p.locator('.pane.focus .file-v .crumbs').innerText(), /store\.ts/);
-  await p.waitForFunction(l => document.querySelector('.pane.focus .file-v .curl .n')?.textContent === String(l), line);
+  await p.waitForFunction(l => window.__skein.cm('.pane.focus .file-v .src')?.line === l, line);
 });
 
 await test('changes: branch menu switches and creates branches', async p => {
@@ -406,11 +406,14 @@ await test('files: a click opens a file', async p => {
 async function openFile(p, name, { source = true } = {}) {
   await openFiles(p);
   await p.locator('.pane.focus .files-v .ptree').getByText(name, { exact: true }).click();
-  await p.locator('.pane.focus .file-v .src, .pane.focus .file-v .doc').first().waitFor();
-  if (source && await p.locator('.pane.focus .file-v .doc').count()) { await keys(p, 'g p'); await p.locator('.pane.focus .file-v .src').waitFor(); }
+  await p.locator('.pane.focus .file-v .src .cm-editor').first().waitFor();
+  if (source && await p.locator('.pane.focus .file-v .md-live').count()) { await keys(p, 'g p'); await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .md-live')); }
 }
 const openReadme = (p, o) => openFile(p, 'README.md', o);
 const F = p => p.locator('.pane.focus .file-v');
+/** The open file's editor state (ui/editor): cursor line and column, the selection, the text. */
+const ed = p => p.evaluate(() => window.__skein.cm('.pane.focus .file-v .src'));
+const curLn = async p => (await ed(p)).line;
 
 await test('file: syntax colours, a file-type icon, line numbers and the cursor line', async p => {
   await openFiles(p);
@@ -420,13 +423,33 @@ await test('file: syntax colours, a file-type icon, line numbers and the cursor 
   await F(p).locator('.src').waitFor();
   assert.equal(await F(p).locator('.crumb.now svg.fi').getAttribute('data-icon'), 'typescript', 'file-type icon in the crumbs');
   assert.equal(await p.locator('.pane.focus .tab.on svg.fi').getAttribute('data-icon'), 'typescript', 'the tab shows the file-type icon in place of its icon');
-  assert.ok(await F(p).locator('.src .c span[class]').count(), 'syntax colours');
-  assert.equal(await F(p).locator('.curl .n').innerText(), '1');
+  await p.waitForFunction(() => document.querySelectorAll('.pane.focus .file-v .cm-line span[class]').length > 5);
+  const kw = await F(p).locator('.cm-line span', { hasText: /^export$/ }).first().evaluate(e => getComputedStyle(e).color);
+  assert.equal(kw, await p.evaluate(() => { const d = document.createElement('i'); d.style.color = 'var(--sx-k)'; document.body.append(d); const c = getComputedStyle(d).color; d.remove(); return c; }), 'keywords take the --sx-k token');
+  assert.equal(await F(p).locator('.cm-activeLineGutter').innerText(), '1');
   await keys(p, 'j j');
-  assert.equal(await F(p).locator('.curl .n').innerText(), '3');
+  assert.equal(await F(p).locator('.cm-activeLineGutter').innerText(), '3');
   await keys(p, 'G');
-  assert.equal(Number(await F(p).locator('.curl .n').innerText()), await F(p).locator('.src .n').count());
-  assert.ok(await F(p).locator('.src .g-add, .src .g-chg, .src .g-del, .src [class*=g-]').count(), 'gutter change bars');
+  const s = await ed(p);
+  assert.equal(s.line, s.lines, 'G: the last line');
+  assert.ok(await F(p).locator('.cm-gutterElement.g-add, .cm-gutterElement.g-chg, .cm-gutterElement.g-del').count(), 'gutter change bars');
+});
+
+await test('file: highlighting stays on while typing; the change bar follows the edit', async p => {
+  await openFiles(p);
+  await keys(p, '/');
+  await p.keyboard.type('store.ts');
+  await p.keyboard.press('Enter');
+  await F(p).locator('.src').waitFor();
+  await p.waitForFunction(() => document.querySelectorAll('.pane.focus .file-v .cm-line span[class]').length > 2);
+  await keys(p, 'j o');
+  assert.equal(await mode(p), 'INSERT');
+  await p.keyboard.type('const added = "x" + 42;');
+  await settle(p, 150);
+  const line = F(p).locator('.cm-activeLine');
+  assert.ok(await line.locator('span[class]').count() >= 2, 'the new line is coloured as it is typed (string, number)');
+  assert.ok(await F(p).locator('.cm-activeLineGutter.g-add, .cm-activeLineGutter.g-chg').count(), 'the typed line gets a change bar');
+  await keys(p, 'Escape');
 });
 
 await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', async p => {
@@ -445,14 +468,13 @@ await test('file: i edits, esc reads, the tab is Modified, u undoes, :w saves', 
   assert.equal(await p.locator('.pane.focus .tool-h .mod.dim').count(), 0, 'no Modified label by the breadcrumbs');
   await p.locator('.pane.focus .tab.on.dirty .tx').hover();
   assert.ok(!(await dd.isVisible()) && await p.locator('.pane.focus .tab.on.dirty .tx .i-x').isVisible(), 'hover turns the dot into the x');
-  assert.match(await F(p).locator('.src .dl').first().innerText(), /Hello \{/);
-  // u hands over to the editor and undoes there; ctrl-r redoes
-  const ed = F(p).locator('.ed textarea');
+  assert.match(await F(p).locator('.cm-line').first().innerText(), /Hello \{/);
+  // u undoes, ctrl-r redoes
   await keys(p, 'u');
   assert.equal(await mode(p), 'NORMAL');
-  assert.ok(!(await ed.inputValue()).startsWith('Hello'));
+  assert.ok(!(await ed(p)).text.startsWith('Hello'));
   await keys(p, 'Control+r');
-  assert.ok((await ed.inputValue()).startsWith('Hello'));
+  assert.ok((await ed(p)).text.startsWith('Hello'));
   await p.keyboard.press('Escape');
   await cmd(p, 'w');
   await p.waitForFunction(() => !document.querySelector('.pane.focus .tab.on.dirty'));
@@ -491,22 +513,86 @@ await test('file: / finds lines; enter jumps; n moves to the next hit', async p 
   assert.ok((await menu(p).locator('.mi').count()) >= 2);
   await p.keyboard.press('Enter');
   await settle(p);
-  const at = Number(await F(p).locator('.curl .n').innerText());
-  assert.match(await F(p).locator('.curl').innerText(), /pnpm/);
+  const at = await curLn(p);
+  assert.match(await F(p).locator('.cm-activeLine').innerText(), /pnpm/);
   await keys(p, 'n');
-  assert.ok(Number(await F(p).locator('.curl .n').innerText()) > at);
+  assert.ok((await curLn(p)) > at);
   assert.ok(await F(p).locator('.hit').count(), 'hits are highlighted');
 });
 
-await test('file: Markdown opens as a preview; gp and the Source / Preview switch toggle', async p => {
+await test('file: Markdown opens as an editable preview; gp and the Source / Preview switch toggle; the text is the file\'s own', async p => {
   await openReadme(p, { source: false });
-  await F(p).locator('.doc.prose h1').waitFor();
+  await F(p).locator('.md-live').waitFor();
+  assert.equal(await mode(p), 'NORMAL');
+  await keys(p, 'j j');
+  assert.equal(await F(p).locator('.md-h1').innerText(), 'Skein', 'the # is not drawn while the cursor is elsewhere');
+  assert.equal(await F(p).locator('.md-code').first().innerText(), 'pnpm dev', 'nor the backticks');
+  assert.ok((await ed(p)).text.startsWith('# Skein\n\nThreads') && (await ed(p)).text.includes('Run `pnpm dev`'), 'only the look changes');
   await keys(p, 'g p');
-  await F(p).locator('.src').waitFor();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .md-live'));
+  assert.equal((await ed(p)).line, 3, 'the cursor stays where it was');
   await F(p).locator('.seg').getByText('Preview').click();
-  await F(p).locator('.doc.prose h1').waitFor();
+  await F(p).locator('.md-live').waitFor();
   await F(p).locator('.seg').getByText('Source').click();
-  await F(p).locator('.src').waitFor();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .md-live'));
+});
+
+await test('file: editing in the preview stays rendered; the cursor\'s line shows its marks, still styled; a click ticks a box', async p => {
+  await openFile(p, 'package.json');
+  await findFile(p, 'PLAN.md');
+  await F(p).locator('.md-live').waitFor();
+  const line = t => F(p).locator('.cm-line', { hasText: t }).first().innerText();
+  assert.equal(await F(p).locator('.md-strong').first().innerText(), 'CodeMirror editor');
+  assert.ok(!(await line('Ship the')).includes('**'), 'bold marks hidden');
+  assert.ok(!(await line('Ship the')).includes('](GUIDE.md)'), 'a link shows its text only');
+  // a table draws as a table (alignment kept), until the cursor is in it
+  const tbl = F(p).locator('.md-tbl table');
+  assert.deepEqual(await tbl.locator('th').allInnerTexts(), ['Suite', 'Tests']);
+  assert.equal(await tbl.locator('td', { hasText: '239' }).evaluate(e => e.style.textAlign), 'right');
+  assert.equal(await F(p).locator('.cm-line.md-table').count(), 0);
+  // a blank line is a paragraph's gap, not a whole line
+  assert.ok(await F(p).locator('.cm-line.md-blank').first().evaluate(e => e.getBoundingClientRect().height) < 12);
+  // the cursor's line shows its marks, still styled; another line's stay hidden
+  await keys(p, 'j j');
+  assert.ok((await line('Ship the')).includes('**CodeMirror editor**') && (await line('Ship the')).includes('[the guide](GUIDE.md)'));
+  assert.equal(await F(p).locator('.md-strong').first().evaluate(e => getComputedStyle(e).fontWeight), '600', 'bold stays bold');
+  assert.ok(!(await F(p).locator('.md-h1').innerText()).includes('#'));
+  await keys(p, 'k k');
+  assert.ok((await F(p).locator('.md-h1').innerText()).startsWith('# '), 'the heading line shows its #');
+  assert.equal(await F(p).locator('.md-h1').evaluate(e => getComputedStyle(e).fontSize), '21px', 'still heading-sized');
+  assert.ok(!(await line('Ship the')).includes('**'));
+  // typed Markdown renders as it is typed, and the file keeps every mark
+  await keys(p, 'G o');
+  await p.keyboard.type('Now **bold** and *slanted*');
+  await keys(p, 'Escape');
+  assert.equal(await line('Now'), 'Now **bold** and *slanted*', 'on its line, the marks show');
+  await keys(p, 'k');
+  assert.equal(await line('Now'), 'Now bold and slanted');
+  assert.equal(await F(p).locator('.md-strong', { hasText: 'bold' }).count(), 1);
+  assert.ok((await ed(p)).text.includes('\nNow **bold** and *slanted*'));
+  // a click on a cell puts the cursor there and shows the table's source; leaving it draws the table again
+  await tbl.locator('td', { hasText: 'UI' }).click();
+  await F(p).locator('.cm-line.md-table').first().waitFor();
+  assert.equal(await F(p).locator('.cm-line.md-table').count(), 4);
+  assert.ok((await line('Suite')).includes('|'));
+  assert.equal((await ed(p)).line, 18, 'on the UI row');
+  assert.equal((await ed(p)).text.split('\n')[17].slice((await ed(p)).col, (await ed(p)).col + 2), 'UI');
+  await keys(p, 'j j');
+  await F(p).locator('.md-tbl').waitFor();
+  // V-LINE shades the text column, not the margin left of it
+  await keys(p, 'g g V');
+  const box = await F(p).locator('.cm-line.vsel').first().evaluate(e => { const s = getComputedStyle(e); return [s.backgroundClip, s.backgroundColor]; });
+  assert.deepEqual(box, ['content-box', 'rgba(0, 0, 0, 0)']);
+  await keys(p, 'Escape');
+  // a task box ticks with a click: one character of the file
+  const before = (await ed(p)).text;
+  await F(p).locator('.md-check').nth(1).click();
+  const after = (await ed(p)).text;
+  assert.equal(after, before.replace('- [ ] Try it on Windows', '- [x] Try it on Windows'));
+  assert.equal(await mode(p), 'NORMAL');
+  // u undoes it, as any edit
+  await keys(p, 'u');
+  assert.equal((await ed(p)).text, before);
 });
 
 // docs/GUIDE.md links, in order: the readme, its build steps, the types, the theme, the sessions folder, later on,
@@ -516,110 +602,55 @@ async function openGuide(p) {
   await keys(p, '/');
   await p.keyboard.type('GUIDE.md');
   await p.keyboard.press('Enter');
-  await F(p).locator('.doc.prose a.mlink').first().waitFor();
+  await F(p).locator('.md-live .md-link').first().waitFor();
 }
-const L = (p, name) => F(p).locator('.doc a.mlink', { hasText: name }).first();
+/** A modifier click on a link's first character: a wrapped link's box starts left of its first line, over other text. */
+async function clickStart(p, loc, mod) {
+  const r = await loc.evaluate(e => { const b = e.getClientRects()[0]; return { x: b.left + 3, y: b.top + b.height / 2 }; });
+  await p.keyboard.down(mod);
+  await p.mouse.click(r.x, r.y);
+  await p.keyboard.up(mod);
+}
 const crumbIs = (p, re) => p.waitForFunction(r => new RegExp(r).test(document.querySelector('.pane.focus .file-v .crumbs')?.textContent || ''), re.source);
 /** Whether the element is inside the reader's visible area. */
 const shown = loc => loc.evaluate(el => { const b = el.closest('.tool-b').getBoundingClientRect(), r = el.getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1; });
 
-await test('file: preview links open files, headings and web pages; hover shows where they go', async p => {
+await test('file: preview links: tab moves to the next and shows where it goes; enter, g x and a modifier click follow', async p => {
   await openGuide(p);
-  assert.equal(await F(p).locator('.doc a.mlink').count(), 12);
-  assert.equal(await L(p, 'the readme').evaluate(e => getComputedStyle(e).cursor), 'pointer');
-  // hover: where it goes, resolved from the file's folder; it goes when the pointer leaves
-  await L(p, 'the types').hover();
-  assert.equal(await F(p).locator('.link-tip').innerText(), 'sessions/types.ts#L2');
-  await L(p, 'the web').hover();
-  assert.equal(await F(p).locator('.link-tip').innerText(), 'https://example.com/skein');
-  await F(p).locator('.doc h1').hover();
-  assert.equal(await F(p).locator('.link-tip').count(), 0);
-  // a heading in this file scrolls into view and flashes
-  await L(p, 'later on').click();
-  const later = F(p).locator('.doc h2[data-slug="later-on"]');
-  assert.ok(await shown(later), 'the heading is in view');
-  assert.match(await later.getAttribute('class') || '', /flash/);
-  await L(p, 'the top').click();
-  assert.ok(await shown(F(p).locator('.doc h1[data-slug="guide"]')));
-  // broken links say so quietly and stay put
-  await L(p, 'a missing heading').click();
-  assert.match(await toastText(p), /No heading #nowhere in GUIDE\.md/);
-  await L(p, 'a missing file').click();
-  await p.locator('.toast', { hasText: 'No file at docs/nope.md' }).waitFor();
-  await L(p, 'an odd scheme').click();
-  await p.locator('.toast', { hasText: 'does not open ftp: links' }).waitFor();
-  await crumbIs(p, /GUIDE\.md/);
-  // web links open in the system browser
-  await L(p, 'the web').click();
-  await L(p, 'https://example.com/auto').click();
-  assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein', 'https://example.com/auto']);
-  // a file opens in this tab, at a heading; ctrl-o comes back
-  await L(p, 'its build steps').click();
-  await crumbIs(p, /README\.md/);
-  const build = F(p).locator('.doc h2[data-slug="build"]');
-  await build.waitFor();
-  assert.match(await build.getAttribute('class') || '', /flash/);
-  await keys(p, 'Control+o');
-  await crumbIs(p, /GUIDE\.md/);
-  // a line link (from the root, /sessions/...) opens the source at that line
-  await L(p, 'the types').click();
-  await crumbIs(p, /types\.ts/);
-  await p.waitForFunction(() => document.querySelector('.pane.focus .file-v .curl .n')?.textContent === '2');
-  await keys(p, 'Control+o');
-  await crumbIs(p, /GUIDE\.md/);
-  // a folder lists what is in it
-  await L(p, 'The sessions folder').click();
-  await menu(p).getByText('store.ts').waitFor();
-  await p.keyboard.press('Escape');
-  // a modifier click opens a new split, as everywhere else
-  const panes = await p.locator('.pane').count();
-  await L(p, 'the theme').click({ modifiers: ['Shift'] });
-  await p.waitForFunction(n => document.querySelectorAll('.pane').length === n + 1, panes);
-  await crumbIs(p, /theme\.css/);
-});
-
-await test('file: tab rings preview links; enter, g x and O follow the ringed one; esc lets go', async p => {
-  await openGuide(p);
-  const ring = () => F(p).locator('.doc a.mlink.kcur').innerText();
+  const tip = () => F(p).locator('.link-tip').innerText();
   await keys(p, 'Tab');
-  assert.equal(await ring(), 'the readme');
-  assert.equal(await F(p).locator('.link-tip').innerText(), 'README.md');
+  assert.equal(await tip(), 'README.md');
   await keys(p, 'Tab Tab');
-  assert.equal(await ring(), 'the types');
+  assert.equal(await tip(), 'sessions/types.ts#L2');
   await keys(p, 'Shift+Tab');
-  assert.equal(await ring(), 'its build steps');
+  assert.equal(await tip(), 'README.md#build');
   assert.equal(await mode(p), 'NORMAL');
-  await keys(p, 'Escape');
-  assert.equal(await F(p).locator('.doc a.mlink.kcur').count(), 0);
-  assert.equal(await F(p).locator('.link-tip').count(), 0);
-  // g x with nothing ringed says how to ring one
-  await keys(p, 'g x');
-  assert.match(await toastText(p), /No link chosen/);
-  // enter follows; the new file starts with nothing ringed
-  await keys(p, 'Tab Enter');
+  // enter follows: a file at a heading, in this tab; ctrl-o comes back
+  await keys(p, 'Enter');
   await crumbIs(p, /README\.md/);
-  assert.equal(await F(p).locator('.doc a.mlink.kcur').count(), 0);
-  assert.equal(await F(p).locator('.ed textarea:focus').count(), 0, 'enter on a link does not start editing');
+  await p.waitForFunction(() => window.__skein.cm('.pane.focus .file-v .src')?.line === 5);
   await keys(p, 'Control+o');
   await crumbIs(p, /GUIDE\.md/);
-  // g x on "later on" (the 6th) scrolls to it
-  await keys(p, 'Tab Tab Tab Tab Tab Tab');
-  assert.equal(await ring(), 'later on');
+  // g x off a link says how to reach one
+  await keys(p, 'g g g x');
+  assert.match(await toastText(p), /No link under the cursor/);
+  // a heading in this file: the cursor goes there
+  for (let i = 0; i < 12 && (await F(p).locator('.link-tip').count() === 0 || await tip() !== '#later-on'); i++) await keys(p, 'Tab');
   await keys(p, 'g x');
-  assert.ok(await shown(F(p).locator('.doc h2[data-slug="later-on"]')));
-  // after scrolling, tab starts from what is on screen, not from the top
-  await keys(p, 'Escape G');
-  await settle(p);
-  await keys(p, 'Tab');
-  assert.equal(await ring(), 'the top');
-  // shift-tab with nothing ringed starts from the last link on screen
-  await keys(p, 'Escape g g Shift+Tab');
-  assert.equal(await ring(), 'https://example.com/auto');
-  // O opens the ringed file in a new split
-  await keys(p, 'g g Escape Tab Tab Tab Tab');
-  assert.equal(await ring(), 'the theme');
+  await p.waitForFunction(() => /^## Later on/.test(window.__skein.cm('.pane.focus .file-v .src').text.split('\n')[window.__skein.cm('.pane.focus .file-v .src').line - 1]));
+  // broken links say so and stay put
+  await keys(p, 'g g');
+  for (let i = 0; i < 12 && (await F(p).locator('.link-tip').count() === 0 || await tip() !== '#nowhere'); i++) await keys(p, 'Tab');
+  await keys(p, 'Enter');
+  assert.match(await toastText(p), /No heading #nowhere in GUIDE\.md/);
+  // a web link opens in the system browser; a click with a modifier follows (a plain click edits)
+  await F(p).locator('.md-link', { hasText: 'the web' }).click();
+  assert.equal(await p.evaluate(() => (window.__external || []).length), 0, 'a plain click only moves the cursor');
+  await clickStart(p, F(p).locator('.md-link', { hasText: 'the web' }), 'Meta');
+  assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein']);
+  // shift-click: a new split
   const panes = await p.locator('.pane').count();
-  await keys(p, 'O');
+  await clickStart(p, F(p).locator('.md-link', { hasText: 'the theme' }), 'Shift');
   await p.waitForFunction(n => document.querySelectorAll('.pane').length === n + 1, panes);
   await crumbIs(p, /theme\.css/);
 });
@@ -800,7 +831,7 @@ await test('popups: every kind pops out and docks back with its state and the ke
   await p.keyboard.press('Enter');
   await p.locator('.pane.focus .file-v .src').waitFor();
   await keys(p, 'j j');
-  await roundTrip(p, 'file', '.file-v .src', async (c, at) => assert.equal(await c.locator('.file-v .curl .n >> visible=true').first().innerText(), '3', `${at}: the cursor line`));
+  await roundTrip(p, 'file', '.file-v .src', async (c, at) => assert.equal(await c.locator('.file-v .cm-activeLineGutter >> visible=true').first().innerText(), '3', `${at}: the cursor line`));
   // browser (it reloads its page when re-parented: a webview cannot move without reloading)
   await cmd(p, 'browser');
   await p.locator('.pane.focus .browser-v').waitFor();
@@ -932,18 +963,17 @@ async function wordAt(loc, word) {
   }, word);
 }
 
-await test('file: double click selects a word in VISUAL with Add to Chat, triple the line, never editing', async p => {
+await test('file: double click selects a word in VISUAL with Add to Chat, triple the line in V-LINE', async p => {
   await openFile(p, 'package.json');
-  const line = F(p).locator('.src .dl').nth(1).locator('.c');
+  const line = F(p).locator('.cm-line').nth(1);
   const w = await wordAt(line, 'name');
   await p.mouse.dblclick(w.x, w.y);
   await settle(p, 200);
   assert.equal(await mode(p), 'VISUAL');
   assert.equal(await selText(p), 'name');
   assert.ok(await bar(p).isVisible(), 'Add to Chat bar');
-  assert.ok(!(await F(p).locator('.ed').isVisible()), 'not editing');
   // a click elsewhere lets it go
-  await F(p).locator('.src .dl').nth(3).locator('.c').click();
+  await F(p).locator('.cm-line').nth(3).click();
   await settle(p, 150);
   assert.equal(await mode(p), 'NORMAL');
   assert.equal(await bar(p).count(), 0);
@@ -951,7 +981,7 @@ await test('file: double click selects a word in VISUAL with Add to Chat, triple
   await p.mouse.click(w.x, w.y, { clickCount: 1 }); await p.mouse.click(w.x, w.y, { clickCount: 2 }); await p.mouse.click(w.x, w.y, { clickCount: 3 });
   await settle(p, 200);
   assert.equal(await mode(p), 'V-LINE');
-  assert.match(await selText(p), /"name"/);
+  assert.match((await ed(p)).sel, /"name"/);
   assert.ok(await bar(p).isVisible());
   await keys(p, 'Escape');
   assert.equal(await mode(p), 'NORMAL');
@@ -960,18 +990,18 @@ await test('file: double click selects a word in VISUAL with Add to Chat, triple
 
 await test('file: a drag selects in VISUAL with Add to Chat; the line number puts the cursor at the line start', async p => {
   await openFile(p, 'package.json');
-  const line = F(p).locator('.src .dl').nth(1).locator('.c');
+  const line = F(p).locator('.cm-line').nth(1);
   const a = await wordAt(line, 'name'), b = await wordAt(line, 'skein');
   await p.mouse.move(a.l, a.y); await p.mouse.down(); await p.mouse.move(b.r, b.y, { steps: 6 }); await p.mouse.up();
   await settle(p, 200);
   assert.equal(await mode(p), 'VISUAL');
   assert.match(await selText(p), /^name.*skein$/);
   assert.ok(await bar(p).isVisible());
-  await F(p).locator('.src .dl').nth(2).locator('.n').click();
+  await F(p).locator('.cm-lineNumbers .cm-gutterElement', { hasText: /^3$/ }).click();
   await settle(p, 150);
   assert.equal(await mode(p), 'NORMAL');
-  const row = F(p).locator('.src .dl').nth(2);
-  assert.equal(await row.evaluate(r => { const c = r.querySelector('.c'), vc = r.querySelector('.vc'); const rg = document.createRange(); rg.setStart(c, 0); rg.setEndBefore(vc); return rg.toString().length; }), 0, 'column 0');
+  const s = await ed(p);
+  assert.deepEqual([s.line, s.col], [3, 0], 'line 3, column 0');
 });
 
 await test('changes: a click draws the character cursor; double click, drag and triple select with Add to Chat, not open the file', async p => {
@@ -1030,30 +1060,43 @@ await test('file: mod-l quotes V-LINE into the thread beside it, even when the f
   assert.ok(await p.locator('.pane.focus .compw .bk .tok').count(), 'the quote is in the thread pane, which now has focus');
 });
 
-await test('file: V shades the text, not the gutter, and moves nothing (read and edit)', async p => {
+await test('file: line numbers scroll with the code, never drawn over it, at the end of a long line', async p => {
   await openFile(p, 'package.json');
-  const row = F(p).locator('.src .dl').nth(1);
-  const box = () => row.evaluate(r => JSON.stringify([r.getBoundingClientRect(), r.querySelector('.c').getBoundingClientRect(), r.querySelector('.n').getBoundingClientRect()].map(b => [b.x, b.y, b.width, b.height])));
+  await findFile(p, 'store.ts');
+  const g = F(p).locator('.cm-gutters:visible');
+  assert.notEqual(await g.evaluate(e => getComputedStyle(e).position), 'sticky');
+  // a long line, scrolled to its end: the numbers go left with the text
+  await keys(p, 'O');
+  await p.keyboard.insertText('x'.repeat(400));
+  await keys(p, 'Escape $');
+  await settle(p);
+  const sl = await F(p).locator('.cm-scroller:visible').evaluate(e => e.scrollLeft);
+  assert.ok(sl > 100, `scrolled sideways: ${sl}`);
+  const gb = await g.boundingBox(), sb = await F(p).locator('.cm-scroller:visible').boundingBox();
+  assert.ok(gb.x + gb.width <= sb.x + 1, 'the gutter left the view with the code');
+});
+
+await test('file: one selection colour; V shades whole lines, not the gutter, and moves nothing', async p => {
+  await openFile(p, 'package.json');
+  const row = F(p).locator('.cm-line').nth(1);
+  const num = F(p).locator('.cm-lineNumbers .cm-gutterElement', { hasText: /^2$/ });
+  const box = () => Promise.all([row.boundingBox(), num.boundingBox()]).then(x => JSON.stringify(x));
+  const token = await p.evaluate(() => { const d = document.createElement('i'); d.style.background = 'var(--sel)'; document.body.append(d); const c = getComputedStyle(d).backgroundColor; d.remove(); return c; });
   await keys(p, 'j j');   // the cursor on line 3, so line 2's gutter is plain
-  // the gutter's blank part, left of the number (whose glyph antialiasing may change with the line's paint)
-  const gutter = async () => { const b = await row.locator('.n').boundingBox(); return p.screenshot({ clip: { x: b.x + 1, y: b.y + 1, width: 20, height: b.height - 2 } }); };
+  const gutter = async () => { const b = await num.boundingBox(); return p.screenshot({ clip: { x: b.x + 1, y: b.y + 1, width: 20, height: b.height - 2 } }); };
   const before = await box(), gut = await gutter();
   await keys(p, 'k Shift+V j');
   assert.equal(await mode(p), 'V-LINE');
-  assert.ok(await row.evaluate(r => r.classList.contains('vsel')), 'line 2 is selected');
-  assert.equal(await box(), before, 'the line, its text and its number keep their boxes');
+  assert.equal(await row.evaluate(r => getComputedStyle(r).backgroundColor), token, 'line 2 is shaded with the selection token');
+  assert.equal(await F(p).locator('.cm-line.vsel').count(), 2, 'both lines, whole');
+  assert.equal(await F(p).locator('.cm-selectionLayer').evaluate(e => getComputedStyle(e).display), 'none', 'not drawn twice');
+  assert.equal(await F(p).locator('.cm-activeLine').evaluate(e => getComputedStyle(e).backgroundColor), token, 'no current-line shade on top');
+  assert.equal(await box(), before, 'the line and its number keep their boxes');
   assert.ok((await gutter()).equals(gut), 'the gutter is not shaded');
-  assert.match(await row.evaluate(r => getComputedStyle(r).backgroundImage), /gradient/, 'the text area is shaded');
-  await keys(p, 'Escape');
-  // editing: the field's V-LINE stays out of the line numbers (.ed-n)
-  await keys(p, 'i Escape');
-  const ed = F(p).locator('.ed'), eb = () => ed.evaluate(e => JSON.stringify([e.querySelector('.ed-n'), e.querySelector('.file-ed')].map(x => { const b = x.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; })));
-  const nb = await ed.locator('.ed-n').boundingBox(), numsShot = () => p.screenshot({ clip: { x: nb.x + 1, y: nb.y + 1, width: 20, height: 80 } });
-  const eBefore = await eb(), nums = await numsShot();
-  await keys(p, 'Shift+V');
-  assert.equal(await mode(p), 'V-LINE');
-  assert.equal(await eb(), eBefore, 'nothing moves');
-  assert.ok((await numsShot()).equals(nums), 'the line numbers\' column is not shaded');
+  // v: the same colour
+  await keys(p, 'Escape v l l');
+  assert.equal(await mode(p), 'VISUAL');
+  assert.equal(await F(p).locator('.cm-selectionBackground').first().evaluate(e => getComputedStyle(e).backgroundColor), token);
   await keys(p, 'Escape');
 });
 
@@ -1075,15 +1118,13 @@ await test('file: the project tree resizes by dragging its left edge, and keeps 
   assert.equal(await p.evaluate(() => localStorage.getItem('skein.treeWidth')), null);
 });
 
-await test('file: v and V paint one selection colour; the cursor line is not shaded under a selection', async p => {
-  await openFile(p, 'package.json');
-  await keys(p, 'j Shift+V j');
-  assert.equal(await F(p).locator('.src .vs').count(), 0, 'V shades rows only, not the characters again');
-  assert.ok(await F(p).locator('.src.vis').count(), 'the browser selection is not drawn over it');
-  assert.equal(await F(p).locator('.src .dl.curl').evaluate(r => getComputedStyle(r).backgroundImage.includes('gradient') || getComputedStyle(r).backgroundColor === 'rgba(0, 0, 0, 0)'), true);
-  await keys(p, 'Escape v l');
-  assert.ok(await F(p).locator('.src .vs').count(), 'v paints the characters');
-  assert.equal(await F(p).locator('.src .dl.vsel').count(), 0);
+await test('file: V then y in a Markdown preview copies the Markdown source', async p => {
+  await openReadme(p, { source: false });
+  await F(p).locator('.md-live').waitFor();
+  await keys(p, 'Shift+V j y');
+  assert.equal(await mode(p), 'NORMAL');
+  const r = await p.evaluate(() => window.__skein.reg());
+  assert.ok(r.line && r.text.startsWith('# Skein'), `Markdown, whole lines: ${JSON.stringify(r)}`);
 });
 
 // ---------- where files open (Josh, 2026-11-21: opening files kept splitting panes) ----------
@@ -1199,7 +1240,7 @@ await test('file menu: Cursor\'s actions Skein has, in its order; discard only w
   await fileMenu(p).getByText('Discard changes').click();
   await fileMenu(p).waitFor({ state: 'detached' });
   assert.equal(await p.locator('.pane.focus .tab.on.dirty').count(), 0, 'the edit is gone');
-  assert.ok(!(await FV(p).locator('.src .dl').first().innerText()).startsWith('x'));
+  assert.ok(!(await FV(p).locator('.cm-line').first().innerText()).startsWith('x'));
   // Save from the menu writes the file
   await keys(p, 'i');
   await p.keyboard.type('y');
@@ -1222,13 +1263,13 @@ await test('file menu: works from the keyboard; toggles keep it open and redraw;
   assert.ok(await fileMenu(p).isVisible(), 'the menu stays open');
   assert.equal(await fileMenu(p).locator('.mi.sel .sw.on').count(), 0, 'its switch turned off');
   assert.equal(await sel(), 'Line numbers', 'the cursor stays on the row');
-  assert.ok(!(await FV(p).locator('.src .dl .n').first().isVisible()), 'no line numbers');
+  assert.equal(await FV(p).locator('.cm-lineNumbers').count(), 0, 'no line numbers');
   await keys(p, 'j Enter');
   await p.waitForFunction(() => document.querySelector('.pane.focus .file-v')?.classList.contains('wrap'));
-  assert.equal(await FV(p).locator('.src .dl .c').first().evaluate(e => getComputedStyle(e).whiteSpace), 'pre-wrap');
+  assert.equal(await FV(p).locator('.cm-content').evaluate(e => getComputedStyle(e).whiteSpace), 'break-spaces', 'lines wrap');
   await keys(p, 'Escape');
   await fileMenu(p).waitFor({ state: 'detached' });
-  assert.ok(await FV(p).locator('.src .curl').count(), 'the keys are back in the file');
+  assert.ok(await FV(p).locator('.src .cm-focused').count(), 'the keys are back in the file');
   // both are settings: another file has them too, and they come back on from ctrl-k
   await p.keyboard.press(`${mod}+k`);
   await p.keyboard.type('line numbers');
@@ -1249,14 +1290,14 @@ await test('file menu: diff view shows the last commit\'s removed lines and mark
   await p.waitForFunction(() => document.querySelector('.pane.focus .file-v .src [class*=g-]'));
   await more(p).click();
   await fileMenu(p).locator('.mi', { hasText: 'Diff view' }).click();
-  await FV(p).locator('.src.diffv').waitFor();
-  assert.ok(await FV(p).locator('.src .dl.add').count(), 'added lines marked');
-  const del = FV(p).locator('.src .dl.del');
-  if (await del.count()) assert.equal(await del.first().getAttribute('data-ln'), null, 'removed rows are not lines of the file');
+  await FV(p).locator('.src .diffv').waitFor();
+  assert.ok(await FV(p).locator('.cm-line.add').count(), 'added lines marked');
+  assert.ok(await FV(p).locator('.cm-gone .del').count(), 'removed lines drawn');
   await keys(p, 'Escape G');
-  assert.equal(Number(await FV(p).locator('.curl .n').innerText()), await FV(p).locator('.src .dl[data-ln]').count(), 'the cursor walks only the file\'s lines');
+  const c = await p.evaluate(() => window.__skein.cm('.pane.focus .file-v .src'));
+  assert.equal(c.line, c.lines, 'the cursor walks only the file\'s lines');
   await cmd(p, 'diffview');
-  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .src.diffv'));
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .src .diffv'));
 });
 
 await test('file menu: reveal, copy relative path and copy remote URL', async p => {
@@ -1298,5 +1339,31 @@ await test('commit button: with nothing to commit it is one secondary button, th
   await p.keyboard.press('Enter');
   const m = p.locator('.layer .menu'); await m.waitFor();
   assert.ok(await m.getByText('Create branch', { exact: true }).isVisible());
+  await p.keyboard.press('Escape');
+});
+
+await test('file: a yank in a file puts in a composer (one register for the app)', async p => {
+  await openFile(p, 'package.json');
+  await keys(p, 'j 3 l y i w');
+  assert.equal((await p.evaluate(() => window.__skein.reg())).text, 'name');
+  const box = p.locator('.compw textarea').first();
+  await box.click();
+  await keys(p, 'Escape p');
+  assert.match(await box.inputValue(), /name/);
+});
+
+await test('file menu: the pointer moves the highlight, as the keys do; its button shows no focus ring while it is open', async p => {
+  await openFile(p, 'package.json');
+  await more(p).click();
+  await fileMenu(p).waitFor();
+  const sel = () => fileMenu(p).locator('.mi.sel .ml').innerText();
+  assert.match(await sel(), /^Reveal in|^Show in folder/);
+  const r = await fileMenu(p).locator('.mi', { hasText: 'Copy remote URL' }).boundingBox();
+  await p.mouse.move(r.x + 20, r.y + r.height / 2); await p.mouse.move(r.x + 40, r.y + r.height / 2);
+  assert.equal(await sel(), 'Copy remote URL');
+  await p.keyboard.press('ArrowUp');
+  assert.equal(await sel(), 'Copy relative path', 'the keys go on from where the pointer left it');
+  console.log(await more(p).evaluate(b => [b.outerHTML.slice(0,200), getComputedStyle(b).outlineStyle, b.matches(':focus-visible'), [...document.styleSheets].flatMap(s => { try { return [...s.cssRules] } catch { return [] } }).filter(r => r.selectorText && b.matches(r.selectorText) && /outline/.test(r.cssText)).map(r => r.cssText)]));
+  assert.equal(await more(p).evaluate(b => getComputedStyle(b).outlineStyle), 'none');
   await p.keyboard.press('Escape');
 });

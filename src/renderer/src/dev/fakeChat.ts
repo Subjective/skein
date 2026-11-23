@@ -42,7 +42,7 @@ export const histories: Record<string, ThreadEvent[]> = {
     { t: 'sub', id: 'g1', name: 'Explore', task: 'Find every caller of lastActive', status: 'done', dur: '38s', events: [
       tool('Grep', 'lastActive', { meta: '6 matches' }), tool('Read', 'sessions/store.ts', { meta: '140 lines' }),
       text('Three callers: `restore()`, `touch()` and the export job. Only `restore()` reads before the flush.')] },
-    { t: 'sub', id: 'g3', name: 'Review', task: 'Check lock ordering in restore.ts', status: 'done', dur: '1m 04s', events: [
+    { t: 'sub', id: 'g3', name: 'Review', task: 'Check lock ordering in restore.ts', status: 'done', dur: '1m 4s', events: [
       tool('Read', 'sessions/restore.ts', { meta: '84 lines' }), text('The lock is taken before the flush wait and released in `finally`. No ordering problem.')] },
     // takes follow-ups, as a Codex sub-agent does (Claude Code's take none: their popups say so)
     { t: 'sub', id: 'g2', name: 'Test runner', task: 'Run the sessions suite and report failures', status: 'running', dur: '42s', followUps: true, events: [
@@ -93,7 +93,10 @@ export const histories: Record<string, ThreadEvent[]> = {
     { t: 'error', id: id(), kind: 'rate', text: 'Rate limit reached. Resets at 3:40 PM' },
   ],
   // a long thread: more messages of yours than the timeline rail has room for
-  s2: Array.from({ length: 70 }, (_, i) => [user(`Backlog item ${i + 1}: what is left?`), text(`Item ${i + 1} needs one more test, then it can close.`)]).flat(),
+  // every 7th item changes a file (the timeline's green dot)
+  s2: Array.from({ length: 70 }, (_, i) => [user(`Backlog item ${i + 1}: what is left?`),
+    ...(i % 7 === 3 ? [{ t: 'edit', id: id(), path: `backlog/item-${i + 1}.md`, add: 1, del: 1, status: 'done' } as ThreadEvent] : []),
+    text(`Item ${i + 1} needs one more test, then it can close.`)]).flat(),
   // a side chat of t1, branched at its first reply
   s1: [user('Why not a mutex here instead of a lock file?'),
     text('A mutex only covers one process. Restore runs in both the server and the CLI, so the lock file is the cross-process option. `sessions/lock.ts` already takes it; a mutex would only add a second, weaker layer.')],
@@ -164,7 +167,9 @@ export function fakeChat(emit: (e: SkeinEvent) => void, threads: ThreadMeta[]) {
       else if (m.resume) push(thread, { t: 'notice', id: id(), text: 'Continued' });
       else push(thread, user(m.text, m.images));
       if (th(thread).queuePaused) setQueue(thread, th(thread).queue ?? [], false);   // a turn you start resumes the queue
-      reply(thread, 'This is the browser preview, so no agent is attached. In the app the reply streams in here, and the same turn shows in the thread\'s terminal view.');
+      // ask for "links" and the reply holds every kind a reply links to (tests/ui chat "links in a reply")
+      reply(thread, /\blinks\b/i.test(m.text) ? `See [the README](README.md#L3), [the types](${th(thread).dir}/sessions/types.ts:2), [Open the mockup HTML](mockups/index.html), [the docs](https://example.com/skein) and [an odd one](ftp://example.com/x).`
+        : 'This is the browser preview, so no agent is attached. In the app the reply streams in here, and the same turn shows in the thread\'s terminal view.');
     },
     interrupt: async (thread: string) => {
       for (const t of timers.get(thread) || []) clearTimeout(t);

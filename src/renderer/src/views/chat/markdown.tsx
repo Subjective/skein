@@ -1,7 +1,6 @@
 // A small Markdown renderer for replies: paragraphs, headings, lists, quotes, fenced code, GFM pipe tables, inline
 // code, bold, italics and links. Enough for what agents write; no HTML passes through.
 import { Fragment, type ReactNode } from 'react';
-import { api } from '../../api';
 import { Icon } from '../../ui/primitives';
 
 /** Inline code that names a file (a path with an extension, or a well-known file name) links to it (`.flink`). */
@@ -19,7 +18,8 @@ function inline(s: string, key = 0): ReactNode[] {
     else if (m[3]) out.push(<i key={k++}>{inline(t.slice(1, -1), k * 100)}</i>);
     else if (m[4]) {
       const [, label, href] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(t)!;
-      out.push(<a key={k++} href={href} onClick={e => { e.preventDefault(); void api.app.openExternal(href); }}>{label}</a>);
+      // no href: Electron must not navigate. The transcript follows it (ChatView: a click, enter or g x on it)
+      out.push(<a key={k++} className="clink" data-href={href} title={href}>{inline(label, k * 100)}</a>);
     } else if (m[5]) out.push(<span key={k++} className="qtok"><Icon name="chat" />{t.replace(/^⁣(\u2003\u2009)?|⁣$/g, '')}</span>);
     last = m.index + t.length;
   }

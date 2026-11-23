@@ -737,4 +737,51 @@ for (const os of ['mac', 'win']) test(`sidebar toggle (${os}): the sidebar and s
     { const hid = await at(); assert.deepEqual(hid, shown, `${split ? 'split' : 'one pane'}: same place hidden as shown ${JSON.stringify([shown, hid])}`); }
     await p.locator('[aria-label="Show sidebar"]').click(); await settle(p, 500);
   }
+  // many tabs, past what the bar shows (Josh, 2026-11-23): still the same place, shown and hidden
+  const before = await at();
+  for (let i = 0; i < 14; i++) await p.locator('.pane.focus [aria-label="New tab"]').click();
+  await settle(p, 400);
+  assert.ok(await p.locator('.pane.focus .tb .tab').count() >= 15);
+  assert.deepEqual(await at(), before, 'many tabs: same place');
+  await p.locator('[aria-label="Hide sidebar"]').click(); await settle(p, 500);
+  assert.deepEqual(await at(), before, 'many tabs, sidebar hidden: same place');
 }, { os });
+
+test('stepping tabs keeps the mode: H / L land in NORMAL even on a composer left typing, the leader n from INSERT lands typing', async p => {
+  // a thread, a second thread, then a new tab (a launcher)
+  const side = t => p.locator('#side').getByText(t, { exact: true }).first().click().then(() => settle(p, 600));
+  const plus = () => p.locator('.pane [aria-label="New tab"]').first().click().then(() => settle(p, 400));
+  await side('Fix session-restore race'); await plus(); await side('Tidy PowerShell profile'); await plus();
+  assert.equal(await p.locator('.pane .tb .tab').count(), 3);
+  // every composer left in INSERT: type in each, then leave it with the leader's tab key, which works while typing
+  await p.locator('.pane .tb .tab', { hasText: 'Fix session-restore race' }).click(); await settle(p, 300);
+  await p.locator('.pane.focus .comp textarea:visible').first().click();
+  for (let i = 0; i < 3; i++) {
+    await p.keyboard.type('draft ');
+    assert.equal(await mode(p), 'INSERT');
+    if (i < 2) { await keys(p, 'Control+Space n'); await settle(p, 300); assert.equal(await mode(p), 'INSERT', "the leader's n from a field that is typing lands typing"); }
+  }
+  await keys(p, 'Escape'); assert.equal(await mode(p), 'NORMAL');
+  for (const k of ['H', 'H', 'L', 'L']) {
+    await keys(p, `Shift+${k}`); await settle(p, 600);
+    const on = await p.locator('.pane .tb .tab.on').innerText();
+    assert.equal(await mode(p), 'NORMAL', `after ${k} to ${on}`);
+  }
+  await keys(p, 'i'); assert.equal(await mode(p), 'INSERT', 'i types into the composer');
+});
+
+test('i on a new-thread tab reached by L from a file left in its editor: the composer takes the keys and i types', async p => {
+  // the file's editor keeps the focus while its tab hides; the new tab must take it, or i reaches no field (Josh, 2026-11-23)
+  await keys(p, 'Escape'); await keys(p, 'Control+p'); await settle(p, 300);
+  await p.keyboard.type('package.json'); await settle(p, 300); await keys(p, 'Enter'); await settle(p, 800);
+  await p.locator('.pane [aria-label="New tab"]').first().click(); await settle(p, 400);
+  await keys(p, 'Escape'); await keys(p, 'Shift+H'); await settle(p, 500);
+  await keys(p, 'i'); await keys(p, 'Escape'); await settle(p, 200);   // into the file's editor, then NORMAL there
+  assert.ok(await p.evaluate(() => !!document.activeElement?.closest('.file-v .cm-editor')), 'the file editor has the focus');
+  await keys(p, 'Shift+L'); await settle(p, 500);
+  assert.equal(await p.locator('.pane .tb .tab.on').innerText(), 'New thread');
+  assert.equal(await mode(p), 'NORMAL');
+  await keys(p, 'i'); assert.equal(await mode(p), 'INSERT');
+  await p.keyboard.type('hey');
+  assert.equal(await p.locator('.pane.focus .comp textarea:visible').first().inputValue(), 'hey');
+});

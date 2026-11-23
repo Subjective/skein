@@ -6,7 +6,7 @@
 .prose li + li { margin-top: .2em; }
 .prose blockquote { margin: 0 0 .6em; padding-left: 12px; border-left: 2px solid var(--line-2); color: var(--fg-2); }
 .prose pre.code { margin: 0 0 .6em; white-space: pre; overflow-x: auto; }
-.prose a { color: var(--blue); text-decoration: none; }
+.prose a { color: var(--blue); text-decoration: none; cursor: pointer; }
 .prose a:hover { text-decoration: underline; }
 /* tables: the reply's width, scrolling sideways when wider; hairlines and a header in the design tokens */
 .prose .tbl { margin: 0 0 .6em; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }
@@ -55,8 +55,10 @@
 
 /* Timeline ticks, as in Cursor (Josh, 2026-11-20): a little thicker, and the pointer lengthens and darkens the ticks
    around it, most at the one under it (--w is 1 there and falls off over about three ticks each side). */
-.ticks button i { height: 1.5px; width: calc(7px + 12px * var(--w, 0)); background: color-mix(in srgb, var(--fg) calc(var(--w, 0) * 100%), var(--fg-4)); transition: width 120ms ease-out, background-color 120ms ease-out; }
+.ticks button i { height: 1.5px; width: calc(7px + 12px * var(--w, 0)); background: color-mix(in srgb, var(--fg) calc(var(--c, 0) * 100%), var(--fg-4)); transition: width 120ms ease-out, background-color 120ms ease-out; }
 .ticks button.on i { background: var(--fg); }
+/* the turn changed files: a small green dot after its tick (it rides the tick's end as it lengthens) */
+.ticks button.changed::after { content: ''; flex: none; width: 3px; height: 3px; margin-left: 3px; border-radius: 50%; background: var(--green); }
 .ticks { cursor: default; }
 body.scrubbing, body.scrubbing * { cursor: ns-resize !important; user-select: none; }
 @media (prefers-reduced-motion: reduce) { .ticks button i { transition: none; } }
