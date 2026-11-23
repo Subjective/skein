@@ -38,9 +38,14 @@ describe('model catalog', () => {
     expect(modelLabel('claude', 'claude-opus-5-5')).toBe('Opus 5.5');
   });
 
-  it('offers every Claude permission mode, bypass included', () => {
+  it('lists the permission modes in each harness\'s own words and order', () => {
     expect(PERMS.claude.map(p => p.id)).toEqual(['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions']);
-    expect(PERMS.codex.map(p => p.label)).toEqual(['Ask for approval', 'Approve for me', 'Full Access', 'Read Only']);
+    expect(PERMS.claude.filter(p => !p.hide).map(p => p.label)).toEqual(['Manual mode', 'Accept edits', 'Plan mode', 'Auto mode', 'Bypass permissions']);
+    expect(PERMS.codex.map(p => p.label)).toEqual(['Read only', 'Ask for approval', 'Approve for me', 'Full access']);
+    // one mode per harness runs without limits, in the warning tone; every mode has an icon
+    expect([...PERMS.claude, ...PERMS.codex].filter(p => p.warn).map(p => p.id)).toEqual(['bypassPermissions', 'full-access']);
+    expect([...PERMS.claude, ...PERMS.codex].every(p => p.icon)).toBe(true);
+    expect(permId('claude', 'Default')).toBe('default');
     expect(permId('codex', 'Approve for me')).toBe('auto-review');
     // the fallback claims no ultra effort it doesn't know a model has
     expect(bundledOptions('codex').models.some(m => m.efforts.includes('ultra'))).toBe(false);

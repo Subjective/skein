@@ -22,6 +22,8 @@ export interface MenuItem<D = unknown> {
   kbd?: string;
   on?: boolean;
   dis?: boolean;
+  /** The row's action has no limits (Full access): drawn in the warning tone. */
+  warn?: boolean;
   head?: boolean;
   /** A row that is not an option (with head): drawn as is, in a .mx block (the model picker's effort track, a gap). */
   block?: ReactNode;
@@ -298,7 +300,7 @@ export function Menu<D>(p: MenuProps<D>) {
     // a block that is a row (the model picker's effort): the keyboard lands on it; the pointer works its contents
     : <div key={'x' + n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-label={it.label} className={cx('mx', n === i && 'sel')}>{it.block}</div>) : it.head
     ? <div key={'h' + n} className="mi head" role="presentation">{it.icon}{it.label}</div>
-    : <div key={n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-disabled={it.dis || undefined} className={cx('mi', n === i && 'sel', it.dis && 'off')}
+    : <div key={n} id={`mi-${n}`} role="option" aria-selected={n === i} aria-disabled={it.dis || undefined} className={cx('mi', n === i && 'sel', it.dis && 'off', it.warn && 'warn')}
         onPointerMove={e => { if (composer && e.pointerType !== 'touch' && n !== i && !it.dis) setI(n); }}
         onMouseDown={e => { e.preventDefault(); if (!it.dis) { st.current.i = n; pick(false, e.shiftKey || e.altKey || e.ctrlKey || e.metaKey); } }}>
         {it.icon && <span className="mic">{it.icon}</span>}

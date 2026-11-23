@@ -8,7 +8,7 @@
   --hover: rgba(255, 255, 255, .055); --active: rgba(255, 255, 255, .1);
   --line: rgba(255, 255, 255, .08); --line-2: rgba(255, 255, 255, .15);
   --fg: #ececec; --fg-2: #b6b6b6; --fg-3: #8c8c8c; --fg-4: #5c5c5c;
-  --blue: #4aa3ff; --amber: #e2a53c; --red: #f0616d; --green: #45b97c; --claude: #d97757;
+  --blue: #4aa3ff; --amber: #e2a53c; --caution: #e8834f; --red: #f0616d; --green: #45b97c; --claude: #d97757;
   --add-bg: rgba(69, 185, 124, .15); --del-bg: rgba(240, 97, 109, .15);
   --scrim: rgba(0, 0, 0, .45); --shadow: 0 14px 44px rgba(0, 0, 0, .5);
   --sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, system-ui, sans-serif;
@@ -31,7 +31,7 @@
   --line: rgba(0, 0, 0, .08); --line-2: rgba(0, 0, 0, .16);
   --fg: #1a1a1a; --fg-2: #4a4a4a; --fg-3: #707070; --fg-4: #adadad;
   --quote-hot: rgba(11, 126, 245, .1);
-  --blue: #0b7ef5; --amber: #b8770f; --red: #d43d4b; --green: #1b8f50; --claude: #c96442;
+  --blue: #0b7ef5; --amber: #b8770f; --caution: #b04e1c; --red: #d43d4b; --green: #1b8f50; --claude: #c96442;
   --add-bg: rgba(27, 143, 80, .13); --del-bg: rgba(212, 61, 75, .12);
   --scrim: rgba(0, 0, 0, .18); --shadow: 0 12px 36px rgba(0, 0, 0, .14);
   color-scheme: light;
@@ -675,6 +675,15 @@ button.rf { width: 100%; text-align: left; font-size: 13px; }
 .composer-menu .mr:empty { display: none; }
 .composer-menu .m-s { min-height: 34px; padding: 3px 10px 6px; margin-bottom: 3px; border: 0; }
 .composer-menu .m-empty { padding: 6px 10px; color: var(--fg-3); font-size: 13px; }
+/* The permission menu (Codex desktop's): icon, name, and a line on what the mode allows under the name; it is wide
+   enough for the descriptions, which wrap rather than cut off in a narrow window. The mode without limits is in the
+   warning tone, chip too. */
+.menu.perms .mi:not(.head) { display: grid; grid-template-columns: auto 1fr auto; grid-template-areas: 'ic l r' 'ic h r'; column-gap: 11px; row-gap: 1px; padding-block: 7px; }
+.menu.perms .mic { grid-area: ic; align-self: start; margin-top: 2px; }
+.menu.perms .ml { grid-area: l; } .menu.perms .mi .mh { grid-area: h; white-space: normal; }
+.menu.perms .mr { grid-area: r; padding-left: 12px; }
+.mi.warn, .mi.warn .mic, .menu .mi.warn .mh, .composer-menu .mi.warn.sel, .chip.warn, .chip.warn svg.i { color: var(--caution); }
+.menu .mi.warn .mh { opacity: .85; }
 .menu.cmd { border-radius: 10px; }
 .menu.cmd .ml, .menu.cmd .m-s input { font: 12.500px var(--mono); }
 .menu.cmd .ml { min-width: 64px; }

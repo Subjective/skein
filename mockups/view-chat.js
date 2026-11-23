@@ -99,7 +99,7 @@
         <div class="taw"><div class="bk" aria-hidden="true"></div><textarea data-input="draft" rows="1" spellcheck="false" placeholder="${o.placeholder || 'Send follow-up'}">${esc(tab.draft)}</textarea></div>
         <div class="cf">
           <button class="ib" data-act="attach" title="Attach image · or paste one">${ic('plus')}</button>
-          <button class="chip" data-act="pickPerm" title="Permissions">${ic('shield')}<span class="lbl">${esc(m.perm)}</span></button>
+          <button class="chip${D.permInfo[m.perm]?.[2] ? ' warn' : ''}" data-act="pickPerm" title="Permissions">${ic(D.permInfo[m.perm]?.[0] || 'shield')}<span class="lbl">${esc(m.perm)}</span></button>
           <span class="sp"></span>
           <button class="chip" data-act="pickModel" title="Model and effort">${ic(hn)}<span>${esc(m.model)}</span><span class="lbl dim">${esc(m.effort)}${m.ultra ? ' · Ultracode' : ''}</span>${ic('down', 'sm')}</button>
           ${o.showContext ? `<button class="ib" data-act="contextUsage" data-sid="${m.id}" aria-label="Context usage: ${m.ctx}% used" title="Context usage: ${m.ctx}% used, ${100 - m.ctx}% available"><span class="ring" style="--p:${m.ctx}"></span></button>` : ''}

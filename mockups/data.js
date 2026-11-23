@@ -46,10 +46,19 @@
     claude: [{ n: 'Opus 5.5', e: [...E3, 'Max'], ultra: true }, { n: 'Sonnet 5.5', e: [...E3, 'Max'], ultra: true }, { n: 'Haiku 5.5', e: E3 }, { n: 'Fable 5.2', e: [...E3, 'Max'], ultra: true }],
     codex: [{ n: 'GPT-6.2 Sol', e: [...E3, 'Ultra'] }, { n: 'GPT-6.2 Astra', e: E3 }],
   };
+  // each harness's own modes, in its words (src/shared/models.ts PERMS): label -> [icon, what it allows, warning tone]
   const perms = {
-    claude: ['Ask before edits', 'Accept edits', 'Plan mode'],
-    codex: ['Read only', 'Auto', 'Full access'],
+    claude: ['Manual mode', 'Accept edits', 'Plan mode', 'Auto mode', 'Bypass permissions'],
+    codex: ['Read only', 'Ask for approval', 'Approve for me', 'Full access'],
   };
+  const permInfo = {
+    'Manual mode': ['hand', 'Ask before edits and commands'], 'Accept edits': ['pencil', 'Edit files without asking; ask before commands'],
+    'Plan mode': ['plan', 'Explore and plan; change nothing until you approve'], 'Auto mode': ['shieldRun', 'A safety check approves or blocks each action'],
+    'Bypass permissions': ['shieldAlert', 'Run every action without asking', true],
+    'Read only': ['lock', 'Read files; ask before edits or internet access'], 'Ask for approval': ['hand', 'Always ask to edit external files and use the internet'],
+    'Approve for me': ['shieldRun', 'Only ask for actions detected as potentially unsafe'], 'Full access': ['shieldAlert', 'Unrestricted access to the internet and any file on your computer', true],
+  };
+  const permDefault = { claude: 'Manual mode', codex: 'Ask for approval' };
 
   const slash = {
     claude: [['/clear', 'Start a fresh conversation'], ['/compact', 'Summarise to free up context'], ['/model', 'Switch model'],
@@ -146,7 +155,7 @@ test('restore waits for a pending flush', async () => {
         { t: 'live', text: 'Writing the regression test', dur: '42s' },
       ] },
     { id: 's3', harness: 'claude', title: 'Paste button misaligned', machine: 'local', dir: '~/projects/skein', branch: 'main',
-      status: 'wait', age: 4, pinned: true, model: 'Sonnet 5.5', effort: 'Medium', perm: 'Ask before edits', ctx: 12, events: [
+      status: 'wait', age: 4, pinned: true, model: 'Sonnet 5.5', effort: 'Medium', perm: 'Manual mode', ctx: 12, events: [
         { t: 'user', text: 'Why does the paste button look misaligned here?', images: [shot] },
         { t: 'text', text: 'The button sits in a flex row with no `align-items`, so it stretches to the row height and its label drops 3px below the baseline of the text beside it.' },
         { t: 'tool', name: 'Read', arg: 'ui/composer.css', meta: '212 lines' },
@@ -163,7 +172,7 @@ test('restore waits for a pending flush', async () => {
         { t: 'plan', file: 'PLAN.md' },
       ] },
     { id: 's2', harness: 'codex', title: 'Profile slow orders query', machine: 'linux', dir: '~/repo/trade-ticker', branch: 'perf/orders-index',
-      status: 'idle', age: 14, model: 'GPT-6.2 Sol', effort: 'High', perm: 'Auto', ctx: 21, events: [
+      status: 'idle', age: 14, model: 'GPT-6.2 Sol', effort: 'High', perm: 'Ask for approval', ctx: 21, events: [
         { t: 'user', text: 'The orders-by-account query got slow last week. Profile it.' },
         { t: 'worked', dur: '1m 21s' },
         { t: 'tool', name: 'Bash', arg: 'psql -f bench/explain_orders.sql', out: 'Seq Scan on orders  (cost=0.00..48211.40 rows=1203 width=96)\n  Filter: (account_id = 4471)\nExecution Time: 1840.221 ms' },
@@ -175,7 +184,7 @@ test('restore waits for a pending flush', async () => {
         { t: 'text', text: 'With the index back, p95 drops from 1.8 s to about 40 ms. The migration is ready to review.' },
       ] },
     { id: 's4', harness: 'codex', title: 'Refactor queue worker', machine: 'linux', dir: '~/repo/trade-ticker', branch: 'refactor/worker',
-      status: 'running', age: 1, model: 'GPT-6.2 Sol', effort: 'Medium', perm: 'Auto', ctx: 54, events: [
+      status: 'running', age: 1, model: 'GPT-6.2 Sol', effort: 'Medium', perm: 'Ask for approval', ctx: 54, events: [
         { t: 'user', text: 'Split `worker.py` into a consumer and a retry policy. Keep behaviour identical.' },
         { t: 'tool', name: 'Read', arg: 'queue/worker.py', meta: '412 lines' },
         { t: 'text', text: 'The retry logic is tangled into `handle()`. I will lift it into `RetryPolicy` first, then move the consume loop.' },
@@ -189,18 +198,18 @@ test('restore waits for a pending flush', async () => {
         { t: 'text', text: 'All 14 loader configs are converted. Old INI keys still load through a shim that logs a deprecation warning once per key.' },
       ] },
     { id: 's8', harness: 'codex', title: 'Add timestamps to chat export', machine: 'local', dir: '~/projects/skein', branch: 'main',
-      status: 'idle', age: 1500, model: 'GPT-6.2 Astra', effort: 'Medium', perm: 'Auto', ctx: 9, events: [
+      status: 'idle', age: 1500, model: 'GPT-6.2 Astra', effort: 'Medium', perm: 'Ask for approval', ctx: 9, events: [
         { t: 'user', text: 'Add a timestamp to each message in the Markdown export.' },
         { t: 'tool', name: 'Edit', arg: 'export/markdown.ts', add: 9, del: 2 },
         { t: 'text', text: 'Each exported message now starts with its local time in `HH:mm` and the date appears once per day.' },
       ] },
     { id: 's7', harness: 'claude', title: 'Tidy PowerShell profile', machine: 'local', dir: '~/projects/dotfiles', branch: 'main',
-      status: 'idle', age: 5800, model: 'Haiku 5.5', effort: 'Low', perm: 'Ask before edits', ctx: 5, events: [
+      status: 'idle', age: 5800, model: 'Haiku 5.5', effort: 'Low', perm: 'Manual mode', ctx: 5, events: [
         { t: 'user', text: 'My PowerShell profile takes two seconds to load. Trim it.' },
         { t: 'text', text: 'Most of the time is `oh-my-posh` initialising on every shell. Caching its init script brings startup to about 300 ms.' },
       ] },
     { id: 's6', harness: 'codex', title: 'Bump lockfile to fix CI', machine: 'build', dir: '~/ci', branch: 'main',
-      status: 'error', age: 2900, model: 'GPT-6.2 Astra', effort: 'Low', perm: 'Auto', ctx: 3, events: [
+      status: 'error', age: 2900, model: 'GPT-6.2 Astra', effort: 'Low', perm: 'Ask for approval', ctx: 3, events: [
         { t: 'user', text: 'CI fails on install. Regenerate the lockfile.' },
         { t: 'tool', name: 'Bash', arg: 'pnpm install --lockfile-only', out: 'ERR_PNPM_FETCH_503  registry unavailable' },
       ] },
@@ -274,7 +283,7 @@ test('restore waits for a pending flush', async () => {
   };
 
   window.D = {
-    img: { shot, chart }, machines, dirs, models, perms, slash, skills, files, docs, newTest, commits, extraChanges, sessions: [],
+    img: { shot, chart }, machines, dirs, models, perms, permInfo, permDefault, slash, skills, files, docs, newTest, commits, extraChanges, sessions: [],
     reset() { this.sessions = JSON.parse(JSON.stringify(seed)); machines.forEach((m, i) => { for (const k of Object.keys(m)) delete m[k]; Object.assign(m, JSON.parse(MSEED)[i]); }); },
     modelDef: n => [...models.claude, ...models.codex].find(m => m.n === n),
     harnessOf: n => (models.codex.some(m => m.n === n) ? 'codex' : 'claude'),
