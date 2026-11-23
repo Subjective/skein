@@ -545,8 +545,13 @@ await test('file: editing in the preview stays rendered; the cursor\'s line show
   assert.equal(await F(p).locator('.md-strong').first().innerText(), 'CodeMirror editor');
   assert.ok(!(await line('Ship the')).includes('**'), 'bold marks hidden');
   assert.ok(!(await line('Ship the')).includes('](GUIDE.md)'), 'a link shows its text only');
-  assert.equal(await F(p).locator('.cm-line.md-table').count(), 4, 'a table stays raw');
-  assert.ok((await line('Suite')).includes('|'));
+  // a table draws as a table (alignment kept), until the cursor is in it
+  const tbl = F(p).locator('.md-tbl table');
+  assert.deepEqual(await tbl.locator('th').allInnerTexts(), ['Suite', 'Tests']);
+  assert.equal(await tbl.locator('td', { hasText: '239' }).evaluate(e => e.style.textAlign), 'right');
+  assert.equal(await F(p).locator('.cm-line.md-table').count(), 0);
+  // a blank line is a paragraph's gap, not a whole line
+  assert.ok(await F(p).locator('.cm-line.md-blank').first().evaluate(e => e.getBoundingClientRect().height) < 12);
   // the cursor's line shows its marks, still styled; another line's stay hidden
   await keys(p, 'j j');
   assert.ok((await line('Ship the')).includes('**CodeMirror editor**') && (await line('Ship the')).includes('[the guide](GUIDE.md)'));
@@ -565,6 +570,20 @@ await test('file: editing in the preview stays rendered; the cursor\'s line show
   assert.equal(await line('Now'), 'Now bold and slanted');
   assert.equal(await F(p).locator('.md-strong', { hasText: 'bold' }).count(), 1);
   assert.ok((await ed(p)).text.includes('\nNow **bold** and *slanted*'));
+  // a click on a cell puts the cursor there and shows the table's source; leaving it draws the table again
+  await tbl.locator('td', { hasText: 'UI' }).click();
+  await F(p).locator('.cm-line.md-table').first().waitFor();
+  assert.equal(await F(p).locator('.cm-line.md-table').count(), 4);
+  assert.ok((await line('Suite')).includes('|'));
+  assert.equal((await ed(p)).line, 18, 'on the UI row');
+  assert.equal((await ed(p)).text.split('\n')[17].slice((await ed(p)).col, (await ed(p)).col + 2), 'UI');
+  await keys(p, 'j j');
+  await F(p).locator('.md-tbl').waitFor();
+  // V-LINE shades the text column, not the margin left of it
+  await keys(p, 'g g V');
+  const box = await F(p).locator('.cm-line.vsel').first().evaluate(e => { const s = getComputedStyle(e); return [s.backgroundClip, s.backgroundColor]; });
+  assert.deepEqual(box, ['content-box', 'rgba(0, 0, 0, 0)']);
+  await keys(p, 'Escape');
   // a task box ticks with a click: one character of the file
   const before = (await ed(p)).text;
   await F(p).locator('.md-check').nth(1).click();
