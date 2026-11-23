@@ -275,7 +275,8 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     if (nav.goto?.line === 1 && !nav.goto.col) nav.goto = undefined;   // the heading, not the top
     if (isMd && !showHeading(id)) toast(`No heading #${id} in ${baseName(path)}`);
   });
-  // a click with a modifier on a link follows it (a plain click puts the cursor there, to edit)
+  // a click with a modifier on a link follows it (a plain click puts the cursor there, to edit). Read before the
+  // editor moves its cursor: that can show the line's marks and move the words under the pointer.
   const linkClick = (e: React.MouseEvent) => {
     if (!preview || !splitClick(e) || !(e.target as Element).closest('.md-link')) return;
     const vw = ed.current?.view(), pos = vw?.posAtCoords({ x: e.clientX, y: e.clientY });
@@ -321,7 +322,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
         <IconButton icon="panelR" small on={side.show} aria-pressed={side.show} label="Project files" onClick={side.toggle} />
       </header>
       <div className={cx('cbody', side.show && 'tree')}>
-        <div className={cx('tool-b', source && 'code')} data-read ref={body} onMouseDown={e => { if (!source) reader.own(); else linkClick(e); }}>
+        <div className={cx('tool-b', source && 'code')} data-read ref={body} onMouseDown={() => { if (!source) reader.own(); }} onMouseDownCapture={linkClick}>
           {doc.err ? <div className="r-empty"><Icon name="alert" size="xl" /><span>{doc.err}</span></div>
             : doc.binary ? <div className="r-empty bin"><Icon name="file" size="xl" /><span>Binary file, not shown</span></div>
             : doc.disk == null ? <div className="r-empty"><Spinner label="Opening" /></div>
