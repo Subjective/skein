@@ -186,8 +186,6 @@ function Edited({ edits }: { edits: Ev<'edit'>[] }) {
  *  taller than that. The choice is kept per message, so it survives the edit box and a remount. */
 const CLIP = 280;
 const OPEN = new Set<string>();
-/** How tall each message's words are, and whether they are cut short: the edit box opens at the same size. */
-const SIZE = new Map<string, { h: number; shut: boolean }>();
 
 function UserMsg({ e, c, src }: { e: Ev<'user'>; c: TranscriptCtx; src: string }) {
   const clip = useRef<HTMLDivElement>(null);
@@ -195,11 +193,10 @@ function UserMsg({ e, c, src }: { e: Ev<'user'>; c: TranscriptCtx; src: string }
   const shut = long && !open;
   useLayoutEffect(() => {
     const el = clip.current; if (!el) return;
-    const measure = () => { const h = el.scrollHeight; setLong(h > CLIP * 1.25); SIZE.set(src, { h, shut: h > CLIP * 1.25 && !OPEN.has(src) }); };
+    const measure = () => setLong(el.scrollHeight > CLIP * 1.25);
     measure();
     const ro = new ResizeObserver(measure); ro.observe(el); return () => ro.disconnect();
   }, [src, e.text, e.images?.length]);
-  useLayoutEffect(() => { const s = SIZE.get(src); if (s) s.shut = shut; }, [src, shut]);
   // the reader moving onto words below the fold opens the message (j, w, a search), so the cursor is never hidden
   useEffect(() => {
     const el = clip.current; if (!el) return;
@@ -244,10 +241,7 @@ function Event({ e, c, all, f, folded }: { e: ThreadEvent; c: TranscriptCtx; all
   const src = `${c.src}:${e.id}`;
   switch (e.t) {
     case 'user':
-      if (c.editing === e.id) {   // the box is as tall as the bubble showed the words: cut short if it was, else all of them
-        const sz = SIZE.get(src);
-        return <div className="m-edit" data-user key={e.id} style={sz ? { ['--edit-fit' as string]: `${sz.shut ? CLIP : Math.max(CLIP, sz.h)}px` } : undefined}>{c.editBox}</div>;
-      }
+      if (c.editing === e.id) return <div className="m-edit" data-user key={e.id}>{c.editBox}</div>;
       return <UserMsg e={e} c={c} src={src} />;
     case 'text': {
       return <>

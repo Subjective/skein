@@ -291,7 +291,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 |---|---|---|---|
 | CT-4 | Sidebar chevron turns 160 ms ease-out | Proposed deviation | Same duration with the app's motion curve; indistinguishable. |
 | CT-11 | Narrow window: the floating sidebar is min(280px, 80vw) | Fixed | `styles/app.css:72` (one-line fix in this review; it was 300px / 86vw). |
-| CT-13 | Replies, approvals and error rows fade up on mount | Fixed | Dropped the fade on `.reply > *` (`views/chat/chat.css:14`); approvals, errors and the mirror still fade. The edit box grows out of your bubble instead (`views/chat/editMorph.ts`, approved by Josh 2026-11-22). |
+| CT-13 | Replies, approvals and error rows fade up on mount | Fixed | Dropped the fade on `.reply > *` (`views/chat/chat.css:14`); approvals, errors, the mirror and the edit box still fade. |
 | CT-15 | `.t-star`, `.t-chip` and blink belong to the mock TUI | Proposed deviation | The real TUI draws itself. |
 | CT-21 | Divider turns blue while dragged | Fixed | See shell S22. |
 | CT-41 | The flyout's parent row chevron turns while open | Fixed | Comes with the flyout (CT-53). |
