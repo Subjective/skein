@@ -2,12 +2,15 @@
 // Hovering (as in Cursor) lengthens and darkens the ticks around the pointer, most at the one under it and less
 // with each tick away, about three on each side, following the pointer smoothly; it previews that message with the start of its reply
 // (its first prose, or its first step, or Working… while it runs). A click scrolls there.
+// A green dot after a tick: that turn changed files.
 // In a long thread the rail is as tall as the pane allows and scrolls (as in Codex): the wheel scrolls it, the tick
 // of the message you are reading stays in view as you move, and an end with more ticks past it fades out.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { cx } from '../../ui/primitives';
 import { reduced } from '../../ui/motion';
 
+/** The reply to this message changed files. */
+const edited = (u: Element) => !!u.nextElementSibling?.matches('.reply[data-edits]');
 const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 const said = (u: Element) => {
   const r = u.nextElementSibling, rep = r?.matches('.reply') ? r : null;
@@ -86,8 +89,10 @@ export function Ticks({ scroller, version }: { scroller: React.RefObject<HTMLDiv
   return (
     <>
       <div className={cx('ticks', ends.up && 'fade-up', ends.down && 'fade-down')} ref={box} aria-label="Your messages" onScroll={edges} onMouseMove={track} onMouseDown={press} onMouseLeave={() => { if (!scrub.current) { setAt(-1); setHover(-1); } }}>{us.map((u, i) => {
+        // --w lengthens, --c darkens; the shade falls off faster than the length, so only the tick under the pointer
+        // is near --fg and each neighbour is lighter than the one before (Josh, 2026-11-22)
         const d = i - at, w = at < 0 ? 0 : Math.exp(-(d * d) / 3.5);
-        return <button key={i} type="button" tabIndex={-1} className={cx(i === on && 'on')} aria-label={clip(u.innerText.trim(), 60)} style={{ '--w': w.toFixed(3) } as React.CSSProperties}><i /></button>;
+        return <button key={i} type="button" tabIndex={-1} className={cx(i === on && 'on', edited(u) && 'changed')} aria-label={clip(u.innerText.trim(), 60) + (edited(u) ? ' (changed files)' : '')} style={{ '--w': w.toFixed(3), '--c': (w ** 3).toFixed(3) } as React.CSSProperties}><i /></button>;
       })}</div>
       {hover >= 0 && us[hover] && (
         <div className="tick-pop on" role="tooltip" style={{ top: Math.max(8, popTop(b)) }}>
