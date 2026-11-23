@@ -478,6 +478,39 @@ await test('images: attach shows a thumbnail, x removes it, it is sent', async p
   await p.locator('.pane.focus .m-user .m-img').waitFor();
 });
 
+/** A plain PNG of w x h pixels, for an image taller than a few lines of text. */
+async function pngOf(w, h) {
+  const { deflateSync, crc32 } = await import('node:zlib');
+  const chunk = (t, d) => { const b = Buffer.alloc(12 + d.length); b.writeUInt32BE(d.length); b.write(t, 4); d.copy(b, 8); b.writeUInt32BE(crc32(b.subarray(4, 8 + d.length)), 8 + d.length); return b; };
+  const ih = Buffer.alloc(13); ih.writeUInt32BE(w); ih.writeUInt32BE(h, 4); ih[8] = 8; ih[9] = 2;
+  const rows = Buffer.alloc((w * 3 + 1) * h, 0xcc); for (let y = 0; y < h; y++) rows[y * (w * 3 + 1)] = 0;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ih), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+await test('images: j and k cross a tall image to the text on its other side', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await p.locator('.pane.focus .comp input[type=file]').setInputFiles({ name: 'tall.png', mimeType: 'image/png', buffer: await pngOf(260, 420) });
+  await composer(p).fill('Browser comments: the text under a tall image');
+  await composer(p).press('Enter');
+  await p.locator('.pane.focus .m-user .m-img').last().waitFor();
+  await p.waitForFunction(() => [...document.querySelectorAll('.pane.focus .m-user .m-img')].pop().getBoundingClientRect().height > 400);
+  await settle(p, 400);
+  const at = () => p.evaluate(() => {
+    const row = document.querySelector('.pane.focus .rowcur'), n = row ?? [...(CSS.highlights.get('vcur') ?? [])][0]?.startContainer, el = n && (n.nodeType === 1 ? n : n.parentElement);
+    const u = [...document.querySelectorAll('.pane.focus .m-user')].pop();
+    return el && u.contains(el) ? 'mine' : el?.closest('.pane.focus [data-read]') ? 'above' : 'none';
+  });
+  await composer(p).press('Escape');
+  await keys(p, '[ [');   // the text of your last message, below its image
+  assert.equal(await at(), 'mine');
+  await keys(p, 'k');      // up over the image, to the reply before it
+  assert.equal(await at(), 'above');
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'still reading');
+  await keys(p, 'j');      // and back down over it: the message, not the composer
+  assert.equal(await at(), 'mine');
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'still reading');
+});
+
 await test('quote: a selection goes into the composer as a chip (mod-l)', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await p.evaluate(() => {
