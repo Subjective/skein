@@ -1957,10 +1957,10 @@ await test('rubber band: a trackpad pull at the end stretches the reader, spring
   assert.ok(await th.evaluate(el => el.scrollHeight > el.clientHeight && el.scrollTop + el.clientHeight >= el.scrollHeight - 1), 'the reader scrolls and sits at its end');
   const rb = () => th.evaluate(el => parseFloat(el.style.getPropertyValue('--rb')) || 0);
   // trackpad-like wheel events on the reader's content, about one a frame (Chromium only scrolls on real input)
-  const pull = (dy, o = {}) => th.evaluate(async (el, [dy, o]) => {
+  const pull = (dy, o = {}, n = 6) => th.evaluate(async (el, [dy, o, n]) => {
     const t = el.querySelector('.col') ?? el;
-    for (let i = 0; i < 6; i++) { t.dispatchEvent(new WheelEvent('wheel', { deltaY: dy, bubbles: true, ...o })); await new Promise(r => setTimeout(r, 16)); }
-  }, [dy, o]);
+    for (let i = 0; i < n; i++) { t.dispatchEvent(new WheelEvent('wheel', { deltaY: typeof dy === 'number' ? dy : dy[i], bubbles: true, ...o })); await new Promise(r => setTimeout(r, 16)); }
+  }, [dy, o, n]);
   await settle(p, 150);
   await pull(7);
   const pulled = await rb();
@@ -1968,6 +1968,15 @@ await test('rubber band: a trackpad pull at the end stretches the reader, spring
   await settle(p, 800);
   assert.equal(await rb(), 0, 'springs back');
   assert.ok(!(await th.evaluate(el => el.classList.contains('rb'))), 'and lets go of the content');
+  // a hard, long pull still stretches only a little
+  await pull(30, {}, 40);
+  const hard = await rb();
+  assert.ok(hard < -60 && hard > -140, `a hard pull meets strong resistance (${hard})`);
+  await settle(p, 700);
+  // momentum after the fingers lift (shrinking deltas) springs it back instead of pulling further
+  await pull([8, 8, 8, 20, 16, 12, 9, 6, 4, 3, 2, 1], {}, 12);
+  assert.equal(await rb(), 0, 'momentum lets go');
+  await settle(p, 700);
   await pull(-7);
   assert.equal(await rb(), 0, 'pulling down at the bottom does nothing');
   await settle(p, 150);
