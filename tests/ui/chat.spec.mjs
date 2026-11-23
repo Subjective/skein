@@ -1946,3 +1946,35 @@ await test('links in a reply: enter and g x follow the link under the cursor', a
   await keys(p, 'g x');
   assert.equal(await p.evaluate(() => window.__external.length), 2, 'g x follows it too');
 });
+
+await test('rubber band: a trackpad pull at the end stretches the reader, springs back; a wheel notch and a scroll from the middle do not', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await openAll(p);
+  const th = p.locator('.pane.focus .chat > .thread');
+  await settle(p, 400);
+  await th.evaluate(el => { el.scrollTop = el.scrollHeight; });
+  await settle(p, 300);
+  assert.ok(await th.evaluate(el => el.scrollHeight > el.clientHeight && el.scrollTop + el.clientHeight >= el.scrollHeight - 1), 'the reader scrolls and sits at its end');
+  const rb = () => th.evaluate(el => parseFloat(el.style.getPropertyValue('--rb')) || 0);
+  // trackpad-like wheel events on the reader's content, about one a frame (Chromium only scrolls on real input)
+  const pull = (dy, o = {}) => th.evaluate(async (el, [dy, o]) => {
+    const t = el.querySelector('.col') ?? el;
+    for (let i = 0; i < 6; i++) { t.dispatchEvent(new WheelEvent('wheel', { deltaY: dy, bubbles: true, ...o })); await new Promise(r => setTimeout(r, 16)); }
+  }, [dy, o]);
+  await settle(p, 150);
+  await pull(7);
+  const pulled = await rb();
+  assert.ok(pulled < -10 && pulled > -100, `pulled up with resistance (${pulled})`);
+  await settle(p, 800);
+  assert.equal(await rb(), 0, 'springs back');
+  assert.ok(!(await th.evaluate(el => el.classList.contains('rb'))), 'and lets go of the content');
+  await pull(-7);
+  assert.equal(await rb(), 0, 'pulling down at the bottom does nothing');
+  await settle(p, 150);
+  await pull(3, { deltaMode: 1 });
+  assert.equal(await rb(), 0, 'no bounce on a notched wheel');
+  await settle(p, 150);
+  await th.evaluate(el => { el.scrollTop = el.scrollHeight - el.clientHeight - 20; });
+  await pull(7);
+  assert.equal(await rb(), 0, 'no stretch for a gesture that began mid-content');
+});
