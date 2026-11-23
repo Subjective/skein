@@ -351,6 +351,29 @@ export class Reader {
       const c = probe(y); if (!c) continue;
       return this.land(c.startContainer, c.startOffset);
     }
+    const now = row ? row.getBoundingClientRect() : fr.getClientRects()[0];   // the probe may have scrolled
+    return !!now && this.across(d, now, x, row, sc);
+  }
+  /** j / k over a gap taller than the probe reaches (an image, a tall block of anything without text): the next line
+   *  of text in that direction, wherever it is, scrolled into view, at the column nearest the cursor's. */
+  private across(d: number, rect: DOMRect, x: number, row: HTMLElement | null, sc: HTMLElement): boolean {
+    const ns = this.texts(this.root!), i = ns.indexOf(this.f!.n); if (i < 0) return false;
+    for (const n of d > 0 ? ns.slice(i + 1) : ns.slice(0, i).reverse()) {
+      if (row?.contains(n)) continue;
+      const r = document.createRange(); r.selectNodeContents(n);
+      const lines = () => [...r.getClientRects()].filter(q => q.width > 0 && q.height > 0), rs = lines();
+      const k = d > 0 ? rs.findIndex(q => q.top >= rect.bottom - 2) : rs.findLastIndex(q => q.bottom <= rect.top + 2); if (k < 0) continue;
+      // text hidden below a long message's fold is not a line on screen; going up, the fold is passed over
+      const clip = n.parentElement?.closest('.m-clip.shut');
+      if (d < 0 && clip && rs[k].top > clip.getBoundingClientRect().bottom - 8) continue;
+      const b = sc.getBoundingClientRect();
+      if (rs[k].bottom > b.bottom - MARGIN) sc.scrollTop += rs[k].bottom - b.bottom + MARGIN;
+      else if (rs[k].top < b.top + MARGIN) sc.scrollTop += rs[k].top - b.top - MARGIN;
+      const ln = lines()[k] ?? rs[k];
+      const c = caretAt(Math.min(Math.max(x, ln.left + 1), ln.right - 1), (ln.top + ln.bottom) / 2);
+      if (c && c.startContainer === n) return this.land(n, c.startOffset);
+      return this.land(n, d > 0 ? n.data.length - n.data.trimStart().length : 0);
+    }
     return false;
   }
   private jump(list: Element[], d: number) {
