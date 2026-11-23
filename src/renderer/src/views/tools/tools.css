@@ -7,9 +7,9 @@
 .tool-h .spin { margin: 0 4px; }
 .tool-h .chip .nums { margin-left: 7px; }
 .cfile > summary.rowcur { box-shadow: none; }
-.tool-h .split:not(.part) .btn[disabled] { opacity: .45; cursor: default; }
+.tool-h .splitbtn:not(.part) .btn[disabled] { opacity: .45; cursor: default; }
 /* not while the button's menu is open: the menu shows where the keys are */
-.tool-h :is(.split .btn, .ib, .chip):focus-visible:not([aria-expanded="true"]), .crumb:focus-visible:not([aria-expanded="true"]) { outline: 2px solid var(--fg-3); outline-offset: 1px; }
+.tool-h :is(.splitbtn .btn, .ib, .chip):focus-visible:not([aria-expanded="true"]), .crumb:focus-visible:not([aria-expanded="true"]) { outline: 2px solid var(--fg-3); outline-offset: 1px; }
 
 /* rows under the reader's cursor */
 .diff .dl, .src .dl { scroll-margin: 36px 0 8px; }
@@ -117,7 +117,7 @@
 
 /* narrow panes: the header's chips give way before its actions */
 .tool-h > .chip { flex: 0 1 auto; min-width: 0; }
-.tool-h > .split, .tool-h > .ib, .tool-h > .btn, .tool-h > .seg { flex: none; }
+.tool-h > .splitbtn, .tool-h > .ib, .tool-h > .btn, .tool-h > .seg { flex: none; }
 
 /* the Browser tab: back, forward, reload, the address bar (a field like the tree search), open outside; then the page */
 .browser-v { flex: 1; min-height: 0; display: flex; flex-direction: column; outline: 0; }

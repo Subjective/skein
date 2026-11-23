@@ -84,7 +84,7 @@ export function SplitButton({ label, onClick, onMenu, menuLabel, disabled, menuD
   const part = disabled && !menuDisabled, kind = disabled ? 'btn sm' : 'btn primary sm';
   const tip = disabled ? reason : keys ? (typeof label === 'string' ? `${label} · ${kb(keys)}` : kb(keys)) : undefined;
   return (
-    <span className={cx('split', part && 'part', disabled && menuDisabled && 'off')} title={disabled ? reason : undefined}>
+    <span className={cx('splitbtn', part && 'part', disabled && menuDisabled && 'off')} title={disabled ? reason : undefined}>
       <button type="button" className={kind} disabled={disabled} aria-disabled={disabled || undefined} title={tip} onMouseDown={e => e.preventDefault()} onClick={onClick}>{label}</button>
       <button type="button" className={cx(kind, 'caret')} disabled={menuDisabled} aria-haspopup="menu" aria-label={menuLabel} title={menuLabel}
         onMouseDown={e => e.preventDefault()} onClick={e => onMenu(e.currentTarget.parentElement!.getBoundingClientRect())}><Icon name="down" size="sm" /></button>

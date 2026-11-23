@@ -44,8 +44,8 @@ await test('changes: opens beside the thread on Uncommitted with counts, branch 
   assert.match(await scopeChip(p).innerText(), /\+\d+/);
   assert.match(await C(p).locator('[data-k=branch]').innerText(), /fix\/restore-race/);
   assert.deepEqual((await files(p)).sort(), ['docs/notes.txt', 'sessions/restore.test.ts', 'sessions/store.ts', 'ui/theme.css']);
-  assert.equal(await C(p).locator('.split .btn').first().innerText(), 'Commit');
-  assert.equal(await C(p).locator('.split .btn').first().getAttribute('title'), 'Commit · c');
+  assert.equal(await C(p).locator('.splitbtn .btn').first().innerText(), 'Commit');
+  assert.equal(await C(p).locator('.splitbtn .btn').first().getAttribute('title'), 'Commit · c');
   assert.ok(await C(p).locator('.tag', { hasText: 'New' }).count());
   assert.ok(await C(p).locator('.tag', { hasText: 'Deleted' }).count());
   assert.equal(await mode(p), 'NORMAL');
@@ -166,7 +166,7 @@ await test('changes: s stages the file under the cursor, again unstages; the box
   assert.equal(await box.getAttribute('aria-checked'), 'false');
   await keys(p, 's');
   await p.waitForFunction(() => document.querySelector('.pane.focus .cfile[data-p="sessions/store.ts"] summary .cb')?.getAttribute('aria-checked') === 'true');
-  assert.match(await C(p).locator('.split .btn').first().getAttribute('title').catch(() => '') || '', /|/);
+  assert.match(await C(p).locator('.splitbtn .btn').first().getAttribute('title').catch(() => '') || '', /|/);
   await keys(p, 's');
   await p.waitForFunction(() => document.querySelector('.pane.focus .cfile[data-p="sessions/store.ts"] summary .cb')?.getAttribute('aria-checked') === 'false');
 });
@@ -271,7 +271,7 @@ await test('changes: branch menu switches and creates branches', async p => {
   await menu(p).getByText('main', { exact: true }).click();
   await p.waitForFunction(() => /main/.test(document.querySelector('.pane.focus [data-k=branch]')?.textContent || ''));
   // on the trunk, committing makes a branch first
-  assert.equal(await C(p).locator('.split .btn').first().innerText(), 'Create branch & commit');
+  assert.equal(await C(p).locator('.splitbtn .btn').first().innerText(), 'Create branch & commit');
 });
 
 await test('commit: c opens the dialog with the thread title; enter commits the staged file', async p => {
@@ -292,7 +292,7 @@ await test('commit: c opens the dialog with the thread title; enter commits the 
 
 await test('commit: an empty message is refused and esc cancels', async p => {
   await openChanges(p);
-  await C(p).locator('.split .btn').first().click();
+  await C(p).locator('.splitbtn .btn').first().click();
   const d = p.locator('[role=dialog]').last();
   await d.waitFor();
   await d.locator('textarea').last().fill('');
@@ -344,8 +344,8 @@ await test('changes: nothing staged shows an empty state', async p => {
 await test('changes: a narrow pane hides the tree; t shows it there; f brings it for search', async p => {
   await openChanges(p);
   assert.equal(await C(p).locator('.ctree').count(), 0);
-  assert.ok(await C(p).locator('.split').isVisible(), 'the commit button stays in view');
-  const box = await C(p).locator('.split').boundingBox(), pane = await C(p).boundingBox();
+  assert.ok(await C(p).locator('.splitbtn').isVisible(), 'the commit button stays in view');
+  const box = await C(p).locator('.splitbtn').boundingBox(), pane = await C(p).boundingBox();
   assert.ok(box.x + box.width <= pane.x + pane.width + 1, 'the commit button is not cut off');
   await keys(p, 't');
   assert.equal(await C(p).locator('.ctree').count(), 1);
@@ -893,7 +893,7 @@ await test('tools: a tool opens in the pane to the right instead of another spli
 
 await test('changes: the commit caret works on a clean tree; a file view quotes with its source', async p => {
   await openChanges(p);
-  assert.ok(!(await C(p).locator('.split button').nth(1).isDisabled()), 'the caret is never disabled');
+  assert.ok(!(await C(p).locator('.splitbtn button').nth(1).isDisabled()), 'the caret is never disabled');
   assert.ok(await C(p).locator('.diff.flat[data-src^="diff:"]').count(), 'diffs carry their source');
   await openFile(p, 'package.json');
   assert.equal(await F(p).locator('.src').getAttribute('data-src'), 'file:package.json');
@@ -1276,7 +1276,7 @@ await test('file menu: reveal, copy relative path and copy remote URL', async p 
 
 await test('commit button: with nothing to commit it is one secondary button, the menu still reachable, with the reason on hover', async p => {
   await openChanges(p);
-  const split = C(p).locator('.split');
+  const split = C(p).locator('.splitbtn');
   const look = () => split.evaluate(s => { const [a, b] = s.querySelectorAll('button'); const st = x => { const c = getComputedStyle(x); return { bg: c.backgroundColor, op: c.opacity, dis: x.disabled }; }; return { cls: s.className, a: st(a), b: st(b), title: s.title }; });
   const on = await look();
   assert.equal(on.a.bg, on.b.bg, 'enabled: both halves primary');
@@ -1286,7 +1286,7 @@ await test('commit button: with nothing to commit it is one secondary button, th
     const d = p.locator('[role=dialog]').last(); await d.waitFor();
     await p.keyboard.press(`${mod}+Enter`); await d.waitFor({ state: 'detached' }); await settle(p, 300);
   }
-  await p.waitForFunction(() => document.querySelector('.pane.focus .split button')?.disabled); await settle(p, 300);
+  await p.waitForFunction(() => document.querySelector('.pane.focus .splitbtn button')?.disabled); await settle(p, 300);
   const off = await look();
   assert.match(off.cls, /\bpart\b/);
   assert.ok(off.a.dis && !off.b.dis, 'the action is off, its menu on');

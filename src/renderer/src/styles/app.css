@@ -11,6 +11,8 @@
 .peek, .peek *, .split.d-col > .cell:last-child .tb, .scrim, .layer, .menu, .dialog, .toast, .seltb { -webkit-app-region: no-drag; }
 /* the header's spacer too: `.tb .drag` above is more specific than `.peek *`, so without these it still moved the window */
 .peek .tb .drag, .split.d-col > .cell:last-child .tb .drag { -webkit-app-region: no-drag; }
+/* The first tab bar takes the sidebar's top row when the sidebar hides: its buttons stay exactly where they were */
+.tb.corner { padding-left: 8px; }
 /* macOS: traffic lights sit over the sidebar's top row (or the first tab bar when the sidebar is hidden) */
 [data-os="mac"] .s-top { padding-left: 78px; }
 [data-os="mac"] .tb.corner { padding-left: 78px; }

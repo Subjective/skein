@@ -283,7 +283,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
       : { commit: 'Commit', push: 'Commit & push', pr: 'Commit & open PR', branch: 'Create branch' };
     openCommit({ machine: ctx.machine, root: repo.root, newBranch: trunk || action === 'branch', action, what: commitWhat, message: th?.title || '', branch: slug, title: titles[action], done: refresh });
   };
-  const commitMenu = (anchor = anchorOf('.split')) => {
+  const commitMenu = (anchor = anchorOf('.splitbtn')) => {
     const items: MenuItem<CommitAction>[] = (trunk
       ? [['Create branch, commit & push', 'push', 'upload'], ['Create branch, commit & open PR', 'pr', 'globe'], ['Create branch', 'branch', 'branch']]
       : [['Commit & push', 'push', 'upload'], ['Commit & open PR', 'pr', 'globe'], ['Create branch', 'branch', 'branch']]
