@@ -24,6 +24,9 @@ export interface TextState {
 
 export type Effect = 'enter' | 'leave' | 'leave-up' | 'leave-down' | 'changed' | 'insert' | 'yank' | 'oldest' | 'newest';
 
+/** An operator (d, c, y) waits for its motion: the cursor shows it as a half block (`.vop`), as Vim does. */
+export const opPending = (s: Pick<TextState, 'pending' | 'mode'>) => s.mode === 'NORMAL' && /^[dcy]/.test(s.pending.replace(/\d+/g, '').replace(/^"./, ''));
+
 export const init = (text = '', mode: FieldMode = 'INSERT'): TextState => ({ text, pos: text.length, mode, anchor: 0, pending: '', reg: { text: '', line: false }, undo: [], redo: [], insertFrom: mode === 'INSERT' ? { text, pos: text.length } : undefined });
 
 // ---------- quotes ----------
