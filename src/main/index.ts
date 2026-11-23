@@ -15,8 +15,8 @@ import { buildMenu } from './menu';
 import { createServices } from './services';
 
 loadLoginEnv();
-// Rubber-band overscroll: macOS Chromium already bounces inner scroll areas; Windows needs this
-// feature for precision touchpads and touch screens (a notched mouse wheel never bounces).
+// Rubber-band overscroll. Stock Electron turns Chromium's elastic overscroll off on macOS unless a window
+// asks for scrollBounce (below); Windows needs this feature, and bounces only on precision touchpads and touch.
 if (process.platform === 'win32') app.commandLine.appendSwitch('enable-features', 'ElasticOverscroll');
 
 const store = new Store(join(app.getPath('userData'), 'skein.db'));
@@ -62,7 +62,7 @@ function createWindow() {
     backgroundColor: dark ? '#212121' : '#fdfdfd',
     titleBarStyle: 'hidden',
     ...(mac ? { trafficLightPosition: { x: 14, y: 14 } } : { titleBarOverlay: { color: '#00000000', symbolColor: dark ? '#b6b6b6' : '#4a4a4a', height: 40 } }),
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false, contextIsolation: true, spellcheck: false, webviewTag: true },
+    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false, contextIsolation: true, spellcheck: false, webviewTag: true, scrollBounce: true },
   });
   win.once('ready-to-show', () => win?.show());
   // launch check (CI): report when the renderer has drawn, or any error it hits
