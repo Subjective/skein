@@ -1,7 +1,7 @@
 // Markdown edited as it reads (the file's Preview): the text stays the file's own Markdown, byte for byte, and only
 // its look changes. Headings, emphasis, inline code, links, lists, task boxes, quotes and rules draw rendered while
-// you edit; a syntax mark (`**`, `#`, `[`, `](url)`) shows only while the cursor is on it, so it can still be
-// changed or deleted in place. Tables and fenced code stay raw, in the code font: their rendered form cannot be
+// you edit; the syntax marks (`**`, `#`, `- [ ]`, `](url)`) show only on the cursor's line, with the styling kept
+// (Josh, 2026-11-23), so they can be changed or deleted in place. Tables and fenced code stay raw, in the code font: their rendered form cannot be
 // edited sanely. Every key is still Vim's; nothing here takes one.
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxTree } from '@codemirror/language';
@@ -41,10 +41,11 @@ const INLINE_MARK = new Set(['EmphasisMark', 'StrikethroughMark', 'CodeMark']);
 
 function build(view: EditorView): DecorationSet {
   const st: EditorState = view.state, doc = st.doc, out: Range<Decoration>[] = [];
-  const heads = st.selection.ranges.map(r => r.head);
-  const on = (from: number, to: number) => heads.some(h => h >= from && h <= to);
-  /** Hide a syntax mark unless the cursor is on it. A selection keeps the look too: y still copies the Markdown. */
-  const mark = (from: number, to: number) => { if (from < to && !on(from, to)) out.push(hide.range(from, to)); };
+  // the lines the cursor (or each cursor) is on: their marks show
+  const lines = st.selection.ranges.map(r => doc.lineAt(r.head).number);
+  const on = (from: number, to: number) => { const a = doc.lineAt(from).number, b = doc.lineAt(to).number; return lines.some(l => l >= a && l <= b); };
+  /** Hide a syntax mark unless the cursor is on its line. A selection keeps the look too: y still copies the Markdown. */
+  const mark = (from: number, to: number) => { if (from < to) out.push((on(from, to) ? cls('md-dim') : hide).range(from, to)); };
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(st).iterate({
       from, to,

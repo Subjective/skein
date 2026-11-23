@@ -537,7 +537,7 @@ await test('file: Markdown opens as an editable preview; gp and the Source / Pre
   await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .md-live'));
 });
 
-await test('file: editing in the preview stays rendered; a mark shows only while the cursor is on it; a click ticks a box', async p => {
+await test('file: editing in the preview stays rendered; the cursor\'s line shows its marks, still styled; a click ticks a box', async p => {
   await openFile(p, 'package.json');
   await findFile(p, 'PLAN.md');
   await F(p).locator('.md-live').waitFor();
@@ -547,15 +547,21 @@ await test('file: editing in the preview stays rendered; a mark shows only while
   assert.ok(!(await line('Ship the')).includes('](GUIDE.md)'), 'a link shows its text only');
   assert.equal(await F(p).locator('.cm-line.md-table').count(), 4, 'a table stays raw');
   assert.ok((await line('Suite')).includes('|'));
-  // the cursor on the bold word's start shows its **; off it, they go again
-  await keys(p, 'j j w w');
-  assert.ok((await line('Ship the')).includes('**CodeMirror'));
-  await keys(p, 'w w');
+  // the cursor's line shows its marks, still styled; another line's stay hidden
+  await keys(p, 'j j');
+  assert.ok((await line('Ship the')).includes('**CodeMirror editor**') && (await line('Ship the')).includes('[the guide](GUIDE.md)'));
+  assert.equal(await F(p).locator('.md-strong').first().evaluate(e => getComputedStyle(e).fontWeight), '600', 'bold stays bold');
+  assert.ok(!(await F(p).locator('.md-h1').innerText()).includes('#'));
+  await keys(p, 'k k');
+  assert.ok((await F(p).locator('.md-h1').innerText()).startsWith('# '), 'the heading line shows its #');
+  assert.equal(await F(p).locator('.md-h1').evaluate(e => getComputedStyle(e).fontSize), '21px', 'still heading-sized');
   assert.ok(!(await line('Ship the')).includes('**'));
   // typed Markdown renders as it is typed, and the file keeps every mark
   await keys(p, 'G o');
   await p.keyboard.type('Now **bold** and *slanted*');
-  await keys(p, 'Escape 0');
+  await keys(p, 'Escape');
+  assert.equal(await line('Now'), 'Now **bold** and *slanted*', 'on its line, the marks show');
+  await keys(p, 'k');
   assert.equal(await line('Now'), 'Now bold and slanted');
   assert.equal(await F(p).locator('.md-strong', { hasText: 'bold' }).count(), 1);
   assert.ok((await ed(p)).text.includes('\nNow **bold** and *slanted*'));
@@ -614,11 +620,11 @@ await test('file: preview links: tab moves to the next and shows where it goes; 
   // a web link opens in the system browser; a click with a modifier follows (a plain click edits)
   await F(p).locator('.md-link', { hasText: 'the web' }).click();
   assert.equal(await p.evaluate(() => (window.__external || []).length), 0, 'a plain click only moves the cursor');
-  await F(p).locator('.md-link', { hasText: 'the web' }).click({ modifiers: ['Meta'] });
+  await F(p).locator('.md-link', { hasText: 'the web' }).click({ modifiers: ['Meta'], position: { x: 4, y: 6 } });
   assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein']);
   // shift-click: a new split
   const panes = await p.locator('.pane').count();
-  await F(p).locator('.md-link', { hasText: 'the theme' }).click({ modifiers: ['Shift'] });
+  await F(p).locator('.md-link', { hasText: 'the theme' }).click({ modifiers: ['Shift'], position: { x: 4, y: 6 } });   // a wrapped link's middle may be another word
   await p.waitForFunction(n => document.querySelectorAll('.pane').length === n + 1, panes);
   await crumbIs(p, /theme\.css/);
 });
