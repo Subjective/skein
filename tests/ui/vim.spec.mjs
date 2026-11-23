@@ -317,7 +317,7 @@ async function openReadme(p) {
   await p.locator('.pane.focus .file-v .doc, .pane.focus .file-v .src').first().waitFor();
   if (await p.locator('.pane.focus .file-v .doc').count()) { await keys(p, 'g p'); await p.locator('.pane.focus .file-v .src').waitFor(); }
 }
-const curLine = async p => Number(await p.locator('.pane.focus .file-v .curl .n').innerText());
+const curLine = async p => (await p.evaluate(() => window.__skein.cm('.pane.focus .file-v .src'))).line;
 
 test('file: counts (3j, 5G, 2gg) and ? searches backwards with a wrap notice', async p => {
   await openReadme(p);
@@ -334,7 +334,7 @@ test('file: counts (3j, 5G, 2gg) and ? searches backwards with a wrap notice', a
   assert.match(await toastText(p), /continuing at BOTTOM/);
   const last = await curLine(p);
   assert.ok(last > 1);
-  assert.match(await p.locator('.pane.focus .file-v .curl').innerText(), /pnpm/);
+  assert.match(await p.locator('.pane.focus .file-v .cm-activeLine').innerText(), /pnpm/);
   await keys(p, 'n');
   assert.ok((await curLine(p)) <= last, 'n keeps going backwards after ?');
   await keys(p, 'N');
@@ -394,4 +394,32 @@ test('fields: y and p share one register across fields; p takes the clipboard wh
   // whole lines, from yy: P puts them above
   await keys(p, 'y y P');
   assert.equal(await box.inputValue(), 'hello worldhello \nhello worldhello ');
+});
+
+test('fields: an operator waiting for its motion shows a half-block cursor, in a composer and a menu search', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  const box = p.locator('.pane.focus .compw textarea');
+  await box.pressSequentially('hello world');
+  await keys(p, 'Escape 0');
+  const half = p.locator('.pane.focus .compw .bk .vcur.vop');
+  assert.equal(await half.count(), 0, 'NORMAL: a full block');
+  await keys(p, 'd');
+  assert.equal(await half.innerText(), 'h', 'd waits: the half block on the character');
+  const bg = await half.evaluate(e => getComputedStyle(e).backgroundImage);
+  assert.match(bg, /linear-gradient/);
+  assert.ok(await box.evaluate(e => e.classList.contains('op')));
+  await keys(p, 'w');
+  assert.equal(await box.inputValue(), 'world');
+  assert.equal(await half.count(), 0, 'dw done: a full block again');
+  await keys(p, 'c');
+  assert.equal(await half.count(), 1);
+  await keys(p, 'Escape');
+  assert.equal(await half.count(), 0, 'esc lets the operator go');
+  // a menu's search field in NORMAL
+  await keys(p, `${mod}+k`);
+  await p.keyboard.type('abc');
+  await keys(p, 'Escape 0 d');
+  await p.locator('.menu .ncur.vop').waitFor();
+  await keys(p, 'Escape');
+  assert.equal(await p.locator('.menu .ncur.vop').count(), 0);
 });

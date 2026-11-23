@@ -9,7 +9,8 @@ import type { KeyLike } from '../input/keys';
 import type { Mode, Surface } from '../input/dispatcher';
 import { registerTab } from '../input/surfaces';
 import { forPut, getReg, setReg } from '../input/register';
-import { init, setText, step, tokAt, typed, vrange, type Effect, type TextState } from '../input/vimtext';
+import { init, opPending, setText, step, tokAt, typed, vrange, type Effect, type TextState } from '../input/vimtext';
+import { opCursor } from './opcursor';
 import { S, toast, update } from '../state/store';
 import { cx } from './primitives';
 import { revealCaret } from './caret';
@@ -41,7 +42,7 @@ export interface VimFieldProps {
    *  `vcur` the moving end of a VISUAL selection. null when the field has no cursor to draw (INSERT, blurred). */
   /** A popup of the owner's is open (the / or @ list): keys come here before the global bindings. */
   local?: () => boolean;
-  onCursor?: (c: { hollow: number; vcur: number } | null) => void;
+  onCursor?: (c: { hollow: number; vcur: number; op?: boolean } | null) => void;
 }
 
 const history = new Map<string, { text: string; undo: TextState['undo']; redo: TextState['redo'] }>();
@@ -68,8 +69,8 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
   const first = useRef(p.value);
 
   const lastCur = useRef('');
-  const cursor = (c: { hollow: number; vcur: number } | null) => {
-    const key = c ? `${c.hollow}:${c.vcur}` : '';
+  const cursor = (c: { hollow: number; vcur: number; op?: boolean } | null) => {
+    const key = c ? `${c.hollow}:${c.vcur}:${!!c.op}` : '';
     if (key !== lastCur.current) { lastCur.current = key; props.current.onCursor?.(c); }
   };
   const paint = () => {
@@ -82,10 +83,14 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
     el.classList.toggle('vv', normal && vis);
     el.classList.toggle('hollow', hollow);
     el.classList.toggle('drawn', hollow && !!props.current.onCursor);
+    // an operator waiting for its motion (d, c, y): the half block, drawn behind the text or floating over it
+    const op = normal && !vis && opPending(s);
+    el.classList.toggle('op', op);
     // keep the cursor in view: the browser only scrolls a textarea to its caret while typing, not for a NORMAL
     // motion (j, G, w, a search), so a long draft would leave the cursor (and the block drawn behind) out of sight
     if (focused && vim && s.mode !== 'INSERT') revealCaret(el, s.pos);
-    cursor(normal ? { hollow: hollow ? s.pos : -1, vcur: vis && s.pos < s.text.length && s.text[s.pos] !== '\n' ? s.pos : -1 } : null);
+    cursor(normal ? { hollow: hollow ? s.pos : -1, vcur: (vis || op) && s.pos < s.text.length && s.text[s.pos] !== '\n' ? s.pos : -1, op } : null);
+    if (op && !props.current.onCursor && focused) opCursor(el, s.pos); else if (!op || !focused) opCursor(null);
     if (!focused) return;
     if (!vim || s.mode === 'INSERT' || hollow) el.setSelectionRange(s.pos, s.pos);
     else if (s.mode === 'NORMAL') el.setSelectionRange(s.pos, tokAt(s.text, s.pos)?.[1] ?? Math.min(s.text.length, s.pos + 1));   // a quote is one block
@@ -200,7 +205,7 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
       // the first value only: a later defaultValue rewrites the textarea's text node, which puts the caret at 0
       defaultValue={first.current}
       onFocus={() => { own(); requestAnimationFrame(() => { if (document.activeElement === ta.current && st.current.mode !== 'INSERT') paint(); }); }}
-      onBlur={() => { const el = ta.current; if (el) el.classList.remove('vn', 'vv', 'hollow', 'drawn'); cursor(null); }}
+      onBlur={() => { const el = ta.current; if (el) el.classList.remove('vn', 'vv', 'hollow', 'drawn', 'op'); cursor(null); opCursor(null); }}
       // a click places the caret and types there (VIM-MODEL rule: clicking a field enters INSERT); the NORMAL
       // classes go at once, so the browser's caret shows where the click put it
       onMouseDown={e => {
@@ -208,7 +213,7 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
         if (e.button === 0) addEventListener('mouseup', ev => setTimeout(() => fromMouse(ev.detail), 0), { once: true, capture: true });
         if (!S.settings.vim || st.current.mode === 'INSERT') return;
         st.current = { ...st.current, mode: 'INSERT', pending: '', insertFrom: { text: st.current.text, pos: st.current.pos } };
-        e.currentTarget.classList.remove('vn', 'vv', 'hollow', 'drawn'); cursor(null);
+        e.currentTarget.classList.remove('vn', 'vv', 'hollow', 'drawn', 'op'); cursor(null); opCursor(null);
         update(x => { x.tick++; });
       }}
       onMouseUp={e => { const el = e.currentTarget; if (el.selectionStart === el.selectionEnd) st.current = { ...st.current, pos: el.selectionStart }; }}

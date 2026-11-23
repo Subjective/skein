@@ -6,7 +6,7 @@
 // i a I A / go back to typing. The owner's own keys (`keys`) come first: a folder field's h / l.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Surface } from '../input/dispatcher';
-import { init, step, typed, vrange, type TextState } from '../input/vimtext';
+import { init, opPending, step, typed, vrange, type TextState } from '../input/vimtext';
 import { forPut, getReg, setReg } from '../input/register';
 import { S, update } from '../state/store';
 import { cx, Icon } from './primitives';
@@ -196,7 +196,7 @@ export function Menu<D>(p: MenuProps<D>) {
               const r = step(typed(fs.current, st.current.q, inp.current?.selectionStart ?? st.current.q.length), 'esc');
               fs.current = r.s; setIns(false); requestAnimationFrame(paintField); return true;
             }
-            if (p.search && fs.current.pending) { fs.current = { ...fs.current, pending: '' }; return true; }
+            if (p.search && fs.current.pending) { fs.current = { ...fs.current, pending: '' }; redraw(n => n + 1); return true; }
             if (p.search && (fs.current.mode === 'VISUAL' || fs.current.mode === 'V-LINE')) { fs.current = { ...fs.current, mode: 'NORMAL' }; requestAnimationFrame(paintField); update(s => { s.tick++; }); return true; }
             p.onClose(); return true;
         }
@@ -294,10 +294,11 @@ export function Menu<D>(p: MenuProps<D>) {
   const emptyText = typeof p.empty === 'function' ? p.empty(q) : p.empty;
   const shown = () => {   // the NORMAL field: text, the block cursor (or the VISUAL selection), placeholder when empty
     const f = fs.current, t = f.text;
-    if (!t) return <><i className="ncur">{' '}</i>{p.search?.placeholder && <span className="ph">{p.search.placeholder}</span>}</>;
+    const op = opPending(f) && 'vop';
+    if (!t) return <><i className={cx('ncur', op)}>{' '}</i>{p.search?.placeholder && <span className="ph">{p.search.placeholder}</span>}</>;
     if (f.mode === 'VISUAL' || f.mode === 'V-LINE') { const [a, b] = vrange(f); return <>{t.slice(0, a)}<span className="mqv">{t.slice(a, b)}</span>{t.slice(b)}</>; }
     const at = Math.min(f.pos, t.length - 1);
-    return <>{t.slice(0, at)}<i className="ncur">{t[at]}</i>{t.slice(at + 1)}</>;
+    return <>{t.slice(0, at)}<i className={cx('ncur', op)}>{t[at]}</i>{t.slice(at + 1)}</>;
   };
   const row = (it: MenuItem<D>, n: number) => (
     it.block != null ? (it.head

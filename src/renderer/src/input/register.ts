@@ -6,8 +6,11 @@
 export interface Reg { text: string; line: boolean }
 
 let reg: Reg = { text: '', line: false };
+const watchers = new Set<(r: Reg) => void>();
 export const getReg = (): Reg => reg;
-export const setReg = (r: Reg) => { reg = { text: r.text, line: r.line }; };
+export const setReg = (r: Reg) => { reg = { text: r.text, line: r.line }; for (const w of watchers) w(reg); };
+/** Follow the register (the code editor's Vim keeps its own unnamed register in step, ui/editor/vim.ts). */
+export const watchReg = (w: (r: Reg) => void) => { watchers.add(w); return () => { watchers.delete(w); }; };
 
 /** Clipboard text as a register: text that ends in a newline is whole lines, as Vim reads "+. */
 export function fromClipboard(text: string): Reg {

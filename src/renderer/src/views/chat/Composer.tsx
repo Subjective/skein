@@ -74,7 +74,7 @@ const wordAt = (text: string, pos: number): Pop => {
 /** The text behind the textarea, which draws it (the textarea's own glyphs are transparent so a quote can be blue):
  *  quotes as chips, plus the block cursor (.hc) or VISUAL's moving end (.vcur). `hot` is the quote under the pointer.
  *  With `icons`, the layer in front: only each quote's chat icon shows, so a block cursor or a selection never hides it. */
-function backLayer(text: string, cur: { hollow: number; vcur: number } | null, hot = -1, icons = false): React.ReactNode[] {
+function backLayer(text: string, cur: { hollow: number; vcur: number; op?: boolean } | null, hot = -1, icons = false): React.ReactNode[] {
   let n = 0;
   const chip = (t: string, key: string) => {
     const i = n++, lead = t.indexOf(QI) === 1;
@@ -84,8 +84,8 @@ function backLayer(text: string, cur: { hollow: number; vcur: number } | null, h
     const toks = str.match(TOK) || [];
     return str.split(TOK).flatMap((x, i, a) => (i < a.length - 1 ? [x, chip(toks[i], key + i)] : [x]));
   };
-  if (cur && cur.hollow >= 0) { const at = Math.min(cur.hollow, text.length); return [...part(text.slice(0, at), 'a'), <span key="hc" className="hc">{!icons && <i />}</span>, ...part(text.slice(at), 'b')]; }
-  if (cur && cur.vcur >= 0 && cur.vcur < text.length) return [...part(text.slice(0, cur.vcur), 'a'), <span key="vc" className={icons ? undefined : 'vcur'}>{text[cur.vcur]}</span>, ...part(text.slice(cur.vcur + 1), 'b')];
+  if (cur && cur.hollow >= 0) { const at = Math.min(cur.hollow, text.length); return [...part(text.slice(0, at), 'a'), <span key="hc" className={cx('hc', cur.op && 'op')}>{!icons && <i />}</span>, ...part(text.slice(at), 'b')]; }
+  if (cur && cur.vcur >= 0 && cur.vcur < text.length) return [...part(text.slice(0, cur.vcur), 'a'), <span key="vc" className={icons ? undefined : cx('vcur', cur.op && 'vop')}>{text[cur.vcur]}</span>, ...part(text.slice(cur.vcur + 1), 'b')];
   return part(text, 'a');
 }
 
@@ -98,7 +98,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const props = useRef(p); props.current = p;
   const [pop, setPop] = useState<Pop>(null);
   // the NORMAL cursor where there is no character, and VISUAL's moving end, drawn in the layer behind the text
-  const [cur, setCur] = useState<{ hollow: number; vcur: number } | null>(null);
+  const [cur, setCur] = useState<{ hollow: number; vcur: number; op?: boolean } | null>(null);
   const menu = useRef<Surface | undefined>(undefined);
   const h: Harness = p.thread.harness;
 
@@ -297,7 +297,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const onKey = (k: string, mode: Mode) => {
     // tab completes like enter in the / and @ lists (the mockup's menu keys)
     if (open && k === 'enter' && !items.length) setPop(null);   // the @ list still loading: nothing to pick, enter sends
-    else if (open && menu.current && ['up', 'down', 'ctrl-n', 'ctrl-p', 'ctrl-j', 'ctrl-k', 'tab', 'shift-tab', 'enter'].includes(k)) return menu.current.key(k === 'tab' || k === 'shift-tab' ? 'enter' : k, { key: '', code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
+    else if (open && menu.current && ['up', 'down', 'ctrl-n', 'ctrl-p', 'ctrl-j', 'ctrl-k', 'tab', 'shift-tab', 'enter'].includes(k)) return menu.current.key(k === 'tab' || k === 'shift-tab' ? 'enter' : k, { key: '', code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false }) === true;
     if (open && k === 'esc') { setPop(null); return false; }   // the field goes to NORMAL too
     if (k === 'esc' && mode === 'NORMAL' && escStop()) return true;
     if (!open && (k === 'mod-enter' || k === 'ctrl-enter' || k === 'cmd-enter')) { if (!ourCommand()) props.current.onSend(true); return true; }

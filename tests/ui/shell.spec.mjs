@@ -777,7 +777,7 @@ test('i on a new-thread tab reached by L from a file left in its editor: the com
   await p.locator('.pane [aria-label="New tab"]').first().click(); await settle(p, 400);
   await keys(p, 'Escape'); await keys(p, 'Shift+H'); await settle(p, 500);
   await keys(p, 'i'); await keys(p, 'Escape'); await settle(p, 200);   // into the file's editor, then NORMAL there
-  assert.ok(await p.evaluate(() => !!document.activeElement?.classList.contains('file-ed')), 'the file editor has the focus');
+  assert.ok(await p.evaluate(() => !!document.activeElement?.closest('.file-v .cm-editor')), 'the file editor has the focus');
   await keys(p, 'Shift+L'); await settle(p, 500);
   assert.equal(await p.locator('.pane .tb .tab.on').innerText(), 'New thread');
   assert.equal(await mode(p), 'NORMAL');
