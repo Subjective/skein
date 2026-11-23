@@ -185,6 +185,14 @@ export class Reader {
     this.host.selection?.(null);
     update(s => { s.tick++; });
   }
+  /** The link the cursor is on: a link in a reply (.clink) or a file named in one (.flink). */
+  private linkAt() { const el = this.f?.n.parentElement; return el?.closest<HTMLElement>('.clink') || el?.closest<HTMLElement>('.flink') || null; }
+  /** Follow a link: the transcript's click handler (ChatView onLinkClick) opens it; the cursor stays on it. */
+  private follow(link: HTMLElement, split = false) {
+    getSelection()?.removeAllRanges();
+    link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 0, shiftKey: split }));
+    if (this.on && this.alive()) this.draw();
+  }
   exit(how: 'normal' | 'insert' | 'end' = 'normal') { this.clear(); getSelection()?.removeAllRanges(); this.host.exit(how); }
   /** The node under the cursor went away (the transcript changed): start again at the end. */
   private alive() { return !!this.f && this.f.n.isConnected && !!this.root?.isConnected; }
@@ -394,7 +402,7 @@ export class Reader {
     const s = getSelection()!;
     const gut = (e.target as Element).closest?.('.diff .dl > .n');   // a diff's line number: the start of that line
     if (gut) { s.removeAllRanges(); const p = gut.nextElementSibling && this.firstText(gut.nextElementSibling); if (p) this.begin(root, 'n', p); return; }
-    const actionable = (e.target as Element).closest('button, input, textarea, summary, img, a, [data-act]');
+    const actionable = (e.target as Element).closest('button, input, textarea, summary, img, a:not(.clink), [data-act]');
     if (s.isCollapsed && (actionable || !root.contains(e.target as Node))) return;
     const c = caretAt(e.clientX, e.clientY);
     const at = c && c.startContainer.nodeType === 3 && this.inside(c.startContainer) && (c.startContainer as Text).data.trim() ? this.textAt(c.startContainer, c.startOffset) : null;
@@ -475,9 +483,9 @@ export class Reader {
         const p = this.mode !== 'n' && this.bound ? this.edge(this.bound, false) : this.firstText(this.root!);
         if (p && this.ok(p)) this.f = p; return settle();
       }
-      // g f: open the file named under the cursor (a path in a reply or a tool row)
-      const link = k === 'f' ? f.n.parentElement?.closest<HTMLElement>('.flink') || this.row?.querySelector<HTMLElement>('.flink') : null;
-      if (link) { this.clear(); getSelection()?.removeAllRanges(); link.click(); }
+      // g x / g f: follow the link under the cursor (a link in a reply, a path in a reply or a tool row)
+      const link = k === 'x' || k === 'f' ? this.linkAt() || this.row?.querySelector<HTMLElement>('.flink') : null;
+      if (link) this.follow(link);
       return true;
     }
     if (this.row && this.mode === 'n') {
@@ -518,6 +526,9 @@ export class Reader {
       }
       if ('wbe0$'.includes(k) && k.length === 1) return true;
     }
+    // enter (o, or shift-enter / O for a new split) on a link in the text follows it, as g x does
+    const here = this.mode === 'n' && !this.row && ['enter', 'o', 'shift-enter', 'O'].includes(k) ? this.linkAt() : null;
+    if (here) { this.follow(here, k === 'shift-enter' || k === 'O'); return true; }
     // on one of your messages, an editing key edits it (edit and resend)
     const mine = this.mode === 'n' && !this.row ? f.n.parentElement?.closest<HTMLElement>('.m-user.can-edit[data-ev]') : null;
     if (mine && ['i', 'a', 'I', 'A', 'c', 'C', 'd', 'D', 'x'].includes(k)) {

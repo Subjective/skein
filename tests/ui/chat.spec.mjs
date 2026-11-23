@@ -1831,3 +1831,56 @@ await test('reader: ctrl-d / ctrl-u scroll half a page and the cursor goes along
   const s2 = await st();
   assert.ok(Math.abs(s2.top - s0.top) <= 2, `ctrl-u scrolls back (${s2.top})`);
 });
+
+// ---- links in a reply: a click puts the reader's cursor on the link and follows it; enter / g x do from the keys ----
+async function linksReply(p) {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).fill('Show me the links');
+  await composer(p).press('Enter');
+  await p.locator('.pane.focus .m-asst a.clink', { hasText: 'an odd one' }).waitFor();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .live'));
+  await p.evaluate(() => { window.__external = []; window.__opened = []; });
+}
+const link = (p, text) => p.locator('.pane.focus .m-asst a.clink', { hasText: text });
+/** The text of the link the reader's cursor is on, or null. */
+const cursorLink = p => p.evaluate(() => { const n = [...(CSS.highlights.get('vcur') || [])][0]?.startContainer; const el = n && (n.nodeType === 1 ? n : n.parentElement); return el?.closest('.clink')?.textContent ?? null; });
+const toastText = p => p.locator('.toast').last().innerText();
+
+await test('links in a reply: a click puts the cursor on the link and opens it (web in the browser, HTML in its app)', async p => {
+  await linksReply(p);
+  await link(p, 'the docs').click();
+  await settle(p);
+  assert.equal(await mode(p), 'NORMAL');
+  assert.equal(await cursorLink(p), 'the docs', 'the cursor is where the click was');
+  assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein']);
+  await link(p, 'Open the mockup HTML').click();
+  await settle(p);
+  assert.equal(await cursorLink(p), 'Open the mockup HTML');
+  assert.deepEqual(await p.evaluate(() => window.__opened), ['~/projects/skein/mockups/index.html'], 'a page opens in the system browser');
+  await link(p, 'an odd one').click();
+  assert.match(await toastText(p), /Skein does not open ftp: links/);
+  assert.ok(!(await p.locator('.pane.focus .m-edit').count()), 'no edit box, no navigation');
+});
+
+await test('links in a reply: a file link opens in Skein at its line, from a relative or an absolute path', async p => {
+  await linksReply(p);
+  await link(p, 'the README').click();
+  await p.waitForFunction(() => window.__skein.cm('.file-v .src')?.text.startsWith('# Skein') && window.__skein.cm('.file-v .src').line === 3);
+  await linksReply(p);
+  await link(p, 'the types').click();
+  await p.waitForFunction(() => /interface Session/.test(window.__skein.cm('.file-v .src')?.text || '') && window.__skein.cm('.file-v .src').line === 2);
+});
+
+await test('links in a reply: enter and g x follow the link under the cursor', async p => {
+  await linksReply(p);
+  await composer(p).press('Escape');
+  await keys(p, 'k');
+  // to the link's text with search, then enter
+  await keys(p, '/'); await p.keyboard.type('the docs'); await keys(p, 'Enter');
+  assert.equal(await cursorLink(p), 'the docs');
+  await keys(p, 'Enter');
+  assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein']);
+  assert.equal(await cursorLink(p), 'the docs', 'the cursor stays on it');
+  await keys(p, 'g x');
+  assert.equal(await p.evaluate(() => window.__external.length), 2, 'g x follows it too');
+});

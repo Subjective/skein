@@ -167,7 +167,9 @@ export function fakeChat(emit: (e: SkeinEvent) => void, threads: ThreadMeta[]) {
       else if (m.resume) push(thread, { t: 'notice', id: id(), text: 'Continued' });
       else push(thread, user(m.text, m.images));
       if (th(thread).queuePaused) setQueue(thread, th(thread).queue ?? [], false);   // a turn you start resumes the queue
-      reply(thread, 'This is the browser preview, so no agent is attached. In the app the reply streams in here, and the same turn shows in the thread\'s terminal view.');
+      // ask for "links" and the reply holds every kind a reply links to (tests/ui chat "links in a reply")
+      reply(thread, /\blinks\b/i.test(m.text) ? `See [the README](README.md#L3), [the types](${th(thread).dir}/sessions/types.ts:2), [Open the mockup HTML](mockups/index.html), [the docs](https://example.com/skein) and [an odd one](ftp://example.com/x).`
+        : 'This is the browser preview, so no agent is attached. In the app the reply streams in here, and the same turn shows in the thread\'s terminal view.');
     },
     interrupt: async (thread: string) => {
       for (const t of timers.get(thread) || []) clearTimeout(t);

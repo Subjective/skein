@@ -39,6 +39,8 @@ export interface ShellHooks {
   openExternal(url: string): Promise<void>;
   /** Show a local file in the system's file manager. */
   reveal(path: string): void;
+  /** Open a local file in its default app: '' when it opened, else the error. */
+  openPath(path: string): Promise<string>;
   notify(title: string, body: string, thread?: string): void;
   /** The keys Skein keeps while a Browser tab's page has focus (main's before-input-event reads them). */
   browserKeys?(keys: string[]): void;
@@ -154,6 +156,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       setSettings: async patch => { const s = { ...DEFAULT_SETTINGS, ...store.get<Partial<Settings>>('settings'), ...patch }; store.set('settings', s); return s; },
       openExternal: url => shell.openExternal(url),
       reveal: async p => shell.reveal(files.expandLocal(p)),
+      openPath: async p => { const err = await shell.openPath(files.expandLocal(p)); if (err) throw new Error(err); },
       notify: async (title, body, thread) => shell.notify(title, body, thread),
     },
     machines: {

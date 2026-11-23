@@ -6,7 +6,7 @@
 .prose li + li { margin-top: .2em; }
 .prose blockquote { margin: 0 0 .6em; padding-left: 12px; border-left: 2px solid var(--line-2); color: var(--fg-2); }
 .prose pre.code { margin: 0 0 .6em; white-space: pre; overflow-x: auto; }
-.prose a { color: var(--blue); text-decoration: none; }
+.prose a { color: var(--blue); text-decoration: none; cursor: pointer; }
 .prose a:hover { text-decoration: underline; }
 /* tables: the reply's width, scrolling sideways when wider; hairlines and a header in the design tokens */
 .prose .tbl { margin: 0 0 .6em; overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; }

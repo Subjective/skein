@@ -222,7 +222,7 @@ function UserMsg({ e, c, src }: { e: Ev<'user'>; c: TranscriptCtx; src: string }
   };
   return (
     <div className={cx('m-user', c.onEdit && 'can-edit', long && 'long')} data-user data-ev={e.id} data-src={src} title={c.onEdit ? 'Click to edit and resend' : undefined}
-      onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img, .m-more')) return; c.onEdit(e.id); }}>
+      onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img, .m-more, .clink, .flink')) return; c.onEdit(e.id); }}>
       <div ref={clip} className={cx('m-clip', shut && 'shut')}>
         {e.images?.map((u, i) => <img key={i} className="m-img" src={u} alt="" data-zoom onClick={ev => { ev.stopPropagation(); openLightbox(u); }} />)}
         {/* your words as you wrote them: line breaks kept, Markdown (lists, code, bold, links) as in a reply */}

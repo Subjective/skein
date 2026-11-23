@@ -131,6 +131,8 @@ export interface SkeinApi {
     openExternal(url: string): Promise<void>;
     /** Show a file on this computer in Finder / File Explorer (~ allowed). */
     reveal(path: string): Promise<void>;
+    /** Open a file on this computer in the system's default app (~ allowed); rejects with why it could not. */
+    openPath(path: string): Promise<void>;
     notify(title: string, body: string, thread?: string): Promise<void>;
   };
   machines: {
@@ -270,7 +272,7 @@ export type SkeinBridge = SkeinApi & { on(fn: (e: SkeinEvent) => void): () => vo
 
 export const FIRE_AND_FORGET = new Set(['pty.write', 'pty.resize', 'pty.kill', 'browser.keys', 'chat.follow']);
 export const API_SHAPE: { [K in keyof SkeinApi]: (keyof SkeinApi[K])[] } = {
-  app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'reveal', 'notify'],
+  app: ['info', 'load', 'save', 'settings', 'setSettings', 'openExternal', 'reveal', 'openPath', 'notify'],
   machines: ['list', 'add', 'remove', 'connect', 'answer', 'sshHosts'],
   fs: ['list', 'read', 'write', 'resolve', 'find'],
   threads: ['list', 'discover', 'create', 'update', 'history', 'sub', 'move'],

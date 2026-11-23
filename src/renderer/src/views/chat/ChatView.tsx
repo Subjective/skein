@@ -24,6 +24,8 @@ import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, quoteToTab, 
 import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
 import { rawAt } from './markdown';
+import { chatLink, OS_OPENS } from './links';
+import { openFile as openFileAt, splitClick } from '../tools/open';
 import { recentMouse } from '../../ui/VimField';
 import './chat.css';
 
@@ -408,11 +410,12 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const onMouseUp = (e: React.MouseEvent) => {
     const root = read.current; if (!root || e.button !== 0) return;
     const ev = e.nativeEvent, target = ev.target as Element;
-    // a press on a control is the control's; a drag that only ends on one (from text above it) is still a selection
-    const ctl = target.closest('.m-edit, .menu, .seltb, button, input, textarea, a, [role=dialog], img[data-zoom], .flink');
+    // a press on a control is the control's; a drag that only ends on one (from text above it) is still a selection.
+    // A link in the text is text too: a click puts the cursor on it (and onLinkClick then follows it)
+    const ctl = target.closest('.m-edit, .menu, .seltb, button, input, textarea, a:not(.clink), [role=dialog], img[data-zoom], summary .flink');
     if (ctl && (ctl.contains(document.elementFromPoint(downAt.current.x, downAt.current.y)) || !getSelection()?.toString())) return;
     if (target.closest('summary') && ev.detail < 2) return;   // a click folds; a double-click selects its words (VISUAL)
-    if (target.closest('.m-user.can-edit') && !getSelection()?.toString()) return;   // that click opens the edit box
+    if (target.closest('.m-user.can-edit') && !target.closest('.clink, .flink') && !getSelection()?.toString()) return;   // that click opens the edit box
     setTimeout(() => {
       const s = getSelection();
       // a double-click on blank space (beside a line, the margin, next to a bubble) does nothing: no stray VISUAL
@@ -444,13 +447,24 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     document.addEventListener('selectionchange', gone);
     return () => { document.removeEventListener('mousedown', away, true); document.removeEventListener('selectionchange', gone); };
   }, [sel, reader]);
-  // a file named in a reply or a tool row (.flink): a click opens it beside, in the thread's folder (and does not fold its row)
+  // a link in a reply (.clink) or a file named in a reply or a tool row (.flink): a click follows it (and does not
+  // fold its row); with a modifier a file opens in a new split. The reader's keys (enter, g x, g f) click it too.
+  // A mouse click follows it after onMouseUp has put the cursor there, so the file it opens keeps the focus.
   const onLinkClick = (e: React.MouseEvent) => {
-    const link = (e.target as Element).closest<HTMLElement>('.flink'); if (!link || getSelection()?.toString()) return;
+    const t = e.target as Element, link = t.closest<HTMLElement>('.clink') || t.closest<HTMLElement>('.flink');
+    if (!link || getSelection()?.toString()) return;
     e.preventDefault(); e.stopPropagation();
-    const dir = th.dir.replace(/[\\/]$/, ''), path = link.dataset.p || link.textContent || '';
+    const split = splitClick(e);
+    if (e.detail > 0) setTimeout(() => follow(link, split), 0); else follow(link, split);
+  };
+  const follow = (link: HTMLElement, split: boolean) => {
+    const to = link.matches('.clink') ? chatLink(link.dataset.href || '', th.dir) : chatLink(link.dataset.p || link.textContent || '', th.dir);
+    if (to.kind === 'none') { toast(`Skein does not open ${(link.dataset.href || '').replace(/:.*/, ':')} links`); return; }
+    if (to.kind === 'external') { void api.app.openExternal(to.url); return; }
+    const local = !machine(th.machine)?.ssh, full = to.dir.replace(/[\\/]+$/, '') + '/' + to.path;
+    if (local && !split && OS_OPENS.test(to.path)) { void api.app.openPath(full).catch(() => toast(`No file at ${to.path}`)); return; }
     reader.clear();
-    A.openFile(th.machine, th.dir, path.startsWith(dir + '/') ? path.slice(dir.length + 1) : path);
+    openFileAt({ machine: th.machine, dir: to.dir }, to.path, { line: to.line, col: to.col, split });
   };
   // a field in this tab taking the focus takes the cursor too: the reader's goes (never two cursors)
   const onFocusIn = (e: React.FocusEvent) => { if ((e.target as Element).matches('textarea, input') && reader.on) reader.clear(); };
