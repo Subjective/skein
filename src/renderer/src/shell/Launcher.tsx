@@ -11,6 +11,7 @@ import { showAuth } from './AuthDialog';
 import { harnessName, tildify } from './meta';
 import { Chip, Dot, Icon } from '../ui/primitives';
 import { Composer, type ComposerHandle } from '../views/chat/Composer';
+import { forgetField } from '../ui/VimField';
 import { blank, outgoing, setUltra, ultraOf, type Draft } from '../views/chat/state';
 import { defaultModel } from '../views/chat/options';
 
@@ -50,6 +51,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
     const model = t.model?.split(':')[1] || undefined;
     const ultra = ultraOf(t.id);
     if (!t.dir) t.dir = dir;
+    forgetField(t.id);   // a brand-new thread's composer opens in INSERT, whatever the launcher's mode was
     const th = await A.startThread(t, h, view);
     setDraft(blank());
     if (ultra) setUltra(th.id, true);

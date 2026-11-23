@@ -45,7 +45,13 @@ export interface VimFieldProps {
   onCursor?: (c: { hollow: number; vcur: number; op?: boolean } | null) => void;
 }
 
-const history = new Map<string, { text: string; undo: TextState['undo']; redo: TextState['redo'] }>();
+// A field's text state outlives a remount (a split, a tab moved or popped out, the view switched), per tab: its undo
+// history, and NORMAL, so coming back to a tab never switches it to INSERT on its own. `live` holds the mounted fields,
+// because a remount renders the new field before the old one unmounts; `history` the ones that went away.
+const live = new Map<string, Set<{ current: TextState }>>();
+const history = new Map<string, TextState>();
+/** A tab's field starts over (the launcher became a brand-new thread, whose composer opens in INSERT). */
+export const forgetField = (tabId: string) => { live.delete(tabId); history.delete(tabId); };
 
 // The last mousedown anywhere (capture), so a field focused because of a click elsewhere (a sidebar row opening a
 // thread) can tell it was the mouse, not the keys.
@@ -60,11 +66,16 @@ const KEEPS = '[data-input], input, textarea, select, [contenteditable], .menu, 
 export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimField(p, handle) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const st = useRef<TextState>(null as unknown as TextState);
-  if (!st.current) {   // undo history outlives a remount (tab moved, popped out, view switched), per field
-    const kept = history.get(p.tabId), fresh = init(p.value, p.startMode || 'INSERT');
-    st.current = kept && kept.text === p.value ? { ...fresh, undo: kept.undo, redo: kept.redo } : fresh;
+  if (!st.current) {
+    const kept = [...(live.get(p.tabId) || [])].map(r => r.current).find(k => k.text === p.value) ?? history.get(p.tabId);
+    const same = kept && kept.text === p.value ? kept : undefined;
+    const fresh = init(p.value, same && same.mode !== 'INSERT' ? 'NORMAL' : p.startMode || 'INSERT');   // a selection comes back as NORMAL
+    st.current = same ? { ...fresh, undo: same.undo, redo: same.redo } : fresh;
   }
-  useEffect(() => () => { history.set(props.current.tabId, { text: st.current.text, undo: st.current.undo, redo: st.current.redo }); }, []);
+  useEffect(() => {
+    const id = props.current.tabId, set = live.get(id) || new Set(); set.add(st); live.set(id, set);
+    return () => { set.delete(st); if (!set.size && live.get(id) === set) live.delete(id); history.set(id, st.current); };
+  }, []);
   const props = useRef(p); props.current = p;
   const first = useRef(p.value);
 
