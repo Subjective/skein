@@ -431,10 +431,13 @@ await test('Codex pickers: its approval presets and its models with their own ef
   await p.locator('.pane.focus .cf .chip[title="Permissions"]').click();
   const menu = p.locator('.menu').last();
   await menu.waitFor();
-  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Ask for approval', 'Approve for me', 'Full Access', 'Read Only'], 'Codex\'s /permissions menu, in its order');
+  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Read only', 'Ask for approval', 'Approve for me', 'Full access'], 'Codex desktop\'s modes and the TUI\'s Read only, least access first');
   assert.equal(await menu.locator('.mi:has(.i-check) .ml').innerText(), 'Ask for approval', 'no mode set: Codex\'s workspace preset, you approving');
-  await menu.locator('.mi', { hasText: 'Full Access' }).click();
-  await p.locator('.pane.focus .cf .chip', { hasText: 'Full Access' }).waitFor();
+  await menu.locator('.mi', { hasText: 'Full access' }).click();
+  const full = p.locator('.pane.focus .cf .chip', { hasText: 'Full access' });
+  await full.waitFor();
+  assert.equal(await full.locator('.i-shieldAlert').count(), 1, 'the chip shows the mode\'s icon');
+  assert.ok(await full.evaluate(e => e.classList.contains('warn')), 'the chip is in the warning tone');
   await p.locator('.pane.focus .cf .chip[title="Model and effort"]').click();
   const mm = p.locator('.menu.model');
   await mm.waitFor();
@@ -672,22 +675,29 @@ const pasteImage = (loc, b64 = png.toString('base64')) => loc.evaluate((el, b) =
   el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
 }, b64);
 
-await test('permission chip: one label, a 200px menu of every mode the harness has, with a check', async p => {
+await test('permission chip: one label, a menu of the harness\'s own modes with icons and descriptions, a check', async p => {
   await openChat(p, 'Fix session-restore race');
   const chip = p.locator('.pane.focus .cf .chip[title="Permissions"]');
   assert.equal(await chip.locator(':scope > span').count(), 1);
   assert.equal(await chip.locator(':scope > span.lbl').count(), 1, 'the label is the .lbl itself');
+  assert.equal(await chip.locator('.i-pencil').count(), 1, 'the chip shows the current mode\'s icon');
   await chip.click();
-  const menu = p.locator('.menu').last();
+  const menu = p.locator('.menu.perms').last();
   await menu.waitFor();
-  // Claude Code's permission modes as the Agent SDK defines them, bypass included (fakeOptions)
-  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Default', 'Accept edits', 'Plan mode', 'Auto mode', "Don't ask", 'Bypass permissions']);
-  assert.equal(await menu.locator('.mi .mic').count(), 0, 'no icons');
-  assert.equal(await menu.locator('.mi .mh').count(), 0, 'no hints');
+  // Claude Code's shift-tab modes, in its words, plus Bypass permissions; Don't ask is not in its picker (fakeOptions)
+  assert.deepEqual(await menu.locator('.mi .ml').allInnerTexts(), ['Manual mode', 'Accept edits', 'Plan mode', 'Auto mode', 'Bypass permissions']);
+  assert.equal(await menu.locator('.mi .mic svg').count(), 5, 'an icon per mode');
+  assert.equal(await menu.locator('.mi .mh').count(), 5, 'a description per mode');
   assert.equal(await menu.locator('.mi.sel', { hasText: 'Accept edits' }).locator('.i-check').count(), 1);
-  assert.ok(Math.round((await menu.boundingBox()).width) >= 200, 'at least its set width');
-  // every label shows in full: the menu widens to its longest one
-  assert.deepEqual(await menu.locator('.mi .ml').evaluateAll(xs => xs.filter(x => x.scrollWidth > x.clientWidth).map(x => x.textContent)), [], 'no label is cut off');
+  // the mode without limits in the warning tone, label and description
+  const warn = menu.locator('.mi.warn');
+  assert.deepEqual(await warn.locator('.ml').allInnerTexts(), ['Bypass permissions']);
+  const [l, d, n] = await Promise.all([warn.locator('.ml'), warn.locator('.mh'), menu.locator('.mi:not(.warn) .ml').first()].map(x => x.evaluate(e => getComputedStyle(e).color)));
+  assert.equal(l, d, 'description in the same tone'); assert.notEqual(l, n, 'not the plain text color');
+  // the description sits under the name, and nothing is cut off
+  const [lb, db] = [await warn.locator('.ml').boundingBox(), await warn.locator('.mh').boundingBox()];
+  assert.ok(db.y >= lb.y + lb.height - 1 && Math.abs(db.x - lb.x) < 1, 'description under the name');
+  assert.deepEqual(await menu.locator('.mi .ml, .mi .mh').evaluateAll(xs => xs.filter(x => x.scrollWidth > x.clientWidth).map(x => x.textContent)), [], 'nothing is cut off');
   await p.keyboard.press('Escape');
 });
 
@@ -967,7 +977,7 @@ await test('launcher: the chat composer, with / and @ menus, attach, paste, perm
   const T = p.locator('.pane.focus .newp textarea:visible');
   await T.waitFor();
   const newp = p.locator('.pane.focus .newp:visible');
-  assert.equal(await newp.locator('.cf .chip[title="Permissions"]').innerText(), 'Default');
+  assert.equal(await newp.locator('.cf .chip[title="Permissions"]').innerText(), 'Manual mode');
   assert.equal(await newp.locator('.cf .ib[title^="Attach image"]').count(), 1);
   assert.equal(await newp.locator('.under .chip[title="Start in a new git worktree"]').innerText(), 'main');
   await T.pressSequentially('/');

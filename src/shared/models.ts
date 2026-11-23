@@ -25,7 +25,13 @@ export interface ModelDef {
   resolved?: string;
 }
 
-export interface Choice { id: string; label: string; hint?: string; /** Other names that mean this choice (older labels and ids). */ aka?: string[] }
+export interface Choice {
+  id: string; label: string; hint?: string; /** Other names that mean this choice (older labels and ids). */ aka?: string[];
+  /** Permission modes: the row's icon, and `warn` for the mode that runs without limits (drawn in the warning tone). */
+  icon?: string; warn?: boolean;
+  /** A mode the harness's own picker doesn't offer: left out of the menu unless the thread is already in it. */
+  hide?: boolean;
+}
 
 /** What a harness offers on a machine. `source` says whether the harness answered or this file's fallback is shown. */
 export interface HarnessOptions {
@@ -79,26 +85,26 @@ export function snapEffort(effort: string, def: Pick<ModelDef, 'efforts' | 'effo
   return best;
 }
 
-/** Permission modes. Claude: every value of the Agent SDK's PermissionMode (core/harness/options.ts checks
- *  the list against the type), in Claude Code's shift-tab order, with the SDK's descriptions. Codex: its
- *  built-in approval presets (codex `/approvals`: id, name and description), which set the approval
- *  policy and sandbox (core/harness/codex/driver.ts codexPerm). */
+/** Permission modes, in the words, order and casing of each harness's own picker. Claude: every value of the Agent
+ *  SDK's PermissionMode (core/harness/options.ts checks the list against the type), in Claude Code's shift-tab order
+ *  and with its names (Manual, Accept edits, Plan, Auto; Bypass permissions joins only when allowed; Don't ask is never
+ *  in the cycle). Codex: the approval presets Codex desktop offers, with its descriptions (they set the approval policy
+ *  and sandbox: core/harness/codex/driver.ts codexPerm), plus the TUI's Read only. */
 export const PERMS: Record<Harness, Choice[]> = {
   claude: [
-    { id: 'default', label: 'Default', hint: 'Asks before edits and commands', aka: ['Ask before edits', 'Ask permissions'] },
-    { id: 'acceptEdits', label: 'Accept edits', hint: 'Edits files without asking; asks before commands' },
-    { id: 'plan', label: 'Plan mode', hint: 'Reads and plans; changes nothing until you approve' },
-    { id: 'auto', label: 'Auto mode', hint: 'A classifier approves or denies each request' },
-    { id: 'dontAsk', label: "Don't ask", hint: 'Never asks; denies anything not allowed beforehand' },
-    { id: 'bypassPermissions', label: 'Bypass permissions', hint: 'Never asks; runs everything', aka: ['Full access', 'bypass'] },
+    { id: 'default', label: 'Manual mode', hint: 'Ask before edits and commands', icon: 'hand', aka: ['Manual', 'Default', 'Ask before edits', 'Ask permissions'] },
+    { id: 'acceptEdits', label: 'Accept edits', hint: 'Edit files without asking; ask before commands', icon: 'pencil' },
+    { id: 'plan', label: 'Plan mode', hint: 'Explore and plan; change nothing until you approve', icon: 'plan' },
+    { id: 'auto', label: 'Auto mode', hint: 'A safety check approves or blocks each action', icon: 'shieldRun' },
+    { id: 'dontAsk', label: "Don't ask", hint: 'Never ask; deny anything not allowed beforehand', icon: 'shield', hide: true },
+    { id: 'bypassPermissions', label: 'Bypass permissions', hint: 'Run every action without asking', icon: 'shieldAlert', warn: true, aka: ['Full access', 'bypass'] },
   ],
   codex: [
-    // Codex's /permissions menu, in its order and words (codex-rs tui permissions_menu.rs, 2026-11): the workspace
-    // preset twice, once with you approving and once with Codex's auto-review approving for you
-    { id: 'auto', label: 'Ask for approval', hint: 'Read and edit workspace files and run commands, with approval required for internet access or edits outside the workspace', aka: ['Default', 'Auto', 'Agent'] },
-    { id: 'auto-review', label: 'Approve for me', hint: 'Only ask for actions detected as potentially unsafe', aka: ['auto_review', 'guardian'] },
-    { id: 'full-access', label: 'Full Access', hint: 'Use with caution: Codex can edit files outside this workspace and access the internet without approval', aka: ['full'] },
-    { id: 'read-only', label: 'Read Only', hint: 'Read workspace files, with approval required for edits or internet access' },
+    // Read only is in the TUI's /permissions menu (not desktop's); first here, as the most limited
+    { id: 'read-only', label: 'Read only', hint: 'Read files; ask before edits or internet access', icon: 'lock' },
+    { id: 'auto', label: 'Ask for approval', hint: 'Always ask to edit external files and use the internet', icon: 'hand', aka: ['Default', 'Auto', 'Agent'] },
+    { id: 'auto-review', label: 'Approve for me', hint: 'Only ask for actions detected as potentially unsafe', icon: 'shieldRun', aka: ['auto_review', 'guardian'] },
+    { id: 'full-access', label: 'Full access', hint: 'Unrestricted access to the internet and any file on your computer', icon: 'shieldAlert', warn: true, aka: ['full'] },
   ],
 };
 

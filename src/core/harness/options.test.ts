@@ -40,7 +40,7 @@ describe('harness options', () => {
     expect(o.models.map(m => m.id)).toEqual(['gpt-a', 'gpt-b']);
     expect(o.models[0]).toMatchObject({ label: 'GPT A', hint: 'Smart', efforts: ['minimal', 'high', 'ultra-deep'], effort: 'high', isDefault: true });
     expect(o.efforts.find(e => e.id === 'ultra-deep')?.label).toBe('Ultra-deep');
-    expect(o.perms.map(p => p.id)).toEqual(['auto', 'auto-review', 'full-access', 'read-only']);
+    expect(o.perms.map(p => p.id)).toEqual(['read-only', 'auto', 'auto-review', 'full-access']);
   });
 
   it('puts Codex\'s ultra effort at the top of the track, above max, whatever order model/list gives', () => {
@@ -52,8 +52,8 @@ describe('harness options', () => {
   });
 
   it('leaves out Codex presets that managed policy forbids', () => {
-    expect(codexOptions(CODEX, { allowedApprovalPolicies: ['on-request'], allowedSandboxModes: null }).perms.map(p => p.id)).toEqual(['auto', 'auto-review', 'read-only']);
-    expect(codexOptions(CODEX, { allowedApprovalsReviewers: ['user'] }).perms.map(p => p.id)).toEqual(['auto', 'full-access', 'read-only']);
+    expect(codexOptions(CODEX, { allowedApprovalPolicies: ['on-request'], allowedSandboxModes: null }).perms.map(p => p.id)).toEqual(['read-only', 'auto', 'auto-review']);
+    expect(codexOptions(CODEX, { allowedApprovalsReviewers: ['user'] }).perms.map(p => p.id)).toEqual(['read-only', 'auto', 'full-access']);
     expect(codexOptions(CODEX, { allowedApprovalPolicies: null, allowedSandboxModes: ['read-only'] }).perms.map(p => p.id)).toEqual(['read-only']);
   });
 

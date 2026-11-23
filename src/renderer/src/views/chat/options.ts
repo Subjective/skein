@@ -8,7 +8,7 @@ import { bundledCommands, CORE, type HarnessCommand, type HarnessCommands } from
 import { api } from '../../api';
 import { bump } from './state';
 
-export interface Opt { id: string; label: string; hint?: string }
+export interface Opt { id: string; label: string; hint?: string; icon?: string; warn?: boolean; hide?: boolean }
 
 /** How much of an agent's steps a turn shows, least first (zm and zr step through them). */
 export const DENSITY: Density[] = ['compact', 'balanced', 'detailed'];
@@ -67,9 +67,15 @@ export const permLabel = (h: Harness, v?: string) => PERMS[h].find(p => p.id ===
 export const permOf = (h: Harness, v?: string) => permId(h, v) ?? unsetPerm(h);
 export { effortId, permId };
 
-/** The permission menu: every mode the harness offers on the machine (Claude: the SDK's permission modes,
- *  Auto mode where a model has it; Codex: its approval presets that managed policy allows). */
-export const permChoices = (h: Harness, machine?: string): Opt[] => known(h, machine).perms;
+/** The permission menu: the modes the harness offers on the machine (Claude: the SDK's permission modes, Auto mode
+ *  where a model has it; Codex: its approval presets that managed policy allows), less the ones its own picker
+ *  hides, unless the thread is in one or policy leaves nothing else. */
+export const permChoices = (h: Harness, machine?: string, cur?: string): Opt[] => {
+  const all = known(h, machine).perms, shown = all.filter(p => !p.hide || p.id === cur);
+  return shown.some(p => !p.hide) ? shown : all;
+};
+/** The current mode's row (for the chip's icon and tone). */
+export const permRow = (h: Harness, v?: string) => PERMS[h].find(p => p.id === permOf(h, v));
 
 // ---- / commands: what the harness lists in the thread's folder (api.harness.commands, kept per machine,
 // harness and folder like the pickers' options); shared/commands.ts's lists until it answers or when it can't

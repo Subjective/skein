@@ -71,7 +71,7 @@ nnoremap C :chatall<CR>
 
   // ---------- tabs and the pane tree ----------
   let uid = 0;
-  const defaults = model => ({ model, effort: 'Medium', ultra: false, perm: D.perms[D.harnessOf(model)][0] });
+  const defaults = model => ({ model, effort: 'Medium', ultra: false, perm: D.permDefault[D.harnessOf(model)] });
   const T = {
     mk: (kind, x) => ({ id: 't' + (++uid), kind, draft: '', atts: [], notes: [], ...x }),
     file: (path, sid) => T.mk('file', { path, sid, mode: 'preview' }),
@@ -523,7 +523,7 @@ nnoremap C :chatall<CR>
       const c = Menu.cur, mq = $('.m-q', c.e);
       if (mq) { const v = $('input', c.e).value; mq.innerHTML = v ? esc(v.slice(0, -1)) + `<i class="ncur">${esc(v.slice(-1))}</i>` : `<span class="hc"><i></i></span><span class="ph">${esc(c.o.search.placeholder || '')}</span>`; }   // empty: the same slim block as an empty composer, over the placeholder
       $('.m-l', c.e).innerHTML = c.items.map((it, i) => it.html ? `<div class="mx" role="presentation">${it.html}</div>` : it.head ? `<div class="mi head" role="presentation">${it.icon || ''}${esc(it.label)}</div>`
-        : `<div class="mi ${i === c.i ? 'sel' : ''} ${it.dis ? 'off' : ''}" data-i="${i}" role="option" id="mi-${i}" aria-selected="${i === c.i}"${it.dis ? ' aria-disabled="true"' : ''}>${it.icon ? `<span class="mic">${it.icon}</span>` : ''}<span class="ml">${esc(it.display || it.label)}</span>${it.hint ? `<span class="mh">${esc(it.hint)}</span>` : ''}<span class="mr">${it.right || ''}${it.kbd ? `<kbd>${esc(it.kbd)}</kbd>` : ''}${it.on ? ic('check') : ''}</span></div>`).join('');
+        : `<div class="mi ${i === c.i ? 'sel' : ''} ${it.dis ? 'off' : ''} ${it.warn ? 'warn' : ''}" data-i="${i}" role="option" id="mi-${i}" aria-selected="${i === c.i}"${it.dis ? ' aria-disabled="true"' : ''}>${it.icon ? `<span class="mic">${it.icon}</span>` : ''}<span class="ml">${esc(it.display || it.label)}</span>${it.hint ? `<span class="mh">${esc(it.hint)}</span>` : ''}<span class="mr">${it.right || ''}${it.kbd ? `<kbd>${esc(it.kbd)}</kbd>` : ''}${it.on ? ic('check') : ''}</span></div>`).join('');
       if (!c.items.length && c.o.empty) $('.m-l', c.e).innerHTML = `<div class="m-empty" role="status">${esc(c.o.empty)}</div>`;
       c.e.classList.toggle('none', !c.items.length && !c.o.search);
       const s = $('.mi.sel', c.e); if (s) s.scrollIntoView({ block: 'nearest' });
@@ -1502,7 +1502,7 @@ nnoremap C :chatall<CR>
       onPick: it => {
         if (it.k === 'install') return toast(`${ic('copy')}<span>Copied <b>${it.hn === 'claude' ? 'npm i -g @anthropic-ai/claude-code' : 'npm i -g @openai/codex'}</b></span>`);
         if (it.k === 'ultra') m.ultra = !m.ultra;
-        else { m.model = it.label; const d = D.modelDef(m.model); if (!d.e.includes(m.effort)) m.effort = d.e[d.e.length - 1]; if (!d.ultra) m.ultra = false; if (t.kind === 'new') m.perm = D.perms[D.harnessOf(m.model)][0]; }
+        else { m.model = it.label; const d = D.modelDef(m.model); if (!d.e.includes(m.effort)) m.effort = d.e[d.e.length - 1]; if (!d.ultra) m.ultra = false; if (t.kind === 'new') m.perm = D.permDefault[D.harnessOf(m.model)]; }
         render();
       } });
   }
@@ -1619,7 +1619,8 @@ nnoremap C :chatall<CR>
     pickModel: (e, t) => modelMenu(e, t),
     pickPerm(e, t) {
       const m = t.kind === 'new' ? t : sess(t.sid);
-      Menu.open({ anchor: e, place: 'top-start', width: 200, items: D.perms[D.harnessOf(m.model)].map(x => ({ label: x, on: m.perm === x })), onPick: it => { m.perm = it.label; render(); } });
+      // like Codex desktop's: icon, name, a line on what it allows; the mode without limits in the warning tone
+      Menu.open({ anchor: e, place: 'top-start', width: 460, cls: 'perms', items: D.perms[D.harnessOf(m.model)].map(x => { const [icon, hint, warn] = D.permInfo[x]; return { label: x, hint, icon: ic(icon), warn, on: m.perm === x }; }), onPick: it => { m.perm = it.label; render(); } });
     },
     pickMachine(e, t) {
       Menu.open({ anchor: e, place: 'top-start', width: 280,
