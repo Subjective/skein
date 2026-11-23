@@ -8,7 +8,7 @@ import { defaultKeymap, history, historyField, historyKeymap } from '@codemirror
 import { bracketMatching, indentOnInput } from '@codemirror/language';
 import { Compartment, EditorSelection, EditorState, RangeSet, Transaction, type Extension } from '@codemirror/state';
 import {
-  Decoration, drawSelection, WidgetType, EditorView, gutterLineClass, GutterMarker, highlightActiveLine, highlightActiveLineGutter,
+  Decoration, drawSelection, gutters, WidgetType, EditorView, gutterLineClass, GutterMarker, highlightActiveLine, highlightActiveLineGutter,
   keymap as cmKeymap, lineNumbers, MatchDecorator, ViewPlugin, type DecorationSet, type ViewUpdate,
 } from '@codemirror/view';
 import { vim, Vim } from '@replit/codemirror-vim';
@@ -113,7 +113,7 @@ function diffExt(state: EditorState, d: CodeEditorProps['diff']): Extension {
   if (end) out.push(Decoration.widget({ widget: new Gone(end), block: true, side: 1 }).range(doc.length));
   return [EditorView.decorations.of(Decoration.set(out, true)), EditorView.editorAttributes.of({ class: 'diffv' })];
 }
-const gutterExt = (on: boolean | undefined) => (on === false ? EditorView.editorAttributes.of({ class: 'nonum' }) : [numbers, highlightActiveLineGutter()]);
+const gutterExt = (on: boolean | undefined) => (on === false ? EditorView.editorAttributes.of({ class: 'nonum' }) : [numbers, highlightActiveLineGutter(), gutters({ fixed: false })]);
 
 /** V-LINE shades whole lines (the text area, not the gutter), as Vim does, rather than the selection's own shape. */
 const vlineMark = Decoration.line({ class: 'vsel' });

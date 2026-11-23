@@ -862,6 +862,12 @@ code.flink:hover { text-decoration: underline; text-underline-offset: 2px; }
 .hc { position: relative; }
 .hc i { position: absolute; left: 0; top: 0; width: .42em; height: 1.5em; background: var(--fg); opacity: .8; border-radius: 1px; }
 textarea.vn.hollow.drawn { caret-color: transparent; }
+/* an operator waiting for its motion (d, c, y): the cursor is a half block, the lower half of the character, as Vim
+   and the code editor draw it (ui/opcursor.ts). One look for every field. */
+.vop { background: linear-gradient(transparent 50%, var(--fg) 50%) !important; color: inherit !important; border-radius: 1px; }
+.vop-float { position: fixed; z-index: 9999; pointer-events: none; }
+textarea.vn.op::selection { background: transparent; color: inherit; }
+.hc.op i { top: .75em; height: .75em; }
 .m-q { position: relative; }
 /* on a character it is exactly that character's box, no wider */
 .m-q .ncur { padding: 0; margin: 0; letter-spacing: 0; }

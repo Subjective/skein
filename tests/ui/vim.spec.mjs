@@ -395,3 +395,31 @@ test('fields: y and p share one register across fields; p takes the clipboard wh
   await keys(p, 'y y P');
   assert.equal(await box.inputValue(), 'hello worldhello \nhello worldhello ');
 });
+
+test('fields: an operator waiting for its motion shows a half-block cursor, in a composer and a menu search', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  const box = p.locator('.pane.focus .compw textarea');
+  await box.pressSequentially('hello world');
+  await keys(p, 'Escape 0');
+  const half = p.locator('.pane.focus .compw .bk .vcur.vop');
+  assert.equal(await half.count(), 0, 'NORMAL: a full block');
+  await keys(p, 'd');
+  assert.equal(await half.innerText(), 'h', 'd waits: the half block on the character');
+  const bg = await half.evaluate(e => getComputedStyle(e).backgroundImage);
+  assert.match(bg, /linear-gradient/);
+  assert.ok(await box.evaluate(e => e.classList.contains('op')));
+  await keys(p, 'w');
+  assert.equal(await box.inputValue(), 'world');
+  assert.equal(await half.count(), 0, 'dw done: a full block again');
+  await keys(p, 'c');
+  assert.equal(await half.count(), 1);
+  await keys(p, 'Escape');
+  assert.equal(await half.count(), 0, 'esc lets the operator go');
+  // a menu's search field in NORMAL
+  await keys(p, `${mod}+k`);
+  await p.keyboard.type('abc');
+  await keys(p, 'Escape 0 d');
+  await p.locator('.menu .ncur.vop').waitFor();
+  await keys(p, 'Escape');
+  assert.equal(await p.locator('.menu .ncur.vop').count(), 0);
+});

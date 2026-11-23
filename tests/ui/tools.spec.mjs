@@ -1051,6 +1051,22 @@ await test('file: mod-l quotes V-LINE into the thread beside it, even when the f
   assert.ok(await p.locator('.pane.focus .compw .bk .tok').count(), 'the quote is in the thread pane, which now has focus');
 });
 
+await test('file: line numbers scroll with the code, never drawn over it, at the end of a long line', async p => {
+  await openFile(p, 'package.json');
+  await findFile(p, 'store.ts');
+  const g = F(p).locator('.cm-gutters:visible');
+  assert.notEqual(await g.evaluate(e => getComputedStyle(e).position), 'sticky');
+  // a long line, scrolled to its end: the numbers go left with the text
+  await keys(p, 'O');
+  await p.keyboard.insertText('x'.repeat(400));
+  await keys(p, 'Escape $');
+  await settle(p);
+  const sl = await F(p).locator('.cm-scroller:visible').evaluate(e => e.scrollLeft);
+  assert.ok(sl > 100, `scrolled sideways: ${sl}`);
+  const gb = await g.boundingBox(), sb = await F(p).locator('.cm-scroller:visible').boundingBox();
+  assert.ok(gb.x + gb.width <= sb.x + 1, 'the gutter left the view with the code');
+});
+
 await test('file: one selection colour; V shades whole lines, not the gutter, and moves nothing', async p => {
   await openFile(p, 'package.json');
   const row = F(p).locator('.cm-line').nth(1);
