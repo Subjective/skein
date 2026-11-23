@@ -25,7 +25,8 @@ export interface TranscriptCtx {
   main: boolean;
   editing?: string;
   editBox?: ReactNode;
-  onEdit?(eventId: string): void;
+  /** Open your message for editing; x and y are where it was clicked (the caret goes there). */
+  onEdit?(eventId: string, x?: number, y?: number): void;
   onSide?(eventId: string): void;
   onFork?(eventId: string): void;
   onOpenSub?(subId: string): void;
@@ -222,7 +223,7 @@ function UserMsg({ e, c, src }: { e: Ev<'user'>; c: TranscriptCtx; src: string }
   };
   return (
     <div className={cx('m-user', c.onEdit && 'can-edit', long && 'long')} data-user data-ev={e.id} data-src={src} title={c.onEdit ? 'Click to edit and resend' : undefined}
-      onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img, .m-more')) return; c.onEdit(e.id); }}>
+      onClick={ev => { if (!c.onEdit || getSelection()?.toString()) return; if ((ev.target as Element).closest('img, .m-more')) return; c.onEdit(e.id, ev.clientX, ev.clientY); }}>
       <div ref={clip} className={cx('m-clip', shut && 'shut')}>
         {/* an image is a row for the reader (j / k stop on it, enter opens it); the hidden word is the line it lands on */}
         {e.images?.map((u, i) => <span key={i} className="m-pic"><img className="m-img" src={u} alt="" data-zoom onClick={ev => { ev.stopPropagation(); openLightbox(u); }} /><span className="m-pic-n">Image</span></span>)}
