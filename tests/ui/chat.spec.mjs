@@ -513,6 +513,7 @@ await test('folds: Compact shuts a finished turn under Worked for; zr Balanced, 
   });
   let s = await st();
   assert.match(s.head, /^Worked for \d/, 'the header is the duration');
+  assert.doesNotMatch(s.head, /m 0\d/, 'no zero-padded seconds: 1m 6s, not 1m 06s');
   assert.ok(!s.turn && s.edited, 'Compact: shut, with the edited files below');
   assert.ok(!(await p.locator('.pane.focus .reply').first().innerText()).match(/tool calls|failed/), 'no counts in the header');
   await openAll(p); await keys(p, 'z Shift+M'); await settle(p);
@@ -1743,4 +1744,57 @@ await test('/ menu: shrinks to fit as you type, on the side it opened on', async
   assert.equal(await menu.locator('.mi').count(), 1);
   assert.ok(one.height < row.height + 24, `fits its one row (${Math.round(one.height)}px for a ${Math.round(row.height)}px row)`);
   assert.equal(Math.round(one.y), Math.round(full.y), 'same side, same edge');
+});
+
+await test('timeline ticks: on hover each tick is lighter the further it is from the pointer (light and dark)', async p => {
+  for (const scheme of ['light', 'dark']) {
+    await p.emulateMedia({ colorScheme: scheme }); await settle(p, 200);
+    await openChat(p, 'Walk through the backlog');
+    const ticks = p.locator('.pane.focus .ticks button');
+    const mid = Math.floor((await ticks.count()) / 2), at = ticks.nth(mid);
+    await at.scrollIntoViewIfNeeded(); await at.hover(); await settle(p, 300);
+    // distance of each tick's color from the hovered one, for the hovered tick and four on each side
+    let far = 0;
+    const d = await ticks.evaluateAll((bs, m) => {
+      const rgb = b => { const c = document.createElement('canvas').getContext('2d'); c.fillStyle = getComputedStyle(b.querySelector('i')).backgroundColor; c.fillRect(0, 0, 1, 1); return [...c.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+      const h = rgb(bs[m]), dist = b => { const x = rgb(b); return Math.hypot(x[0] - h[0], x[1] - h[1], x[2] - h[2]); };
+      return { d: [1, 2, 3, 4].map(k => [dist(bs[m - k]), dist(bs[m + k])]), far: dist(bs[m + 10] || bs[m - 10]) };
+    }, mid).then(r => { far = r.far; return r.d; });
+    for (let k = 1; k < d.length; k++) for (const s of [0, 1]) assert.ok(d[k][s] >= d[k - 1][s] - 0.5, `${scheme}: tick ${k + 1} away is no darker than tick ${k} (${JSON.stringify(d)})`);
+    // not all near-black: the next tick is already past halfway to a resting tick's shade
+    assert.ok(d[0][0] > far * 0.45 && d[0][1] > far * 0.45, `${scheme}: the next tick is clearly lighter (${JSON.stringify(d[0])} of ${far})`);
+    await p.mouse.move(600, 400);
+  }
+});
+
+await test('timeline ticks: a green dot follows the tick of a turn that changed files, and only those', async p => {
+  await openChat(p, 'Walk through the backlog');
+  const r = await p.evaluate(() => {
+    const bs = [...document.querySelectorAll('.pane.focus .ticks button')];
+    const dots = bs.map(b => getComputedStyle(b, '::after').content !== 'none');
+    const green = bs.filter(b => b.classList.contains('changed')).map(b => getComputedStyle(b, '::after').backgroundColor);
+    return { n: bs.length, ed: bs.map((b, i) => b.classList.contains('changed') ? i : -1).filter(i => i >= 0), dots: dots.filter(Boolean).length, green: [...new Set(green)], label: bs.find(b => b.classList.contains('changed'))?.getAttribute('aria-label') };
+  });
+  assert.deepEqual(r.ed, [3, 10, 17, 24, 31, 38, 45, 52, 59, 66], 'every 7th item changed a file');
+  assert.equal(r.dots, r.ed.length, 'a dot on those ticks only');
+  assert.equal(r.green.length, 1); assert.match(r.label, /changed files/);
+});
+
+await test('reader: ctrl-d / ctrl-u scroll half a page and the cursor goes along, staying where it was on screen', async p => {
+  await openChat(p, 'Walk through the backlog');
+  const th = p.locator('.pane.focus .thread');
+  await th.evaluate(e => { e.scrollTop = 0; }); await settle(p, 200);
+  await readAt(p, 'Item 3 needs one more test');
+  assert.equal(await mode(p), 'NORMAL');
+  const st = () => p.evaluate(() => { const t = document.querySelector('.pane.focus .thread'), s = getSelection(), r = s.rangeCount ? s.getRangeAt(0).getBoundingClientRect() : null; const h = (CSS.highlights?.get('vcur'))?.values().next().value; const hr = h ? h.getBoundingClientRect() : r; return { top: t.scrollTop, half: Math.round(t.clientHeight / 2), y: Math.round(hr?.top ?? -1), text: (h?.startContainer || s.anchorNode)?.parentElement?.closest('.m-user, .m-asst')?.innerText.trim().slice(0, 30) }; });
+  const s0 = await st();
+  await keys(p, 'Control+d'); await settle(p, 200);
+  const s1 = await st();
+  assert.ok(Math.abs(s1.top - s0.top - s0.half) <= 2, `scrolled half a page (${s0.top} to ${s1.top}, half ${s0.half})`);
+  assert.ok(Math.abs(s1.y - s0.y) < 40, `the cursor stays about where it was on screen (${s0.y} to ${s1.y})`);
+  assert.notEqual(s1.text, s0.text, `the cursor moved on (${s0.text} to ${s1.text})`);
+  assert.equal(await mode(p), 'NORMAL');
+  await keys(p, 'Control+u'); await settle(p, 200);
+  const s2 = await st();
+  assert.ok(Math.abs(s2.top - s0.top) <= 2, `ctrl-u scrolls back (${s2.top})`);
 });

@@ -104,7 +104,13 @@ export function closeTab(tabId?: string) {
   save();
 }
 
+/** Stepping tabs with keys never changes the mode: H / L (NORMAL) land in NORMAL, the leader's n / p from a field
+ *  that is typing land typing. steppedInsert() is that mode for the composer the step lands on, else undefined. */
+let stepped = { at: 0, insert: false };
+export const steppedInsert = (ms = 600): boolean | undefined => (Date.now() - stepped.at < ms ? stepped.insert : undefined);
 export function tabStep(d: number) {
+  const el = document.activeElement;
+  stepped = { at: Date.now(), insert: !!el && el.tagName === 'TEXTAREA' && !el.classList.contains('vn') };
   update(s => { const p = focusedPane(); const i = p.tabs.indexOf(activeTab(p)); p.active = p.tabs[(i + d + p.tabs.length) % p.tabs.length].id; s.tick++; });
   save();
 }

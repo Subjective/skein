@@ -8,7 +8,8 @@
 .tool-h .chip .nums { margin-left: 7px; }
 .cfile > summary.rowcur { box-shadow: none; }
 .tool-h .splitbtn:not(.part) .btn[disabled] { opacity: .45; cursor: default; }
-.tool-h .splitbtn .btn:focus-visible, .tool-h .ib:focus-visible, .tool-h .chip:focus-visible, .crumb:focus-visible { outline: 2px solid var(--fg-3); outline-offset: 1px; }
+/* not while the button's menu is open: the menu shows where the keys are */
+.tool-h :is(.splitbtn .btn, .ib, .chip):focus-visible:not([aria-expanded="true"]), .crumb:focus-visible:not([aria-expanded="true"]) { outline: 2px solid var(--fg-3); outline-offset: 1px; }
 
 /* rows under the reader's cursor */
 .diff .dl, .src .dl { scroll-margin: 36px 0 8px; }

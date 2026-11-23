@@ -6,6 +6,7 @@
 //   thinking    same as text
 //   tool, edit, todo, sub   the tool_use id
 //   a subagent's prompt      `p-${tool_use id}` (the first message of its own transcript)
+import { dur as fmtDur } from '../../../shared/duration';
 import type { StepKind, ThreadEvent } from '../../../shared/types';
 import { clip, countDiff, errorKind, replaceDiff, textOf, tidy } from '../common';
 
@@ -126,7 +127,6 @@ function taskNotification(blocks: Block[]): { toolId: string; status: string; ms
   return toolId && status ? { toolId, status, ...(Number.isFinite(ms) ? { ms } : {}) } : null;
 }
 
-const fmtDur = (ms: number) => (ms < 60_000 ? `${Math.round(ms / 1000)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
 
 export class ClaudeFold {
   /** Event id → the transcript uuid that ends it. Side chats fork there; edits rewind to before a user event. */

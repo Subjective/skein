@@ -191,9 +191,10 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const wasFocused = useRef(false);
   useLayoutEffect(() => {
     // back to the thread from a side chat's anchor line comes up in NORMAL (the mockup's D3); a thread opened from
-    // the sidebar still opens ready to type (VIM-MODEL: the composer is a Field, INSERT)
+    // the sidebar still opens ready to type (VIM-MODEL: the composer is a Field, INSERT). Stepping tabs with H / L
+    // never changes the mode: the composer takes the keys in NORMAL
     const by = recentMouse(), listed = !!by?.closest?.('.sc-anchor');
-    if (focused && !wasFocused.current && !reader.on && qref.current == null) { if (composer.current) composer.current.focus(listed ? false : undefined); else idle(); }
+    if (focused && !wasFocused.current && !reader.on && qref.current == null) { if (composer.current) composer.current.focus(listed ? false : A.steppedInsert()); else idle(); }
     if (!focused && wasFocused.current) {
       const el = document.activeElement as HTMLElement | null;
       if (el && scroller.current?.parentElement?.contains(el)) el.blur();
