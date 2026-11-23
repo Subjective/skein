@@ -4,6 +4,7 @@ import { openLightbox } from '../../ui/Lightbox';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import type { Density, Harness, StepKind, ThreadEvent, ThreadMeta } from '@shared/types';
+import { dur } from '@shared/duration';
 import { api } from '../../api';
 import { machine, S, toast } from '../../state/store';
 import type { IconName } from '../../ui/icons';
@@ -44,7 +45,6 @@ const KIND: Record<StepKind, [string, IconName]> = {
 };
 /** Events from before steps had kinds (and the browser samples) name the tool only. */
 const kindOf = (e: Ev<'tool'>): StepKind => e.kind ?? ({ Read: 'read', Grep: 'search', Glob: 'search', Bash: 'command', Shell: 'command', WebFetch: 'web', WebSearch: 'web' } as Record<string, StepKind>)[e.name] ?? (/^[^:]+: /.test(e.name) ? 'mcp' : 'other');
-export const dur = (ms: number) => { const s = Math.round(ms / 1000); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`; };
 export const ago = (t: number) => { const m = (Date.now() - t) / 60000; return m < 1 ? 'now' : m < 60 ? `${Math.round(m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
 
 /** Unified diff text to numbered lines. */
@@ -379,7 +379,9 @@ export function Transcript({ events, c, running, since }: { events: ThreadEvent[
     if (live && !streaming) body.push(<Live key="live" since={since} />);
     const texts = g.reply.filter((e): e is Ev<'text'> => e.t === 'text');
     if (!live && texts.length && c.main) body.push(<Acts key="acts" c={c} at={texts[texts.length - 1].id} text={texts.map(x => x.text).join('\n\n')} last={lastGroup} when={groups[gi + 1]?.user?.at} />);
-    if (body.length) out.push(<div key={'r' + gi} className="reply">{body}</div>);
+    // data-edits: the turn changed files (the timeline marks its tick)
+    const edited = g.reply.some(e => e.t === 'edit');
+    if (body.length) out.push(<div key={'r' + gi} className="reply" data-edits={edited ? '' : undefined}>{body}</div>);
   });
   return <>{out}</>;
 }

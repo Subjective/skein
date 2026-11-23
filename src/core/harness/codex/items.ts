@@ -1,5 +1,6 @@
 // Codex ThreadItems (app-server v2) to ThreadEvents. The live driver and the rollout reader both go
 // through itemEvents, so an event's id is the item's id from either source.
+import { dur as fmtDur } from '../../../shared/duration';
 import type { StepKind, ThreadEvent } from '../../../shared/types';
 import { clip, countDiff, errorKind, textOf, tidy } from '../common';
 import type { CollabAgentStatus } from './protocol/v2/CollabAgentStatus';
@@ -8,7 +9,8 @@ import type { TurnError } from './protocol/v2/TurnError';
 
 type Status = 'running' | 'done' | 'failed';
 const st = (s: string | null | undefined, ok = true): Status => (s === 'inProgress' ? 'running' : s === 'completed' && ok ? 'done' : s === 'completed' ? 'failed' : s == null ? 'done' : 'failed');
-const dur = (ms: number | null | undefined) => (ms == null ? undefined : ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`);
+// a command's time: finer under a minute (20ms, 4.2s), then as everywhere else (1m 6s)
+const dur = (ms: number | null | undefined) => (ms == null ? undefined : ms < 1000 ? `${ms}ms` : ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : fmtDur(ms));
 
 /** Text a harness puts in the user's turn (environment context, instructions), not typed by the user. */
 const injected = (s: string) => /^\s*<(environment_context|user_instructions|turn_aborted|permissions|skills_instructions|INSTRUCTIONS)/.test(s) || /^# AGENTS\.md instructions/.test(s);

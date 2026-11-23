@@ -303,6 +303,28 @@ export class Reader {
     for (;;) { r = step(q, d); if (!r || sp(r) || gap(q, r)) return q; q = r; }
   }
   /** Up or down a line by geometry, which works on any static text. */
+  /** ctrl-d / ctrl-u: the thread scrolls half its height and the cursor goes as many lines, staying where it was on
+   *  screen (as in Vim). At the end of the thread the cursor goes on to the last (or first) line. */
+  private half(d: number) {
+    const sc = (this.root!.closest('.thread') as HTMLElement) || this.root!;
+    const top = () => { const f = this.f!, r = document.createRange(); r.setStart(f.n, f.o); r.setEnd(f.n, Math.min(f.o + 1, f.n.data.length)); return (this.row && this.mode === 'n' ? this.row.getBoundingClientRect() : r.getClientRects()[0])?.top ?? 0; };
+    const at = top(), before = sc.scrollTop;
+    sc.scrollTop += d * Math.round(sc.clientHeight / 2);
+    const moved = sc.scrollTop !== before;
+    let prev: number | null = null;
+    for (let i = 0; i < 400; i++) {
+      const y = top();
+      if (moved && (d > 0 ? y >= at - 2 : y <= at + 2)) {
+        // a tall row overshoots: the step before may be nearer where the cursor was
+        if (prev != null && Math.abs(prev - at) < Math.abs(y - at)) { const keep = sc.scrollTop; this.vert(-d); sc.scrollTop = keep; }
+        break;
+      }
+      prev = y;
+      const keep = sc.scrollTop;
+      if (!this.vert(d)) break;
+      if (moved) sc.scrollTop = keep;   // the screen moved once; the cursor follows it, not the other way round
+    }
+  }
   private vert(d: number): boolean {
     const f = this.f!, root = this.root!;
     const fr = document.createRange(); fr.setStart(f.n, f.o); fr.setEnd(f.n, Math.min(f.o + 1, f.n.data.length));
@@ -494,6 +516,8 @@ export class Reader {
       case '0': case 'home': this.go('backward', 'lineboundary'); break;
       case '$': case 'end': this.go('forward', 'lineboundary'); break;
       case 'k': case 'up': this.vert(-1); break;
+      case 'ctrl-d': case 'pagedown': this.half(1); break;
+      case 'ctrl-u': case 'pageup': this.half(-1); break;
       case 'j': case 'down': if (!this.vert(1) && this.mode === 'n') { this.exit(); return true; } break;
       case 'v': case 'V':
         if (this.mode === 'n') this.a = this.f;
