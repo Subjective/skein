@@ -270,6 +270,26 @@ await test('edit from the reader: i, a and cw on your message type into it in IN
   }
 });
 
+await test('edit from the reader: keys typed before the edit box shows (c w, i Z on a slow frame) still go into it', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  const box = p.locator('.pane.focus .m-edit textarea');
+  await composer(p).press('Escape');
+  // a slow machine: the box mounts a while after the key that opens it, and the next key comes before that
+  await p.evaluate(() => { const r = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = f => setTimeout(() => r(f), 60); });
+  for (const [ks, want] of [['c w', 'Our PowerShell'], ['i Z', 'ZMy PowerShell']]) {
+    await p.keyboard.press('g'); await p.keyboard.press('g'); await settle(p);
+    await p.keyboard.press('0');
+    for (const k of ks.split(' ')) await p.keyboard.press(k);
+    await box.waitFor();
+    await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'INSERT', null, { timeout: 2000 }).catch(() => {});
+    assert.equal(await mode(p), 'INSERT', `${ks} ends in INSERT`);
+    if (ks === 'c w') await p.keyboard.type('Our');
+    assert.ok((await box.inputValue()).startsWith(want), `${ks}: ${JSON.stringify((await box.inputValue()).slice(0, 20))}`);
+    await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+    await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
+  }
+});
+
 await test('edit from the reader and a double-click: the cursor lands on the same character in the Markdown source', async p => {
   await openChat(p, 'Add timestamps to chat rows');
   await composer(p).fill('Intro line\n- **bold** item');

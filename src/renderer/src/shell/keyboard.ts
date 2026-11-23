@@ -80,10 +80,10 @@ export function armLeader() {
 }
 
 /** A key that reached Skein some other way than the window's keydown (a Browser tab's page kept it back). */
-export function dispatchKey(e: KeyLike) {
-  if (!d) return;
+export function dispatchKey(e: KeyLike): boolean {
+  if (!d) return false;
   d.keymap = keymap();
-  d.handle(e);
+  return d.handle(e);
 }
 
 /** The keys Skein keeps while a Browser tab's page has the keyboard (VIM-MODEL rule 11, as for a terminal):
