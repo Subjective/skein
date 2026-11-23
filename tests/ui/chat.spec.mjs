@@ -1490,7 +1490,7 @@ await test('reader: gg scrolls the transcript all the way to the top, G all the 
   const sc = () => p.locator('.pane.focus .thread').evaluate(t => ({ top: t.scrollTop, max: t.scrollHeight - t.clientHeight }));
   assert.ok((await sc()).max > 40, 'the thread scrolls');
   await keys(p, 'g g');
-  assert.equal((await sc()).top, 0, 'gg: at the very top');
+  assert.ok((await sc()).top <= 1, 'gg: at the very top (resting a pixel short, so a pull there bounces)');
   await keys(p, 'G');
   const s = await sc();
   assert.ok(s.max - s.top <= 1, `G: at the very bottom (${s.top} of ${s.max})`);
@@ -1947,43 +1947,18 @@ await test('links in a reply: enter and g x follow the link under the cursor', a
   assert.equal(await p.evaluate(() => window.__external.length), 2, 'g x follows it too');
 });
 
-await test('rubber band: a trackpad pull at the end stretches the reader, springs back; a wheel notch and a scroll from the middle do not', async p => {
+await test('rubber band: the reader rests a pixel short of each end, so a pull there bounces natively', async p => {
   await openChat(p, 'Fix session-restore race');
   await openAll(p);
-  const th = p.locator('.pane.focus .chat > .thread');
   await settle(p, 400);
+  const th = p.locator('.pane.focus .chat > .thread');
+  const room = () => th.evaluate(el => [el.scrollTop, el.scrollHeight - el.clientHeight - el.scrollTop].map(Math.round));
   await th.evaluate(el => { el.scrollTop = el.scrollHeight; });
-  await settle(p, 300);
-  assert.ok(await th.evaluate(el => el.scrollHeight > el.clientHeight && el.scrollTop + el.clientHeight >= el.scrollHeight - 1), 'the reader scrolls and sits at its end');
-  const rb = () => th.evaluate(el => parseFloat(el.style.getPropertyValue('--rb')) || 0);
-  // trackpad-like wheel events on the reader's content, about one a frame (Chromium only scrolls on real input)
-  const pull = (dy, o = {}, n = 6) => th.evaluate(async (el, [dy, o, n]) => {
-    const t = el.querySelector('.col') ?? el;
-    for (let i = 0; i < n; i++) { t.dispatchEvent(new WheelEvent('wheel', { deltaY: typeof dy === 'number' ? dy : dy[i], bubbles: true, ...o })); await new Promise(r => setTimeout(r, 16)); }
-  }, [dy, o, n]);
-  await settle(p, 150);
-  await pull(7);
-  const pulled = await rb();
-  assert.ok(pulled < -10 && pulled > -100, `pulled up with resistance (${pulled})`);
-  await settle(p, 800);
-  assert.equal(await rb(), 0, 'springs back');
-  assert.ok(!(await th.evaluate(el => el.classList.contains('rb'))), 'and lets go of the content');
-  // a hard, long pull still stretches only a little
-  await pull(30, {}, 40);
-  const hard = await rb();
-  assert.ok(hard < -60 && hard > -140, `a hard pull meets strong resistance (${hard})`);
-  await settle(p, 700);
-  // momentum after the fingers lift (shrinking deltas) springs it back instead of pulling further
-  await pull([8, 8, 8, 20, 16, 12, 9, 6, 4, 3, 2, 1], {}, 12);
-  assert.equal(await rb(), 0, 'momentum lets go');
-  await settle(p, 700);
-  await pull(-7);
-  assert.equal(await rb(), 0, 'pulling down at the bottom does nothing');
-  await settle(p, 150);
-  await pull(3, { deltaMode: 1 });
-  assert.equal(await rb(), 0, 'no bounce on a notched wheel');
-  await settle(p, 150);
-  await th.evaluate(el => { el.scrollTop = el.scrollHeight - el.clientHeight - 20; });
-  await pull(7);
-  assert.equal(await rb(), 0, 'no stretch for a gesture that began mid-content');
+  await p.waitForFunction(() => { const el = document.querySelector('.pane.focus .chat > .thread'); return Math.round(el.scrollHeight - el.clientHeight - el.scrollTop) === 1; });
+  await th.evaluate(el => { el.scrollTop = 0; });
+  await p.waitForFunction(() => Math.round(document.querySelector('.pane.focus .chat > .thread').scrollTop) === 1);
+  // G (a scroll from a key) settles a pixel short too
+  await keys(p, 'Shift+G');
+  await settle(p, 400);
+  assert.equal((await room())[1], 1, 'G ends a pixel short of the end');
 });

@@ -964,10 +964,6 @@ button[aria-expanded="true"]:focus-visible { outline: 0; }   /* its menu is open
 .ring.full, #context-usage .cu-bar.full { --c: var(--red); }
 
 
-/* Rubber-band pull at a scroll area's end (ui/rubberband.ts): the content follows the fingers, then springs back */
-.rb > * { translate: 0 var(--rb, 0px); }
-.rb-back > * { transition: translate 400ms cubic-bezier(0.33, 1, 0.68, 1); }
-
 /* ===== Polish pass (audit 2026-11-20). Later rules win. ===== */
 
 /* G1: a terminal owns its keys; the pill says so, the way Vim's :terminal does */

@@ -9,11 +9,11 @@ import { S } from './state/store';
 import { termOf } from './views/terminal/TerminalView';
 import { EditorView } from '@codemirror/view';
 import { getReg } from './input/register';
-import { startRubberBand } from './ui/rubberband';
+import { startOverscroll } from './ui/overscroll';
 
 document.body.insertAdjacentHTML('afterbegin', spriteHtml());
 startKeyboard();
-startRubberBand();
+startOverscroll();
 // for UI tests and debugging from devtools
 (window as unknown as { __skein: unknown }).__skein = { S, owner, api, text: (tabId: string) => { const t = termOf(tabId); if (!t) return ''; const b = t.term.buffer.active; let o = ''; for (let i = 0; i < b.length; i++) o += (b.getLine(i)?.translateToString(true) ?? '') + '\n'; return o.trimEnd(); },
   /** A terminal's selection (the scrollback reader's cursor or match): its text and the buffer line it starts on. */
