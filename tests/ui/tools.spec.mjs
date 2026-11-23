@@ -604,6 +604,13 @@ async function openGuide(p) {
   await p.keyboard.press('Enter');
   await F(p).locator('.md-live .md-link').first().waitFor();
 }
+/** A modifier click on a link's first character: a wrapped link's box starts left of its first line, over other text. */
+async function clickStart(p, loc, mod) {
+  const r = await loc.evaluate(e => { const b = e.getClientRects()[0]; return { x: b.left + 3, y: b.top + b.height / 2 }; });
+  await p.keyboard.down(mod);
+  await p.mouse.click(r.x, r.y);
+  await p.keyboard.up(mod);
+}
 const crumbIs = (p, re) => p.waitForFunction(r => new RegExp(r).test(document.querySelector('.pane.focus .file-v .crumbs')?.textContent || ''), re.source);
 /** Whether the element is inside the reader's visible area. */
 const shown = loc => loc.evaluate(el => { const b = el.closest('.tool-b').getBoundingClientRect(), r = el.getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1; });
@@ -639,11 +646,11 @@ await test('file: preview links: tab moves to the next and shows where it goes; 
   // a web link opens in the system browser; a click with a modifier follows (a plain click edits)
   await F(p).locator('.md-link', { hasText: 'the web' }).click();
   assert.equal(await p.evaluate(() => (window.__external || []).length), 0, 'a plain click only moves the cursor');
-  await F(p).locator('.md-link', { hasText: 'the web' }).click({ modifiers: ['Meta'], position: { x: 4, y: 6 } });
+  await clickStart(p, F(p).locator('.md-link', { hasText: 'the web' }), 'Meta');
   assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein']);
   // shift-click: a new split
   const panes = await p.locator('.pane').count();
-  await F(p).locator('.md-link', { hasText: 'the theme' }).click({ modifiers: ['Shift'], position: { x: 4, y: 6 } });   // a wrapped link's middle may be another word
+  await clickStart(p, F(p).locator('.md-link', { hasText: 'the theme' }), 'Shift');
   await p.waitForFunction(n => document.querySelectorAll('.pane').length === n + 1, panes);
   await crumbIs(p, /theme\.css/);
 });
