@@ -19,6 +19,7 @@ import { run } from '../../shell/commands';
 import { keymap } from '../../shell/overlays';
 import { S, update } from '../../state/store';
 import { languageFor } from './lang';
+import { livePreview } from './markdown';
 import { route } from './route';
 import { skeinHighlight, skeinTheme } from './theme';
 import { cmOf, feed, idle, keepBridge, modeOf, setupVim, vimKey, vimSel } from './vim';
@@ -53,6 +54,8 @@ export interface CodeEditorProps {
   numbers?: boolean;
   /** Long lines wrap. */
   wrap?: boolean;
+  /** Markdown drawn as it reads while it is edited (editor/markdown.ts): the file's Preview. */
+  live?: boolean;
   /** Painted as search hits (the shared search popup's query), smart case. */
   find?: string;
   /** For a quote's source (mod-l, Add to Chat). */
@@ -61,6 +64,8 @@ export interface CodeEditorProps {
    *  taking a plain key); `held`: the first key of a sequence held back on the last press ('g'), so the owner can
    *  finish one of its own (g p). */
   onKey?: (k: string, c: { mode: Mode; idle: boolean; held: string }) => boolean;
+  /** The cursor or selection moved. */
+  onCursor?: () => void;
   /** A mouse selection settled (its text), or went (null): the owner shows Add to Chat. */
   onMouseSel?: (text: string | null) => void;
   className?: string;
@@ -224,7 +229,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     const el = host.current!;
     const ext: Extension[] = [
       comp.vim.of(S.settings.vim ? vim({ status: false }) : []),
-      comp.gutter.of(gutterExt(props.current.numbers)), comp.wrap.of(props.current.wrap ? EditorView.lineWrapping : []), vline, highlightActiveLine(), drawSelection(), history(), bracketMatching(), indentOnInput(),
+      comp.gutter.of(props.current.live ? [] : gutterExt(props.current.numbers)), comp.wrap.of(props.current.wrap ? EditorView.lineWrapping : []), vline, highlightActiveLine(), drawSelection(), history(), bracketMatching(), indentOnInput(),
       EditorState.tabSize.of(4),
       cmKeymap.of([...defaultKeymap, ...historyKeymap]),
       skeinTheme, skeinHighlight,
@@ -234,6 +239,7 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
       EditorView.updateListener.of(u => {
         if (u.docChanged && !outside.current) props.current.onChange(u.state.doc.toString());
         if (u.focusChanged && u.view.hasFocus) own();
+        if (u.selectionSet || u.docChanged) props.current.onCursor?.();
       }),
     ];
     const json = kept.get(props.current.id) as { doc?: string } | undefined;
@@ -276,14 +282,15 @@ export const CodeEditor = forwardRef<CodeEditorHandle, CodeEditorProps>(function
     } finally { outside.current = false; }
   }, [p.value]);
   useEffect(() => {
-    let live = true;
-    void languageFor(p.path).then(l => { if (live && view.current) view.current.dispatch({ effects: comp.lang.reconfigure(l ?? []) }); });
-    return () => { live = false; };
-  }, [p.path]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (p.live) { view.current?.dispatch({ effects: comp.lang.reconfigure(livePreview()) }); return; }
+    let ok = true;
+    void languageFor(p.path).then(l => { if (ok && view.current) view.current.dispatch({ effects: comp.lang.reconfigure(l ?? []) }); });
+    return () => { ok = false; };
+  }, [p.path, p.live]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { const v = view.current; if (v) v.dispatch({ effects: comp.marks.reconfigure(marksExt(v.state, p.marks)) }); }, [p.marks]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { view.current?.dispatch({ effects: comp.find.reconfigure(findExt(p.find)) }); }, [p.find]);
   useEffect(() => { const v = view.current; if (v) v.dispatch({ effects: comp.diff.reconfigure(diffExt(v.state, p.diff)) }); }, [p.diff]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { view.current?.dispatch({ effects: [comp.gutter.reconfigure(gutterExt(p.numbers)), comp.wrap.reconfigure(p.wrap ? EditorView.lineWrapping : [])] }); }, [p.numbers, p.wrap]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { view.current?.dispatch({ effects: [comp.gutter.reconfigure(p.live ? [] : gutterExt(p.numbers)), comp.wrap.reconfigure(p.wrap ? EditorView.lineWrapping : [])] }); }, [p.numbers, p.wrap, p.live]); // eslint-disable-line react-hooks/exhaustive-deps
   // Vim keys off (Settings): a plain editor, as every other field is then
   const vimOn = S.settings.vim;
   useEffect(() => { view.current?.dispatch({ effects: comp.vim.reconfigure(vimOn ? vim({ status: false }) : []) }); }, [vimOn]); // eslint-disable-line react-hooks/exhaustive-deps // eslint-disable-line react-hooks/exhaustive-deps

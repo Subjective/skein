@@ -2,13 +2,14 @@
 // edited). It opens in NORMAL: motions, counts, v / V and y read it; i, a, o, x, d, p ... edit it in place, with
 // u / ctrl-r. / ? n N search through the shared search popup (ui/search.tsx). :w, ctrl-s / cmd-s or Save in the ⋯
 // menu writes it. Unsaved text stays with the file (closing the tab keeps it for this session) and is what Preview shows.
-// Markdown opens as a preview (a reader: j / k scroll, gp or the switch shows the source); v or V there opens the
-// source at the top of the view with that line selected, so y copies Markdown, not rendered text.
+// Markdown opens as a live Preview: the same editor and the same Vim, with the Markdown drawn as it reads while you
+// edit it (ui/editor/markdown.ts); gp or the switch shows the plain source. Either way the file is the file's text.
 // The header has back / forward (ctrl-o / ctrl-i, through the jump list), the path (each folder opens a list of
 // what is in it; - opens the file's own folder), the language, the ⋯ menu (fileactions.tsx) and the project tree. Lines changed since the last
 // commit get a bar in the gutter: green added, amber changed, a red notch where lines were removed.
-// Links in the Markdown preview follow (mdlinks.ts): a file opens in this tab (ctrl-o comes back), a heading
-// scrolls into view, a web link opens in the system browser. tab / shift-tab ring them, enter or g x follows.
+// Links in the preview follow (mdlinks.ts): a file opens in this tab (ctrl-o comes back), a heading puts the cursor
+// there, a web link opens in the system browser. tab / shift-tab move to the next or previous link, enter or g x on
+// one follows it (shift-enter in a new split), as does a click with a modifier.
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { gutterMarks } from '@shared/gutter';
 import { api } from '../../api';
@@ -19,19 +20,20 @@ import type { Tab } from '../../state/layout';
 import { toast, update, useApp } from '../../state/store';
 import { openCmdline, openMenu } from '../../shell/overlays';
 import { cx, Icon, IconButton, Seg, Spinner } from '../../ui/primitives';
+import { EditorView } from '@codemirror/view';
 import { CodeEditor, type CodeEditorHandle } from '../../ui/editor/CodeEditor';
+import { mdHeadings, mdLinks } from '../../ui/editor/markdown';
 import { LangBadge } from './code';
 import { useToolSel } from './mousesel';
 import { baseName, langOf } from './highlight';
 import { registerHooks } from './hooks';
 import { numbersOn, openFileMenu, registerFile, wrapOn } from './fileactions';
 import { diffLines, toHunks } from './linediff';
-import { Markdown } from './md';
-import { linkTarget, type LinkTarget } from './mdlinks';
+import { linkTarget, slugger, type LinkTarget } from './mdlinks';
 import { fileNav, openFile, readText, splitClick, splitKey } from './open';
 import { ProjectTree, toggleDir, useLister, type TreeState } from './ProjectTree';
 import { ctxOf, join, refreshNow, useRepo, viewState } from './repo';
-import { halfPage, nativeTarget, useSideTree, useSurface } from './surface';
+import { nativeTarget, useSideTree, useSurface } from './surface';
 import { dragEdge, ResizeHandle, resetEdge, TREE_EDGE } from '../../ui/resize';
 
 const resizeTree = dragEdge(TREE_EDGE);
@@ -45,11 +47,8 @@ export function fileDirty(t: Tab): boolean {
   const c = ctxOf(t), key = `${c.machine}\u0000${c.dir}\u0000${t.path || ''}`;
   return bufs.has(key) && bufs.get(key) !== docs.get(key)?.disk;
 }
-/** Keys that leave a Markdown preview for the source and act there. */
-const TO_SOURCE = new Set(['i', 'a', 'I', 'A', 'o', 'O', 'enter', 'v', 'V']);
-
 /** `then`: what to do once the source editor is on screen (a key from the preview, a jump from search). */
-interface View { md: 'preview' | 'source'; lk: number; lkTip?: string; hover?: string; diff?: boolean; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string; search: ReaderSearch; reader?: Searchable; then?: (ed: CodeEditorHandle) => void; pend: string }
+interface View { md: 'preview' | 'source'; tip?: string; diff?: boolean; tree: boolean; treeN?: boolean; ts: TreeState; find: string; opened: string; search: ReaderSearch; reader?: Searchable; then?: (ed: CodeEditorHandle) => void }
 
 const lineStarts = (t: string) => { const a = [0]; for (let i = 0; i < t.length; i++) if (t.charCodeAt(i) === 10) a.push(i + 1); return a; };
 const lineAt = (ls: number[], pos: number) => { let lo = 0, hi = ls.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (ls[m] <= pos) lo = m; else hi = m - 1; } return lo; };
@@ -63,7 +62,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   const lister = useLister(ctx, re);
   const nav = fileNav(t);
   const v = viewState<View>(t.id, () => {
-    const x: View = { md: 'preview', lk: -1, tree: true, ts: { open: new Set(), cur: null, q: '' }, find: '', opened: '', search: null as unknown as ReaderSearch, pend: '' };
+    const x: View = { md: 'preview', tree: true, ts: { open: new Set(), cur: null, q: '' }, find: '', opened: '', search: null as unknown as ReaderSearch };
     x.search = new ReaderSearch(() => x.reader!);
     return x;
   });
@@ -103,7 +102,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
 
   // a new file in this tab: open its folders in the tree, start at the top (or where asked)
   if (v.opened !== path) {
-    v.opened = path; v.md = 'preview'; v.lk = -1; v.hover = undefined; v.find = '';
+    v.opened = path; v.md = 'preview'; v.find = '';
     const parts = path.split('/'); for (let i = 1; i < parts.length; i++) v.ts.open.add(parts.slice(0, i).join('/'));
   }
 
@@ -134,12 +133,12 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
 
   const ready = doc.disk != null && !doc.binary && !doc.err;
   const preview = isMd && v.md === 'preview';
-  const source = ready && !preview;
+  const source = ready;
 
-  /** Show the source (from a preview) and, once the editor is there, do `then` in it. */
-  const toSource = (then?: (e: CodeEditorHandle) => void) => {
-    if (source && ed.current) { then?.(ed.current); return; }
-    v.md = 'source'; v.then = then; update();
+  /** Once the editor is on screen, do `then` in it. */
+  const inEditor = (then: (e: CodeEditorHandle) => void) => {
+    if (ed.current) { then(ed.current); return; }
+    v.then = then; update();
   };
   useLayoutEffect(() => {
     if (!source || !ed.current) return;
@@ -153,9 +152,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     nav.goto = undefined;
     const ln = Math.max(0, Math.min(starts.length - 1, g.line - 1));
     const pos = Math.min(starts[ln] + (g.col || 0), text.length);
-    if (isMd && g.line > 1) toSource(e => e.at(pos));
-    else if (ed.current) ed.current.at(pos);
-    else v.then = e => e.at(pos);
+    inEditor(e => e.at(pos));
   }); // eslint-disable-line react-hooks/exhaustive-deps
 
   const curLine = () => (source && ed.current ? lineAt(starts, ed.current.pos()) : 0);
@@ -195,7 +192,7 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   v.reader = {
     items: () => lines,
     at: () => { const i = curLine(); return { i, o: (ed.current?.pos() ?? 0) - starts[i] }; },
-    go: h => { const pos = Math.min(starts[h.i] + h.o, text.length); toSource(e => e.at(pos)); },
+    go: h => { const pos = Math.min(starts[h.i] + h.o, text.length); inEditor(e => e.at(pos)); },
     paint: q => { v.find = q; update(); },
     anchor: () => body.current?.getBoundingClientRect() ?? null,
     num: h => h.i + 1,
@@ -219,7 +216,10 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
   // ---------- keys in the source: the file's own, before Vim (ui/editor/CodeEditor onKey) ----------
   const editorKey = (k: string, c: { mode: Mode; idle: boolean; held: string }) => {
     if (k === 'ctrl-s' || k === 'cmd-s') { void save(); return true; }
-    if (c.held === 'g' && k === 'p' && isMd) { v.md = 'preview'; update(); return true; }
+    if (c.held === 'g' && k === 'p' && isMd) { v.md = preview ? 'source' : 'preview'; update(); return true; }
+    if (preview && c.held === 'g' && (k === 'x' || k === 'f')) { const l = linkHere(); if (l) void follow(l.href); else toast(`No link under the cursor · ${kb('tab')} moves to one`); return true; }
+    if (preview && c.mode === 'NORMAL' && c.idle && (k === 'tab' || k === 'shift-tab')) { ringLink(k === 'tab' ? 1 : -1); return true; }
+    if (preview && c.mode === 'NORMAL' && c.idle && (k === 'enter' || k === 'shift-enter')) { const l = linkHere(); if (l) { void follow(l.href, splitKey(k)); return true; } }
     if (!c.idle) return false;
     if (k === '/' || k === '?' || ((k === 'n' || k === 'N') && v.search.active)) return v.search.key(k, 1);
     if (k === 'n' || k === 'N') { v.search.next(1); return true; }
@@ -229,16 +229,19 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     return false;
   };
 
-  // ---------- links in the preview ----------
-  const links = () => [...(body.current?.querySelectorAll<HTMLElement>('.doc a.mlink') ?? [])];
+  // ---------- links in the preview (the editor's syntax tree, ui/editor/markdown.ts) ----------
+  const st = () => ed.current?.view()?.state;
+  const linkHere = () => { const s = st(); if (!s) return null; const h = s.selection.main.head; return mdLinks(s).find(l => h >= l.from && h < l.to) ?? null; };
   const showHeading = (id: string) => {
-    const h = body.current?.querySelector<HTMLElement>(`.doc [data-slug="${CSS.escape(id)}"]`); if (!h) return false;
-    h.scrollIntoView({ block: 'start' });
-    h.classList.remove('flash'); void h.offsetWidth; h.classList.add('flash');
+    const s = st(); if (!s) return false;
+    const next = slugger(), h = mdHeadings(s).find(x => next(x.text) === id); if (!h) return false;
+    const vw = ed.current!.view()!;
+    ed.current!.at(h.pos);
+    vw.dispatch({ effects: EditorView.scrollIntoView(h.pos, { y: 'start', yMargin: 12 }) });
     return true;
   };
-  const follow = async (a: HTMLElement, split = false) => {
-    const href = a.dataset.href || '', to = linkTarget(href, path);
+  const follow = async (href: string, split = false) => {
+    const to = linkTarget(href, path);
     if (to.kind === 'none') { toast(`Skein does not open ${href.replace(/:.*/, ':')} links`); return; }
     if (to.kind === 'external') { void api.app.openExternal(to.url); return; }
     if (to.kind === 'anchor') { if (!showHeading(to.slug)) toast(`No heading #${to.slug} in ${baseName(path)}`); return; }
@@ -248,80 +251,50 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
     const e = es.find(x => x.name === name) || es.find(x => x.name.toLowerCase() === name.toLowerCase());
     if (!e) { toast(`No file at ${to.path}`); return; }
     const rel = dir ? dir + '/' + e.name : e.name;
-    if (e.dir) { crumbMenu(rel, a.getBoundingClientRect()); return; }
+    if (e.dir) { crumbMenu(rel); return; }
     openFile(ctx, rel, { from: t, split, line: to.line, anchor: to.slug });
   };
-  /** tab / shift-tab: the next or previous link, starting from what is on screen when the ringed one is not. */
+  /** tab / shift-tab: the cursor to the next or previous link's text (wrapping). */
   const ringLink = (d: 1 | -1) => {
-    const ls = links(), b = body.current?.getBoundingClientRect();
-    if (!ls.length || !b) { toast('No links in this file'); return; }
-    const cur = ls[v.lk], seen = (r: DOMRect) => r.bottom > b.top && r.top < b.bottom;
-    let i: number;
-    if (cur && seen(cur.getBoundingClientRect())) i = (v.lk + d + ls.length) % ls.length;
-    else if (d > 0) { i = ls.findIndex(a => a.getBoundingClientRect().top >= b.top); if (i < 0) i = 0; }
-    else { i = ls.findLastIndex(a => a.getBoundingClientRect().bottom <= b.bottom); if (i < 0) i = ls.length - 1; }
-    v.lk = i; v.lkTip = tipOf(ls[i]);
-    ls[i].scrollIntoView({ block: 'nearest' });
-    update();
+    const s = st(); if (!s) return;
+    const ls = mdLinks(s), h = s.selection.main.head;
+    if (!ls.length) { toast('No links in this file'); return; }
+    const l = d > 0 ? ls.find(x => x.from > h) ?? ls[0] : [...ls].reverse().find(x => x.to <= h) ?? ls[ls.length - 1];
+    ed.current!.at(l.from + 1);
+    ed.current!.view()!.dispatch({ effects: EditorView.scrollIntoView(l.from, { y: 'nearest' }) });
   };
-  const tipOf = (a: HTMLElement) => {
-    const to: LinkTarget = linkTarget(a.dataset.href || '', path);
-    return to.kind === 'external' ? to.url : to.kind === 'anchor' ? '#' + to.slug : to.kind === 'file' ? to.path + (to.line ? `#L${to.line}` : to.slug ? '#' + to.slug : '') : a.dataset.href;
+  const tipOf = (href: string) => {
+    const to: LinkTarget = linkTarget(href, path);
+    return to.kind === 'external' ? to.url : to.kind === 'anchor' ? '#' + to.slug : to.kind === 'file' ? to.path + (to.line ? `#L${to.line}` : to.slug ? '#' + to.slug : '') : href;
   };
-  // an anchor asked for when the file opened (openFile's `anchor`): show the preview there
+  // an anchor asked for when the file opened (openFile's `anchor`): the cursor to that heading
   useLayoutEffect(() => {
-    if (!nav.anchor || doc.disk == null) return;
+    if (!nav.anchor || doc.disk == null || !ed.current) return;
     if (isMd && v.md !== 'preview') { v.md = 'preview'; update(); return; }
     const id = nav.anchor; nav.anchor = undefined;
+    if (nav.goto?.line === 1 && !nav.goto.col) nav.goto = undefined;   // the heading, not the top
     if (isMd && !showHeading(id)) toast(`No heading #${id} in ${baseName(path)}`);
   });
-  // the ringed link shows while the keys are here; it, or the link under the pointer, shows where it goes
-  useLayoutEffect(() => { links().forEach((a, i) => a.classList.toggle('kcur', focused && preview && i === v.lk)); });
-  const hover = (e: React.MouseEvent) => {
-    const a = e.type === 'mouseover' ? (e.target as Element).closest<HTMLElement>('a.mlink') : null, tip = a ? tipOf(a) : undefined;
-    if (tip !== v.hover) { v.hover = tip; update(); }
+  // a click with a modifier on a link follows it (a plain click puts the cursor there, to edit)
+  const linkClick = (e: React.MouseEvent) => {
+    if (!preview || !splitClick(e) || !(e.target as Element).closest('.md-link')) return;
+    const vw = ed.current?.view(), pos = vw?.posAtCoords({ x: e.clientX, y: e.clientY });
+    const l = vw && pos != null ? mdLinks(vw.state).find(x => pos >= x.from && pos <= x.to) : null;
+    if (!l) return;
+    e.preventDefault(); e.stopPropagation();
+    void follow(l.href, e.shiftKey);
   };
-  const tip = preview ? v.hover ?? (focused && links()[v.lk] ? v.lkTip : undefined) : undefined;
+  // where the link under the cursor goes, as a browser shows a hovered one
+  const onCursor = () => { const l = preview ? linkHere() : null, x = l ? tipOf(l.href) : undefined; if (x !== v.tip) { v.tip = x; update(); } };
+  const tip = preview && focused ? v.tip : undefined;
 
-  // ---------- keys in a Markdown preview (or while the file loads): a reader ----------
-  const scrollBy = (px: number) => body.current?.scrollBy({ top: px });
-  /** The source line at the top of the preview. */
-  const topLine = () => {
-    const b = body.current; if (!b) return 0;
-    const top = b.getBoundingClientRect().top;
-    const el = [...b.querySelectorAll<HTMLElement>('.doc [data-ln]')].find(x => x.getBoundingClientRect().bottom > top + 4);
-    return el ? +(el.dataset.ln || 0) : 0;
-  };
+  // ---------- keys while the file loads (or shows an error): a reader with nothing to read ----------
   const reader = useSurface(t.id, focused, {
     mode: (): Mode => 'NORMAL',
     key: k => {
       if (nativeTarget() && (k === 'enter' || k === 'space')) return false;
-      if (!preview || doc.disk == null) return k.length === 1;
-      const p = v.pend; v.pend = '';
-      const n = Math.max(1, parseInt(p || '1', 10));
-      if (/^\d$/.test(k) && (p || k !== '0')) { v.pend = p + k; return true; }
-      if (p === 'g' && k === 'p') { toSource(); return true; }
-      if (p === 'g' && (k === 'x' || k === 'f')) { const a = links()[v.lk]; if (a) void follow(a); else toast(`No link chosen · ${kb('tab')} moves to one`); return true; }
-      if (k === 'tab' || k === 'shift-tab') { ringLink(k === 'tab' ? 1 : -1); return true; }
-      const lk = links()[v.lk];
-      if (lk && (k === 'enter' || k === 'o' || splitKey(k))) { void follow(lk, splitKey(k)); return true; }
-      if (lk && k === 'esc') { v.lk = -1; v.lkTip = undefined; update(); return true; }
-      if (p === 'g' && k === 'g') { body.current?.scrollTo({ top: 0 }); return true; }
-      if (k === 'g') { v.pend = 'g'; return true; }
-      if (k === 'j' || k === 'down') { scrollBy(40 * n); return true; }
-      if (k === 'k' || k === 'up') { scrollBy(-40 * n); return true; }
-      if (k === 'G') { body.current?.scrollTo({ top: 1e9 }); return true; }
-      if (k === 'ctrl-d' || k === 'ctrl-u' || k === 'pagedown' || k === 'pageup') { scrollBy(halfPage(body.current, 20) * 20 * n * (k === 'ctrl-d' || k === 'pagedown' ? 1 : -1)); return true; }
-      if (k === '/' || k === '?' || ((k === 'n' || k === 'N') && v.search.active)) { v.search.key(k, n); return true; }
-      if (k === 'esc' && v.search.clear()) return true;
       if (k === '-') { folder(); return true; }
-      if (TO_SOURCE.has(k)) {
-        // the source, at the line on top of the preview: v / V select from there, the editing keys act there
-        const pos = starts[Math.min(topLine(), starts.length - 1)];
-        toSource(e => { e.at(pos); if (k === 'v' || k === 'V') e.at(pos, { anchor: pos, mode: k === 'V' ? 'V-LINE' : 'VISUAL' }); else if (k !== 'enter') e.feed(k); });
-        return true;
-      }
-      return false;   // : H L and the rest: the NORMAL layer
+      return k.length === 1;
     },
   });
 
@@ -348,23 +321,12 @@ export function FileView({ t, focused }: { t: Tab; focused: boolean }) {
         <IconButton icon="panelR" small on={side.show} aria-pressed={side.show} label="Project files" onClick={side.toggle} />
       </header>
       <div className={cx('cbody', side.show && 'tree')}>
-        <div className={cx('tool-b', source && 'code')} data-read ref={body} onMouseDown={() => { if (!source) reader.own(); }}>
+        <div className={cx('tool-b', source && 'code')} data-read ref={body} onMouseDown={e => { if (!source) reader.own(); else linkClick(e); }}>
           {doc.err ? <div className="r-empty"><Icon name="alert" size="xl" /><span>{doc.err}</span></div>
             : doc.binary ? <div className="r-empty bin"><Icon name="file" size="xl" /><span>Binary file, not shown</span></div>
             : doc.disk == null ? <div className="r-empty"><Spinner label="Opening" /></div>
-            : preview ? (
-              <article className="doc prose" data-src={`file:${path}`} onMouseOver={hover} onMouseLeave={hover}
-                onMouseUp={() => { const g = getSelection(); if (g && !g.isCollapsed && body.current?.contains(g.anchorNode)) tsel.show(g.toString()); }}
-                onClick={e => {
-                  const a = (e.target as Element).closest<HTMLElement>('a.mlink');
-                  if (!a || getSelection()?.toString()) return;
-                  e.preventDefault(); v.lk = -1; v.lkTip = undefined;
-                  void follow(a, splitClick(e));
-                }}>
-                <Markdown text={text} />
-              </article>)
             : <CodeEditor key={key} ref={ed} tabId={t.id} id={key} value={text} onChange={onEdit} path={path} marks={drows ? null : marks} diff={drows}
-                numbers={numbersOn()} wrap={wrapOn()} find={v.find || undefined} className="src" dataSrc={`file:${path}`} onKey={editorKey} onMouseSel={x => tsel.show(x)} />}
+                numbers={numbersOn()} wrap={wrapOn()} live={preview && !drows} find={v.find || undefined} className="src" dataSrc={`file:${path}`} onKey={editorKey} onMouseSel={x => tsel.show(x)} onCursor={onCursor} />}
         </div>
         {tip && <div className="link-tip" role="status">{tip}</div>}
         {side.show && (<>

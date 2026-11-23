@@ -406,8 +406,8 @@ await test('files: a click opens a file', async p => {
 async function openFile(p, name, { source = true } = {}) {
   await openFiles(p);
   await p.locator('.pane.focus .files-v .ptree').getByText(name, { exact: true }).click();
-  await p.locator('.pane.focus .file-v .src, .pane.focus .file-v .doc').first().waitFor();
-  if (source && await p.locator('.pane.focus .file-v .doc').count()) { await keys(p, 'g p'); await p.locator('.pane.focus .file-v .src').waitFor(); }
+  await p.locator('.pane.focus .file-v .src .cm-editor').first().waitFor();
+  if (source && await p.locator('.pane.focus .file-v .md-live').count()) { await keys(p, 'g p'); await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .md-live')); }
 }
 const openReadme = (p, o) => openFile(p, 'README.md', o);
 const F = p => p.locator('.pane.focus .file-v');
@@ -520,15 +520,54 @@ await test('file: / finds lines; enter jumps; n moves to the next hit', async p 
   assert.ok(await F(p).locator('.hit').count(), 'hits are highlighted');
 });
 
-await test('file: Markdown opens as a preview; gp and the Source / Preview switch toggle', async p => {
+await test('file: Markdown opens as an editable preview; gp and the Source / Preview switch toggle; the text is the file\'s own', async p => {
   await openReadme(p, { source: false });
-  await F(p).locator('.doc.prose h1').waitFor();
+  await F(p).locator('.md-live').waitFor();
+  assert.equal(await mode(p), 'NORMAL');
+  await keys(p, 'j j');
+  assert.equal(await F(p).locator('.md-h1').innerText(), 'Skein', 'the # is not drawn while the cursor is elsewhere');
+  assert.equal(await F(p).locator('.md-code').first().innerText(), 'pnpm dev', 'nor the backticks');
+  assert.ok((await ed(p)).text.startsWith('# Skein\n\nThreads') && (await ed(p)).text.includes('Run `pnpm dev`'), 'only the look changes');
   await keys(p, 'g p');
-  await F(p).locator('.src').waitFor();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .md-live'));
+  assert.equal((await ed(p)).line, 3, 'the cursor stays where it was');
   await F(p).locator('.seg').getByText('Preview').click();
-  await F(p).locator('.doc.prose h1').waitFor();
+  await F(p).locator('.md-live').waitFor();
   await F(p).locator('.seg').getByText('Source').click();
-  await F(p).locator('.src').waitFor();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .file-v .md-live'));
+});
+
+await test('file: editing in the preview stays rendered; a mark shows only while the cursor is on it; a click ticks a box', async p => {
+  await openFile(p, 'package.json');
+  await findFile(p, 'PLAN.md');
+  await F(p).locator('.md-live').waitFor();
+  const line = t => F(p).locator('.cm-line', { hasText: t }).first().innerText();
+  assert.equal(await F(p).locator('.md-strong').first().innerText(), 'CodeMirror editor');
+  assert.ok(!(await line('Ship the')).includes('**'), 'bold marks hidden');
+  assert.ok(!(await line('Ship the')).includes('](GUIDE.md)'), 'a link shows its text only');
+  assert.equal(await F(p).locator('.cm-line.md-table').count(), 4, 'a table stays raw');
+  assert.ok((await line('Suite')).includes('|'));
+  // the cursor on the bold word's start shows its **; off it, they go again
+  await keys(p, 'j j w w');
+  assert.ok((await line('Ship the')).includes('**CodeMirror'));
+  await keys(p, 'w w');
+  assert.ok(!(await line('Ship the')).includes('**'));
+  // typed Markdown renders as it is typed, and the file keeps every mark
+  await keys(p, 'G o');
+  await p.keyboard.type('Now **bold** and *slanted*');
+  await keys(p, 'Escape 0');
+  assert.equal(await line('Now'), 'Now bold and slanted');
+  assert.equal(await F(p).locator('.md-strong', { hasText: 'bold' }).count(), 1);
+  assert.ok((await ed(p)).text.includes('\nNow **bold** and *slanted*'));
+  // a task box ticks with a click: one character of the file
+  const before = (await ed(p)).text;
+  await F(p).locator('.md-check').nth(1).click();
+  const after = (await ed(p)).text;
+  assert.equal(after, before.replace('- [ ] Try it on Windows', '- [x] Try it on Windows'));
+  assert.equal(await mode(p), 'NORMAL');
+  // u undoes it, as any edit
+  await keys(p, 'u');
+  assert.equal((await ed(p)).text, before);
 });
 
 // docs/GUIDE.md links, in order: the readme, its build steps, the types, the theme, the sessions folder, later on,
@@ -538,110 +577,48 @@ async function openGuide(p) {
   await keys(p, '/');
   await p.keyboard.type('GUIDE.md');
   await p.keyboard.press('Enter');
-  await F(p).locator('.doc.prose a.mlink').first().waitFor();
+  await F(p).locator('.md-live .md-link').first().waitFor();
 }
-const L = (p, name) => F(p).locator('.doc a.mlink', { hasText: name }).first();
 const crumbIs = (p, re) => p.waitForFunction(r => new RegExp(r).test(document.querySelector('.pane.focus .file-v .crumbs')?.textContent || ''), re.source);
 /** Whether the element is inside the reader's visible area. */
 const shown = loc => loc.evaluate(el => { const b = el.closest('.tool-b').getBoundingClientRect(), r = el.getBoundingClientRect(); return r.top >= b.top - 1 && r.bottom <= b.bottom + 1; });
 
-await test('file: preview links open files, headings and web pages; hover shows where they go', async p => {
+await test('file: preview links: tab moves to the next and shows where it goes; enter, g x and a modifier click follow', async p => {
   await openGuide(p);
-  assert.equal(await F(p).locator('.doc a.mlink').count(), 12);
-  assert.equal(await L(p, 'the readme').evaluate(e => getComputedStyle(e).cursor), 'pointer');
-  // hover: where it goes, resolved from the file's folder; it goes when the pointer leaves
-  await L(p, 'the types').hover();
-  assert.equal(await F(p).locator('.link-tip').innerText(), 'sessions/types.ts#L2');
-  await L(p, 'the web').hover();
-  assert.equal(await F(p).locator('.link-tip').innerText(), 'https://example.com/skein');
-  await F(p).locator('.doc h1').hover();
-  assert.equal(await F(p).locator('.link-tip').count(), 0);
-  // a heading in this file scrolls into view and flashes
-  await L(p, 'later on').click();
-  const later = F(p).locator('.doc h2[data-slug="later-on"]');
-  assert.ok(await shown(later), 'the heading is in view');
-  assert.match(await later.getAttribute('class') || '', /flash/);
-  await L(p, 'the top').click();
-  assert.ok(await shown(F(p).locator('.doc h1[data-slug="guide"]')));
-  // broken links say so quietly and stay put
-  await L(p, 'a missing heading').click();
-  assert.match(await toastText(p), /No heading #nowhere in GUIDE\.md/);
-  await L(p, 'a missing file').click();
-  await p.locator('.toast', { hasText: 'No file at docs/nope.md' }).waitFor();
-  await L(p, 'an odd scheme').click();
-  await p.locator('.toast', { hasText: 'does not open ftp: links' }).waitFor();
-  await crumbIs(p, /GUIDE\.md/);
-  // web links open in the system browser
-  await L(p, 'the web').click();
-  await L(p, 'https://example.com/auto').click();
-  assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein', 'https://example.com/auto']);
-  // a file opens in this tab, at a heading; ctrl-o comes back
-  await L(p, 'its build steps').click();
-  await crumbIs(p, /README\.md/);
-  const build = F(p).locator('.doc h2[data-slug="build"]');
-  await build.waitFor();
-  assert.match(await build.getAttribute('class') || '', /flash/);
-  await keys(p, 'Control+o');
-  await crumbIs(p, /GUIDE\.md/);
-  // a line link (from the root, /sessions/...) opens the source at that line
-  await L(p, 'the types').click();
-  await crumbIs(p, /types\.ts/);
-  await p.waitForFunction(() => window.__skein.cm('.pane.focus .file-v .src')?.line === 2);
-  await keys(p, 'Control+o');
-  await crumbIs(p, /GUIDE\.md/);
-  // a folder lists what is in it
-  await L(p, 'The sessions folder').click();
-  await menu(p).getByText('store.ts').waitFor();
-  await p.keyboard.press('Escape');
-  // a modifier click opens a new split, as everywhere else
-  const panes = await p.locator('.pane').count();
-  await L(p, 'the theme').click({ modifiers: ['Shift'] });
-  await p.waitForFunction(n => document.querySelectorAll('.pane').length === n + 1, panes);
-  await crumbIs(p, /theme\.css/);
-});
-
-await test('file: tab rings preview links; enter, g x and O follow the ringed one; esc lets go', async p => {
-  await openGuide(p);
-  const ring = () => F(p).locator('.doc a.mlink.kcur').innerText();
+  const tip = () => F(p).locator('.link-tip').innerText();
   await keys(p, 'Tab');
-  assert.equal(await ring(), 'the readme');
-  assert.equal(await F(p).locator('.link-tip').innerText(), 'README.md');
+  assert.equal(await tip(), 'README.md');
   await keys(p, 'Tab Tab');
-  assert.equal(await ring(), 'the types');
+  assert.equal(await tip(), 'sessions/types.ts#L2');
   await keys(p, 'Shift+Tab');
-  assert.equal(await ring(), 'its build steps');
+  assert.equal(await tip(), 'README.md#build');
   assert.equal(await mode(p), 'NORMAL');
-  await keys(p, 'Escape');
-  assert.equal(await F(p).locator('.doc a.mlink.kcur').count(), 0);
-  assert.equal(await F(p).locator('.link-tip').count(), 0);
-  // g x with nothing ringed says how to ring one
-  await keys(p, 'g x');
-  assert.match(await toastText(p), /No link chosen/);
-  // enter follows; the new file starts with nothing ringed
-  await keys(p, 'Tab Enter');
+  // enter follows: a file at a heading, in this tab; ctrl-o comes back
+  await keys(p, 'Enter');
   await crumbIs(p, /README\.md/);
-  assert.equal(await F(p).locator('.doc a.mlink.kcur').count(), 0);
-  assert.equal(await F(p).locator('.ed textarea:focus').count(), 0, 'enter on a link does not start editing');
+  await p.waitForFunction(() => window.__skein.cm('.pane.focus .file-v .src')?.line === 5);
   await keys(p, 'Control+o');
   await crumbIs(p, /GUIDE\.md/);
-  // g x on "later on" (the 6th) scrolls to it
-  await keys(p, 'Tab Tab Tab Tab Tab Tab');
-  assert.equal(await ring(), 'later on');
+  // g x off a link says how to reach one
+  await keys(p, 'g g g x');
+  assert.match(await toastText(p), /No link under the cursor/);
+  // a heading in this file: the cursor goes there
+  for (let i = 0; i < 12 && (await F(p).locator('.link-tip').count() === 0 || await tip() !== '#later-on'); i++) await keys(p, 'Tab');
   await keys(p, 'g x');
-  assert.ok(await shown(F(p).locator('.doc h2[data-slug="later-on"]')));
-  // after scrolling, tab starts from what is on screen, not from the top
-  await keys(p, 'Escape G');
-  await settle(p);
-  await keys(p, 'Tab');
-  assert.equal(await ring(), 'the top');
-  // shift-tab with nothing ringed starts from the last link on screen
-  await keys(p, 'Escape g g Shift+Tab');
-  assert.equal(await ring(), 'https://example.com/auto');
-  // O opens the ringed file in a new split
-  await keys(p, 'g g Escape Tab Tab Tab Tab');
-  assert.equal(await ring(), 'the theme');
+  await p.waitForFunction(() => /^## Later on/.test(window.__skein.cm('.pane.focus .file-v .src').text.split('\n')[window.__skein.cm('.pane.focus .file-v .src').line - 1]));
+  // broken links say so and stay put
+  await keys(p, 'g g');
+  for (let i = 0; i < 12 && (await F(p).locator('.link-tip').count() === 0 || await tip() !== '#nowhere'); i++) await keys(p, 'Tab');
+  await keys(p, 'Enter');
+  assert.match(await toastText(p), /No heading #nowhere in GUIDE\.md/);
+  // a web link opens in the system browser; a click with a modifier follows (a plain click edits)
+  await F(p).locator('.md-link', { hasText: 'the web' }).click();
+  assert.equal(await p.evaluate(() => (window.__external || []).length), 0, 'a plain click only moves the cursor');
+  await F(p).locator('.md-link', { hasText: 'the web' }).click({ modifiers: ['Meta'] });
+  assert.deepEqual(await p.evaluate(() => window.__external), ['https://example.com/skein']);
+  // shift-click: a new split
   const panes = await p.locator('.pane').count();
-  await keys(p, 'O');
+  await F(p).locator('.md-link', { hasText: 'the theme' }).click({ modifiers: ['Shift'] });
   await p.waitForFunction(n => document.querySelectorAll('.pane').length === n + 1, panes);
   await crumbIs(p, /theme\.css/);
 });
@@ -1111,12 +1088,11 @@ await test('file: the project tree resizes by dragging its left edge, and keeps 
 
 await test('file: V then y in a Markdown preview copies the Markdown source', async p => {
   await openReadme(p, { source: false });
-  await F(p).locator('.doc.prose h1').waitFor();
+  await F(p).locator('.md-live').waitFor();
   await keys(p, 'Shift+V j y');
   assert.equal(await mode(p), 'NORMAL');
-  assert.ok(await F(p).locator('.src').count(), 'the source is shown');
   const r = await p.evaluate(() => window.__skein.reg());
-  assert.ok(r.line && r.text.startsWith('# '), `Markdown, whole lines: ${JSON.stringify(r)}`);
+  assert.ok(r.line && r.text.startsWith('# Skein'), `Markdown, whole lines: ${JSON.stringify(r)}`);
 });
 
 // ---------- where files open (Josh, 2026-11-21: opening files kept splitting panes) ----------
