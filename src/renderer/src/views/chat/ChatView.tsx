@@ -341,6 +341,9 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   const cancelEdit = () => {
     const id = tc.edit?.event; tc.edit = undefined; bump();
     requestAnimationFrame(() => {
+      // you already went on to a field (the composer) in the frame the box took to close: it keeps the keys
+      const on = document.activeElement;
+      if (on?.matches('textarea, input, [contenteditable]') && !on.closest('.m-edit')) return;
       const root = read.current, el = id && root?.querySelector(`.m-user[data-ev="${CSS.escape(id)}"] .mt`);
       if (root && el) { reader.root = root; reader.at(el); } else composer.current?.focus(false);
     });
