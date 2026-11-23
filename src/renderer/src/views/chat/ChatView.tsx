@@ -5,6 +5,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Density, ThreadEvent, ThreadMeta } from '@shared/types';
 import type { Surface } from '../../input/dispatcher';
+import type { KeyLike } from '../../input/keys';
 import { registerTab, tabSurface } from '../../input/surfaces';
 import { api } from '../../api';
 import { allTabs, type Tab } from '../../state/layout';
@@ -12,6 +13,7 @@ import { machine, S, thread, toast, update, useApp, ws } from '../../state/store
 import * as A from '../../state/actions';
 import { Button, cx, Dot, Icon, Spinner } from '../../ui/primitives';
 import { harnessName, setSubNames } from '../../shell/meta';
+import { dispatchKey } from '../../shell/keyboard';
 import { openMenu, setSetting } from '../../shell/overlays';
 import { clipImages, Composer, LockedComposer, type ComposerHandle } from './Composer';
 import { onText, Reader, SEL_BLOCK, selectable } from './reader';
@@ -267,18 +269,31 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     const e = lg.events.find(x => x.id === id); if (!e || e.t !== 'user') return;
     reader.clear();
     tc.edit = { event: id, draft: { ...blank(), text: e.text.replace(/\s+$/, ''), images: e.images || [] } }; bump();
+    // the box takes the keys a frame from now: keys typed before then (the w of c w) wait for it, then go in
+    const held: KeyLike[] = [];
+    const unhold = registerTab(t.id, { kind: 'field', mode: () => offset === undefined || insert ? 'INSERT' : 'NORMAL', local: () => true, key: (_k, ev) => { held.push(keyCopy(ev)); return true; } });
+    const replay = () => {
+      for (const ev of held) {
+        if (dispatchKey(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) continue;
+        if (ev.key.length === 1) document.execCommand('insertText', false, ev.key);   // INSERT: the field types it
+        else if (ev.key === 'Backspace') document.execCommand('delete');
+      }
+    };
     requestAnimationFrame(() => {
+      unhold();
       const f = editor.current?.field(); if (!f) return;
-      if (offset === undefined) { f.focus(true); return; }
+      if (offset === undefined) { f.focus(true); replay(); return; }
       const raw = f.state().text, at = offset;   // an offset in the raw text (rawAt)
-      if (insert) { f.focus(true); f.set(raw, Math.min(at, raw.length)); return; }
+      if (insert) { f.focus(true); f.set(raw, Math.min(at, raw.length)); replay(); return; }
       // NORMAL never rests past the end of a line (the mockup's Vim.block)
       let pos = Math.min(at, raw.length);
       if (pos > 0 && (pos === raw.length || raw[pos] === '\n') && raw[pos - 1] !== '\n') pos--;
       f.focus(false); f.set(raw, pos);
       if (key) tabSurface(t.id)?.key(key, { key, code: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false });
+      replay();
     });
   };
+  const keyCopy = (e: KeyLike): KeyLike => ({ key: e.key, code: e.code, ctrlKey: e.ctrlKey, altKey: e.altKey, shiftKey: e.shiftKey, metaKey: e.metaKey });
   // a double-click on your own message: the first click opened the edit box; the second (and a third) select the
   // word (the line) there in VISUAL instead of landing on whatever the box put under the pointer (the model chip)
   /** The raw-text offset of the character under a point in your message's text, if the point is on it. */
