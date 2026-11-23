@@ -39,7 +39,7 @@ const HL = typeof CSS !== 'undefined' && 'highlights' in CSS ? (CSS as unknown a
 declare const Highlight: { new (...r: Range[]): unknown };
 
 /** Lines that are a single thing rather than prose. */
-export const ROWS = '.tool > summary, .tool > .sum, .ag, .sc-link, .sc-anchor, .appr .af, .m-acts, .err-row, .note-row, .think > summary';
+export const ROWS = '.tool > summary, .tool > .sum, .ag, .sc-link, .sc-anchor, .appr .af, .m-acts, .err-row, .note-row, .think > summary, .m-pic, .m-more';
 /** Rows of buttons: h / l move between the buttons, enter / space press one. */
 const KROWS = '.af, .m-acts';
 const BLOCKS = '[data-src], .ag, .sc-link, .sc-anchor';
@@ -50,7 +50,7 @@ const MARGIN = 24;
 export const SEL_BLOCK = '[data-read] > *';
 /** Text a selection may cover: not a reply's action row (copy, fork, side chat and its age), nor its "Worked for"
  *  header. */
-export const selectable = (n: Node) => !n.parentElement?.closest('.m-acts, .turn > summary');
+export const selectable = (n: Node) => !n.parentElement?.closest('.m-acts, .turn > summary, .m-pic, .m-more');
 /** A reply's work (under "Worked for") and its answer are selected apart: a selection stays on the side it began. */
 const part = (n: Node) => n.parentElement?.closest('.turn') ?? null;
 
@@ -103,7 +103,7 @@ export class Reader {
     const root = this.root; if (!n || !root || !root.contains(n)) return false;
     const e = n.parentElement; if (!e) return false;
     if (e.closest('input, textarea, .comp, .dl > .n, .ticks, .tick-pop')) return false;
-    if (e.closest('button') && !e.closest('.ag, .sc-link, .sc-anchor, .af')) return false;
+    if (e.closest('button') && !e.closest('.ag, .sc-link, .sc-anchor, .af, .m-more')) return false;
     return true;
   }
   texts(el: Node): Text[] {
@@ -216,7 +216,8 @@ export class Reader {
   private reveal(at: Element | Range) {
     // a cursor below the fold of a long message opens it (Show more) before it is brought into view
     const node = at instanceof Range ? at.startContainer : at, clip = (node.nodeType === 1 ? node as Element : node.parentElement)?.closest('.m-clip.shut');
-    if (clip && at.getBoundingClientRect().bottom > clip.getBoundingClientRect().bottom - 32) clip.dispatchEvent(new Event('skein-open'));
+    const low = at instanceof Element && at.matches('.m-pic') ? at.getBoundingClientRect().top + 32 : at.getBoundingClientRect().bottom;   // a picture is on screen once its top is
+    if (clip && low > clip.getBoundingClientRect().bottom - 32) clip.dispatchEvent(new Event('skein-open'));
     if (this.still) return;
     const root = this.root, sc = this.scroller(); if (!root || !sc) return;
     const ns = this.texts(root), f = this.f;
@@ -328,7 +329,7 @@ export class Reader {
   private vert(d: number): boolean {
     const f = this.f!, root = this.root!;
     const fr = document.createRange(); fr.setStart(f.n, f.o); fr.setEnd(f.n, Math.min(f.o + 1, f.n.data.length));
-    const row = this.mode === 'n' ? this.row : null, rect = row ? row.getBoundingClientRect() : fr.getClientRects()[0]; if (!rect) return false;
+    const row = this.mode === 'n' ? this.row : null, rect = row ? seen(row) : fr.getClientRects()[0]; if (!rect) return false;
     const x = row ? (this.x ?? rect.left + 12) : rect.left + 2; if (!row) this.x = x;
     const sc = (root.closest('.thread') as HTMLElement) || root, lh = row ? 18 : Math.max(14, rect.height);
     const probe = (y: number) => {
@@ -351,7 +352,7 @@ export class Reader {
       const c = probe(y); if (!c) continue;
       return this.land(c.startContainer, c.startOffset);
     }
-    const now = row ? row.getBoundingClientRect() : fr.getClientRects()[0];   // the probe may have scrolled
+    const now = row ? seen(row) : fr.getClientRects()[0];   // the probe may have scrolled
     return !!now && this.across(d, now, x, row, sc);
   }
   /** j / k over a gap taller than the probe reaches (an image, a tall block of anything without text): the next line
@@ -513,7 +514,8 @@ export class Reader {
         // nothing to unfold: a row that names a file (Read) opens it; a button row is pressed
         const link = row.querySelector<HTMLElement>('.flink'), b = row.matches('button') ? row as HTMLButtonElement : row.querySelector('button');
         if (link) { this.clear(); getSelection()?.removeAllRanges(); link.click(); }
-        else if (b) { this.clear(); b.click(); }
+        else if (b) { const keep = row.matches('.m-more'); if (!keep) this.clear(); b.click(); if (keep && this.on && this.alive()) this.draw(); }   // Show more / less stays on its row
+        else row.querySelector<HTMLElement>('[data-zoom]')?.click();   // an image opens large
         return true;
       }
       if ('wbe0$'.includes(k) && k.length === 1) return true;
@@ -575,6 +577,12 @@ export function onText(x: number, y: number): boolean {
     for (const b of r.getClientRects()) if (x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2) return true;
   }
   return false;
+}
+/** A row's box as far as it shows: a picture in a long message that is cut short ends at the fold. */
+function seen(row: Element): DOMRect {
+  const r = row.getBoundingClientRect(), clip = row.closest('.m-clip.shut'); if (!clip) return r;
+  const c = clip.getBoundingClientRect(), bottom = Math.min(r.bottom, c.bottom);
+  return new DOMRect(r.left, r.top, r.width, Math.max(0, bottom - r.top));
 }
 function caretAt(x: number, y: number): Range | null {
   const d = document as Document & { caretPositionFromPoint?(x: number, y: number): { offsetNode: Node; offset: number } | null };

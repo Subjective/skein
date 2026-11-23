@@ -511,6 +511,47 @@ await test('images: j and k cross a tall image to the text on its other side', a
   assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'still reading');
 });
 
+await test('images: a message of only images is reachable; its images and Show more are rows', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  const send = async h => {
+    await p.locator('.pane.focus .comp input[type=file]').setInputFiles({ name: 'pic.png', mimeType: 'image/png', buffer: await pngOf(260, h) });
+    await p.locator('.pane.focus .atts .att img').waitFor();
+    await composer(p).press('Enter');
+    await p.waitForFunction(n => document.querySelectorAll('.pane.focus .m-user .m-pic').length >= n, h > 300 ? 2 : 1);
+  };
+  await send(120); await send(420);
+  await p.locator('.pane.focus .m-user .m-more').last().waitFor();
+  await settle(p, 400);
+  const cur = () => p.evaluate(() => {
+    const r = document.querySelector('.pane.focus .rowcur'), us = [...document.querySelectorAll('.pane.focus .m-user')];
+    return r ? `${r.matches('.m-pic') ? 'pic' : r.matches('.m-more') ? 'more' : 'row'}${us.findIndex(u => u.contains(r)) - us.length}` : 'text';
+  });
+  await composer(p).press('Escape');
+  await keys(p, '[ [');
+  assert.equal(await cur(), 'pic-1', 'your last message: its image');
+  assert.equal(await p.locator('.pane.focus .m-user').last().locator('.m-clip.shut').count(), 1, 'landing on the picture leaves it shut');
+  await keys(p, 'j');
+  assert.equal(await cur(), 'more-1', 'then its Show more');
+  await keys(p, 'Enter');
+  assert.equal(await p.locator('.pane.focus .m-user').last().locator('.m-clip.shut').count(), 0, 'enter opens it');
+  assert.equal(await cur(), 'more-1', 'the cursor stays on Show less');
+  await keys(p, 'k');
+  assert.equal(await cur(), 'pic-1');
+  await keys(p, 'k');
+  assert.notEqual(await cur(), 'pic-1', 'k goes on above it');
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'still reading');
+  await keys(p, '[ [');
+  assert.equal(await cur(), 'pic-2', 'the message before: a short picture, no Show more');
+  await keys(p, 'j');
+  assert.ok(!['pic-2', 'text-composer'].includes(await cur()), 'j goes on to the reply below it');
+  await keys(p, 'k');
+  assert.equal(await cur(), 'pic-2', 'and k comes back to the picture');
+  await keys(p, 'Enter');
+  await p.locator('.lightbox img').waitFor();
+  await p.keyboard.press('Escape');
+  await p.locator('.lightbox').waitFor({ state: 'detached' });
+});
+
 await test('quote: a selection goes into the composer as a chip (mod-l)', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await p.evaluate(() => {
