@@ -265,6 +265,51 @@ test('chat reader: ? searches backwards', async p => {
   assert.match((await chatCur(p)).text.toLowerCase(), /restore/);
 });
 
+// ---------- coming back to a thread ----------
+// Josh, 2026-11-23: a new thread opens ready to type, but coming back to a thread's tab (after a split, another pane
+// or tab) keeps the NORMAL it was left in. A split remounts the chat, so the composer's mode has to outlive that.
+const compBox = p => p.locator('.pane.focus .compw textarea');
+
+test('coming back: a split and back keeps the composer in NORMAL, with its draft and undo', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  assert.equal(await mode(p), 'INSERT', 'a thread opened from the sidebar is ready to type');
+  await p.keyboard.type('draft'); await keys(p, 'Escape');
+  assert.equal(await mode(p), 'NORMAL');
+  await keys(p, 'Control+w v');
+  assert.equal(await p.locator('.pane').count(), 2);
+  await keys(p, 'Control+w h'); await settle(p);
+  assert.ok(await compBox(p).evaluate(el => el === document.activeElement), 'the composer has the keys');
+  assert.equal(await mode(p), 'NORMAL', 'back from the split: still NORMAL');
+  assert.equal(await compBox(p).inputValue(), 'draft');
+  await keys(p, 'Control+w l Control+w h');
+  assert.equal(await mode(p), 'NORMAL', 'to the other pane and back: still NORMAL');
+  await keys(p, 'u');
+  assert.equal(await compBox(p).inputValue(), '', 'the undo history came along');
+});
+
+test('coming back: another tab and back keeps NORMAL, by keys and by a click on the tab', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await keys(p, 'Escape');
+  await ldrNewTab(p); await keys(p, 'Escape');
+  await keys(p, 'Shift+H');
+  assert.equal(await mode(p), 'NORMAL', 'H back to the thread');
+  await keys(p, 'Shift+L');
+  await p.locator('.pane.focus .tb .tab').first().click(); await settle(p);
+  assert.ok(await compBox(p).evaluate(el => el === document.activeElement));
+  assert.equal(await mode(p), 'NORMAL', 'a click on the tab');
+});
+
+test('coming back: a brand-new thread still opens its composer in INSERT, even from a NORMAL launcher', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await keys(p, 'Escape Control+w v');   // the split's launcher starts in NORMAL
+  assert.equal(await mode(p), 'NORMAL');
+  await keys(p, 'Enter');   // enter in NORMAL starts the thread too
+  await p.waitForSelector('.pane.focus .compw textarea');
+  await settle(p);
+  assert.ok(await compBox(p).evaluate(el => el === document.activeElement), 'the new thread\'s composer has the keys');
+  assert.equal(await mode(p), 'INSERT');
+});
+
 // ---------- readers: terminal scrollback ----------
 
 test('scrollback: counts move by lines, / finds, n wraps with a notice, esc clears then leaves', async p => {
