@@ -1300,3 +1300,19 @@ await test('commit button: with nothing to commit it is one secondary button, th
   assert.ok(await m.getByText('Create branch', { exact: true }).isVisible());
   await p.keyboard.press('Escape');
 });
+
+await test('file menu: the pointer moves the highlight, as the keys do; its button shows no focus ring while it is open', async p => {
+  await openFile(p, 'package.json');
+  await more(p).click();
+  await fileMenu(p).waitFor();
+  const sel = () => fileMenu(p).locator('.mi.sel .ml').innerText();
+  assert.match(await sel(), /^Reveal in|^Show in folder/);
+  const r = await fileMenu(p).locator('.mi', { hasText: 'Copy remote URL' }).boundingBox();
+  await p.mouse.move(r.x + 20, r.y + r.height / 2); await p.mouse.move(r.x + 40, r.y + r.height / 2);
+  assert.equal(await sel(), 'Copy remote URL');
+  await p.keyboard.press('ArrowUp');
+  assert.equal(await sel(), 'Copy relative path', 'the keys go on from where the pointer left it');
+  console.log(await more(p).evaluate(b => [b.outerHTML.slice(0,200), getComputedStyle(b).outlineStyle, b.matches(':focus-visible'), [...document.styleSheets].flatMap(s => { try { return [...s.cssRules] } catch { return [] } }).filter(r => r.selectorText && b.matches(r.selectorText) && /outline/.test(r.cssText)).map(r => r.cssText)]));
+  assert.equal(await more(p).evaluate(b => getComputedStyle(b).outlineStyle), 'none');
+  await p.keyboard.press('Escape');
+});
