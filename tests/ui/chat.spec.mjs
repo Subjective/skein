@@ -1931,6 +1931,66 @@ await test('reader: ctrl-d / ctrl-u scroll half a page and the cursor goes along
   assert.ok(Math.abs(s2.top - s0.top) <= 2, `ctrl-u scrolls back (${s2.top})`);
 });
 
+/** Page the reader with ctrl-d to the bottom of the thread, then ctrl-u back to the top. Every press must scroll the
+ *  thread (by half its height, less only at an end) and leave the cursor on screen; a press that scrolls nowhere,
+ *  or that the reader scrolls back to where the cursor was, is the stall. */
+async function pageThrough(p) {
+  const st = () => p.evaluate(() => {
+    const t = document.querySelector('.pane.focus .thread'), b = t.getBoundingClientRect();
+    const row = document.querySelector('.pane.focus .rowcur'), h = CSS.highlights?.get('vcur')?.values().next().value;
+    const r = row ? row.getBoundingClientRect() : h?.getBoundingClientRect();
+    const shows = !!r && (row && r.height > b.height ? r.bottom > b.top && r.top < b.bottom : r.top >= b.top - 1 && r.bottom <= b.bottom + 1);
+    return { top: Math.round(t.scrollTop), max: t.scrollHeight - t.clientHeight, half: Math.round(t.clientHeight / 2), shows };
+  });
+  let s = await st(), downs = 0, ups = 0;
+  assert.ok(s.max > s.half * 3, `the thread is several pages long (${s.max})`);
+  while (s.top < s.max - 1) {
+    await keys(p, 'Control+d'); downs++;
+    const n = await st();
+    assert.ok(n.top > s.top, `ctrl-d ${downs} scrolled (${s.top} to ${n.top} of ${n.max})`);
+    assert.ok(n.top - s.top <= n.half + 2 && (n.top - s.top >= n.half - 2 || n.top >= n.max - 1), `by half a page (${n.top - s.top}, half ${n.half})`);
+    assert.ok(n.shows, `the cursor is on screen after ctrl-d ${downs}`);
+    assert.ok(downs < 200); s = n;
+  }
+  while (s.top > 0) {
+    await keys(p, 'Control+u'); ups++;
+    const n = await st();
+    assert.ok(n.top < s.top, `ctrl-u ${ups} scrolled (${s.top} to ${n.top})`);
+    assert.ok(n.shows, `the cursor is on screen after ctrl-u ${ups}`);
+    assert.ok(ups < 200); s = n;
+  }
+  assert.equal(await mode(p), 'NORMAL');
+}
+
+await test('reader: ctrl-d from the first line (gg) pages down a long thread, past its edit rows, and ctrl-u back', async p => {
+  await openChat(p, 'Walk through the backlog');
+  await composer(p).press('Escape'); await keys(p, 'k g g'); await settle(p);
+  assert.equal(await p.locator('.pane.focus .thread').evaluate(e => e.scrollTop), 0);
+  await pageThrough(p);
+});
+
+await test('reader: ctrl-d / ctrl-u never stall on tall blocks (open tool output, diffs, subagents) in a short window', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).press('Escape'); await keys(p, 'k z Shift+R g g'); await settle(p);
+  await pageThrough(p);
+}, { viewport: { width: 1280, height: 420 } });
+
+await test('reader: ctrl-d / ctrl-u cross a picture taller than the window and a long message', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  for (const h of [900, 120, 600]) {
+    await p.locator('.pane.focus .comp input[type=file]').setInputFiles({ name: 'tall.png', mimeType: 'image/png', buffer: await pngOf(260, h) });
+    await p.locator('.pane.focus .atts .att img').waitFor();
+    await composer(p).fill(LONG); await composer(p).press('Enter');
+    await settle(p, 700); await p.waitForFunction(() => !document.querySelector('.pane.focus .live'));   // the reply has ended
+  }
+  await p.locator('.pane.focus .m-user .m-more').nth(1).click();   // one long message open, all of it
+  await settle(p, 400);
+  await p.locator('.pane.focus .m-asst').last().click(); await settle(p);   // into the reader
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'reading');
+  await keys(p, 'g g'); await settle(p);
+  await pageThrough(p);
+}, { viewport: { width: 1280, height: 400 } });
+
 // ---- links in a reply: a click puts the reader's cursor on the link and follows it; enter / g x do from the keys ----
 async function linksReply(p) {
   await openChat(p, 'Add timestamps to chat rows');
