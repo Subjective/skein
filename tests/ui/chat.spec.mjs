@@ -1996,3 +1996,27 @@ await test('rubber band: a swipe that starts at an end is held for a step back, 
   await settle(p, 400);
   assert.equal(await th.evaluate(el => Math.round(el.scrollHeight - el.clientHeight - el.scrollTop)), 0, 'G ends at the very end');
 });
+
+await test('rubber band: a swipe that lands during the last one\'s momentum is stretched by Skein, then springs back', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await openAll(p);
+  await settle(p, 400);
+  const th = p.locator('.pane.focus .chat > .thread');
+  const r = await th.evaluate(async el => {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const wheel = dy => { const e = new WheelEvent('wheel', { deltaY: dy, cancelable: true, bubbles: true }); el.dispatchEvent(e); return e.defaultPrevented; };
+    await wait(100);
+    el.scrollTop = el.scrollHeight;
+    for (let i = 0; i < 6; i++) { wheel(40 - i); await wait(8); }   // a swipe and its momentum, still running
+    el.scrollTop = el.scrollHeight;                                    // the momentum pinned it at the end
+    await wait(30);
+    const held = wheel(10);                                            // a new swipe, 30 ms on
+    for (let i = 0; i < 4; i++) { await wait(8); wheel(30); }
+    const band = el.classList.contains('rb'), rb = parseFloat(el.style.getPropertyValue('--rb'));
+    await wait(120);                                                   // the fingers lift
+    return { held, band, rb, back: el.classList.contains('rb-back') || !el.classList.contains('rb'), after: el.style.getPropertyValue('--rb') };
+  });
+  assert.ok(r.held && r.band, `the new swipe is drawn by Skein: ${JSON.stringify(r)}`);
+  assert.ok(r.rb < 0 && r.rb > -100, `pulling at the bottom moves the content up, with resistance: ${r.rb}`);
+  assert.ok(r.back && r.after === '', `it springs back once the fingers lift: ${JSON.stringify(r)}`);
+});
