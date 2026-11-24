@@ -2023,6 +2023,20 @@ await test('reader: ctrl-d / ctrl-u cross a picture taller than the window and a
   await pageThrough(p);
 }, { viewport: { width: 1280, height: 400 } });
 
+await test('reader: a cursor on the running turn\'s timer stays drawn as the timer ticks', async p => {
+  await openChat(p, 'Refactor queue worker');
+  await p.locator('.pane.focus .live .dim').click(); await settle(p);
+  assert.equal(await mode(p), 'NORMAL');
+  const cur = () => p.evaluate(() => { const h = CSS.highlights.get('vcur')?.values().next().value; return h ? { text: h.startContainer.data, on: !h.collapsed && h.startContainer.parentElement.matches('.live .dim') } : null; });
+  const seen = new Set();
+  for (let i = 0; i < 14; i++) {
+    const c = await cur();
+    assert.ok(c?.on, `the cursor is drawn on the timer (${JSON.stringify(c)})`);
+    seen.add(c.text); await settle(p, 200);
+  }
+  assert.ok(seen.size >= 2, `the timer ticked (${[...seen]})`);
+});
+
 // ---- links in a reply: a click puts the reader's cursor on the link and follows it; enter / g x do from the keys ----
 async function linksReply(p) {
   await openChat(p, 'Add timestamps to chat rows');
