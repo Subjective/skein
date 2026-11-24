@@ -24,14 +24,31 @@ function keepRoom(el: HTMLElement | null) {
   else if (el.scrollTop > max - 1) { el.scrollTop = max - 1; dbgRoom(el); }
 }
 
+/** A scroll this soon after a wheel event is the fingers' own; this long without one, the fingers have stopped. */
+const WHEEL_DRIVEN_MS = 40;
+const WHEEL_QUIET_MS = 80;
+
 export function startOverscroll() {
   // TEMP (overscroll debugging, PR #52): a trace of wheel and scroll events, when the main process asks for it
   const dbg = (...a: unknown[]) => { if ((window as unknown as { skeinDebugScroll?: boolean }).skeinDebugScroll) console.log('[scroll]', Math.round(performance.now()), ...a); };
   document.addEventListener('wheel', e => { const el = scroller(e.target); dbg('wheel', e.deltaY.toFixed(1), el ? `${el.scrollTop.toFixed(1)}/${el.scrollHeight - el.clientHeight}` : '-'); }, { passive: true, capture: true });
   document.addEventListener('scroll', e => { const el = e.target instanceof HTMLElement ? e.target : null; if (el) dbg('scroll', el.className.split(' ')[0], `${el.scrollTop.toFixed(1)}/${el.scrollHeight - el.clientHeight}`); }, { passive: true, capture: true });
-  // The moment a scroll reaches an end (a swipe, its momentum, a key, the chat following new text), step back
-  // off it. Waiting for the swipe or its bounce to finish left quick repeat swipes starting at the very end.
-  document.addEventListener('scroll', e => keepRoom(e.target instanceof HTMLElement ? scroller(e.target) : null), { passive: true, capture: true });
+  // Step back off an end the moment a scroll reaches it (momentum, a key, the chat following new text), so a
+  // quick repeat swipe starts with room. But not while the fingers are moving: a pull at the end must reach
+  // the end and stay there, or each wheel event spends the pixel and Chromium never sees an overscroll to
+  // stretch. Once the fingers stop (the wheel goes quiet), the area gets its room back.
+  let lastWheel = -Infinity;
+  let quiet: ReturnType<typeof setTimeout> | undefined;
+  document.addEventListener('wheel', e => {
+    lastWheel = performance.now();
+    const el = scroller(e.target);
+    clearTimeout(quiet);
+    quiet = setTimeout(() => keepRoom(el), WHEEL_QUIET_MS);
+  }, { passive: true, capture: true });
+  document.addEventListener('scroll', e => {
+    if (performance.now() - lastWheel < WHEEL_DRIVEN_MS) return;
+    keepRoom(e.target instanceof HTMLElement ? scroller(e.target) : null);
+  }, { passive: true, capture: true });
   // an area that hasn't scrolled yet gets its room when the pointer comes over it, before any swipe
   document.addEventListener('pointerover', e => keepRoom(scroller(e.target)), { passive: true, capture: true });
 }
