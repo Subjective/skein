@@ -76,6 +76,11 @@ function createWindow() {
       say(n ? 'skein: ready' : 'skein: renderer error (no sidebar)');
     }, 1500));
   }
+  // TEMP (overscroll debugging, PR #52): SKEIN_DEBUG_SCROLL=1 prints the renderer's wheel and scroll trace
+  if (process.env.SKEIN_DEBUG_SCROLL) {
+    win.webContents.on('did-finish-load', () => void win?.webContents.executeJavaScript('window.skeinDebugScroll = true'));
+    win.webContents.on('console-message', (e) => { const m = (e as unknown as { message: string }).message; if (m.startsWith('[scroll]')) console.log(m); });
+  }
   win.webContents.setWindowOpenHandler(({ url }) => { void shell.openExternal(url); return { action: 'deny' }; });
   // A Browser tab's page is an ordinary web page: no preload, no Node, sandboxed, in its own session, http(s) only
   win.webContents.on('will-attach-webview', (e, prefs, params) => {
