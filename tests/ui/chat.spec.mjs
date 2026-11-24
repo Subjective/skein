@@ -610,6 +610,34 @@ await test('images: a message of only images is reachable; its images and Show m
   await p.locator('.lightbox').waitFor({ state: 'detached' });
 });
 
+await test('images: j from Show less of a tall message goes on to the reply below, not the composer', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await p.locator('.pane.focus .comp input[type=file]').setInputFiles({ name: 'pic.png', mimeType: 'image/png', buffer: await pngOf(260, 1400) });
+  await p.locator('.pane.focus .atts .att img').waitFor();
+  await composer(p).press('Enter');
+  await p.locator('.pane.focus .m-user .m-more').last().waitFor();
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .live'));
+  await settle(p, 400);
+  // where the cursor is: a row of your last message, or below it (the reply), or in it
+  const cur = () => p.evaluate(() => {
+    const u = [...document.querySelectorAll('.pane.focus .m-user')].pop(), r = document.querySelector('.pane.focus .rowcur');
+    if (r) return u.contains(r) ? (r.matches('.m-more') ? 'more' : r.matches('.m-pic') ? 'pic' : 'mine') : u.compareDocumentPosition(r) & Node.DOCUMENT_POSITION_FOLLOWING ? 'below' : 'above';
+    const n = CSS.highlights.get('vcur')?.values().next().value?.startContainer ?? getSelection().focusNode;
+    return !n ? 'none' : u.contains(n) ? 'mine' : u.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_FOLLOWING ? 'below' : 'above';
+  });
+  await composer(p).press('Escape');
+  await keys(p, '[ [ j');
+  assert.equal(await cur(), 'more', 'on Show more');
+  await keys(p, 'Enter');
+  await settle(p, 400);   // the message opens taller than the screen: Show less, with the cursor on it, is below it
+  assert.equal(await cur(), 'more', 'the cursor stays on Show less');
+  await keys(p, 'j');
+  assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'still reading, not in the composer');
+  assert.equal(await cur(), 'below', 'j goes on to the reply below');
+  await keys(p, 'k');
+  assert.equal(await cur(), 'more', 'and k comes back to Show less');
+});
+
 await test('quote: a selection goes into the composer as a chip (mod-l)', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await p.evaluate(() => {

@@ -355,9 +355,18 @@ export class Reader {
   private vert(d: number): boolean {
     const f = this.f!, root = this.root!;
     const fr = document.createRange(); fr.setStart(f.n, f.o); fr.setEnd(f.n, Math.min(f.o + 1, f.n.data.length));
-    const row = this.mode === 'n' ? this.row : null, rect = row ? seen(row) : fr.getClientRects()[0]; if (!rect) return false;
+    const row = this.mode === 'n' ? this.row : null, box = () => row ? seen(row) : fr.getClientRects()[0];
+    const sc = (root.closest('.thread') as HTMLElement) || root;
+    let rect = box(); if (!rect) return false;
+    // a cursor off screen (Show more opened a tall message above or around it) comes back into view first: the probe
+    // only reaches lines on screen, and finding none would leave the reader for the composer
+    const sb = sc.getBoundingClientRect();
+    if (rect.top > sb.bottom - MARGIN || rect.bottom < sb.top + MARGIN) {
+      sc.scrollTop += rect.top > sb.bottom - MARGIN ? rect.bottom - sb.bottom + MARGIN : rect.top - sb.top - MARGIN;
+      rect = box(); if (!rect) return false;
+    }
     const x = row ? (this.x ?? rect.left + 12) : rect.left + 2; if (!row) this.x = x;
-    const sc = (root.closest('.thread') as HTMLElement) || root, lh = row ? 18 : Math.max(14, rect.height);
+    const lh = row ? 18 : Math.max(14, rect.height);
     const probe = (y: number) => {
       const b = sc.getBoundingClientRect(), xs = [x]; for (let px = b.left + 10; px < b.right - 4; px += 18) xs.push(px);
       let best: Range | null = null, bd = Infinity;
