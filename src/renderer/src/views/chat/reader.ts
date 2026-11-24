@@ -311,29 +311,47 @@ export class Reader {
     while (sp(q)) { q = step(q, d); if (!q) return null; }
     for (;;) { r = step(q, d); if (!r || sp(r) || gap(q, r)) return q; q = r; }
   }
-  /** Up or down a line by geometry, which works on any static text. */
-  /** ctrl-d / ctrl-u: the thread scrolls half its height and the cursor goes as many lines, staying where it was on
-   *  screen (as in Vim). At the end of the thread the cursor goes on to the last (or first) line. */
-  private half(d: number) {
-    const sc = (this.root!.closest('.thread') as HTMLElement) || this.root!;
-    const top = () => { const f = this.f!, r = document.createRange(); r.setStart(f.n, f.o); r.setEnd(f.n, Math.min(f.o + 1, f.n.data.length)); return (this.row && this.mode === 'n' ? this.row.getBoundingClientRect() : r.getClientRects()[0])?.top ?? 0; };
-    const at = top(), before = sc.scrollTop;
-    sc.scrollTop += d * Math.round(sc.clientHeight / 2);
-    const moved = sc.scrollTop !== before;
-    let prev: number | null = null;
-    for (let i = 0; i < 400; i++) {
-      const y = top();
-      if (moved && (d > 0 ? y >= at - 2 : y <= at + 2)) {
-        // a tall row overshoots: the step before may be nearer where the cursor was
-        if (prev != null && Math.abs(prev - at) < Math.abs(y - at)) { const keep = sc.scrollTop; this.vert(-d); sc.scrollTop = keep; }
-        break;
-      }
-      prev = y;
-      const keep = sc.scrollTop;
-      if (!this.vert(d)) break;
-      if (moved) sc.scrollTop = keep;   // the screen moved once; the cursor follows it, not the other way round
-    }
+  /** ctrl-d / ctrl-u: the thread scrolls half its height and the cursor stays where it was on screen (as in Vim), on
+   *  whatever line is there now. Near the end of the thread, where it can't scroll the whole way, the cursor makes up
+   *  the rest, so at the very end it goes on toward the last (or first) line. It never steps line by line, so a tall
+   *  block (a picture, a long message, a folded group) can't hold it back, and the screen is not scrolled back to it. */
+  private half(d: number): boolean {
+    const sc = this.scroller() || this.root!, b = sc.getBoundingClientRect(), band = { lo: b.top + MARGIN, hi: b.bottom - MARGIN };
+    const f = this.f!, fr = document.createRange(); fr.setStart(f.n, f.o); fr.setEnd(f.n, Math.min(f.o + 1, f.n.data.length));
+    const cur = this.row && this.mode === 'n' ? seen(this.row) : fr.getClientRects()[0] ?? fr.getBoundingClientRect();
+    const x = this.row && this.mode === 'n' ? (this.x ?? cur.left + 12) : cur.left + 2;
+    const at = Math.min(Math.max(cur.top, band.lo), band.hi), step = Math.round(sc.clientHeight / 2), before = sc.scrollTop;
+    sc.scrollTop += d * step;
+    const y = Math.min(Math.max(at + d * step - (sc.scrollTop - before), band.lo), band.hi);   // what the scroll did not cover
+    const to = this.lineAt(y, x, band);
+    if (to) this.f = to.p;
+    return !!to?.seen;
   }
+  /** The line of text (or row) nearest a height on screen, preferring one that shows; seen when it does. */
+  private lineAt(y: number, x: number, band: { lo: number; hi: number }): { p: Pt; seen: boolean } | null {
+    let best: { n: Text; q: DOMRect; row: Element | null } | null = null, bd = Infinity, bs = false;
+    const rows = new Set<Element>();
+    for (const n of this.texts(this.root!)) {
+      const row = this.mode === 'n' ? n.parentElement?.closest(ROWS) ?? null : null;
+      if (row) { if (rows.has(row)) continue; rows.add(row); }
+      const p = { n, o: n.data.length - n.data.trimStart().length }; if (!this.ok(p) || folded(n)) continue;
+      const r = document.createRange(); r.selectNodeContents(n);
+      const clip = n.parentElement?.closest('.m-clip.shut'), cut = clip ? clip.getBoundingClientRect().bottom - 8 : Infinity;
+      const qs = row ? [seen(row)] : [...r.getClientRects()].filter(q => q.width > 0 && q.height > 0 && q.top < cut);
+      for (const q of qs) {
+        if (q.height <= 0) continue;
+        // on screen: wholly, or for a row taller than the screen (a big picture), across the middle of it
+        const shows = q.height > band.hi - band.lo ? q.bottom > band.lo && q.top < band.hi : q.top >= band.lo - MARGIN && q.bottom <= band.hi + MARGIN, dist = y < q.top ? q.top - y : y > q.bottom ? y - q.bottom : 0;
+        if ((shows && !bs) || (shows === bs && dist < bd)) { best = { n, q, row }; bd = dist; bs = shows; }
+      }
+    }
+    if (!best) return null;
+    const { n, q, row } = best;
+    if (row) { const p = this.firstText(row); return p && { p, seen: bs }; }
+    const c = bs ? caretAt(Math.min(Math.max(x, q.left + 1), q.right - 1), (Math.max(q.top, band.lo) + Math.min(q.bottom, band.hi)) / 2) : null;
+    return { p: { n, o: Math.min(c && c.startContainer === n ? c.startOffset : lineStart(n, q), n.data.length - 1) }, seen: bs };
+  }
+  /** Up or down a line by geometry, which works on any static text. */
   private vert(d: number): boolean {
     const f = this.f!, root = this.root!;
     const fr = document.createRange(); fr.setStart(f.n, f.o); fr.setEnd(f.n, Math.min(f.o + 1, f.n.data.length));
@@ -552,8 +570,10 @@ export class Reader {
       case '0': case 'home': this.go('backward', 'lineboundary'); break;
       case '$': case 'end': this.go('forward', 'lineboundary'); break;
       case 'k': case 'up': this.vert(-1); break;
-      case 'ctrl-d': case 'pagedown': this.half(1); break;
-      case 'ctrl-u': case 'pageup': this.half(-1); break;
+      case 'ctrl-d': case 'pagedown': case 'ctrl-u': case 'pageup': {   // the screen already moved: don't move it back
+        this.still = this.half(k === 'ctrl-d' || k === 'pagedown' ? 1 : -1);
+        try { return settle(); } finally { this.still = false; }
+      }
       case 'j': case 'down': if (!this.vert(1) && this.mode === 'n') { this.exit(); return true; } break;
       case 'v': case 'V':
         if (this.mode === 'n') this.a = this.f;
@@ -588,6 +608,20 @@ export function onText(x: number, y: number): boolean {
     for (const b of r.getClientRects()) if (x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2) return true;
   }
   return false;
+}
+/** Inside a shut fold (and not on the summary that folds it): the browser still gives such text boxes, but it is
+ *  not on screen. */
+function folded(n: Node): boolean {
+  for (let d = n.parentElement?.closest('details:not([open])'); d; d = d.parentElement?.closest('details:not([open])'))
+    if (![...d.children].some(c => c.matches('summary') && c.contains(n))) return true;
+  return false;
+}
+/** The first character of a text node on the line of a box (one of its getClientRects). */
+function lineStart(n: Text, line: DOMRect): number {
+  const r = document.createRange(); let lo = 0, hi = n.data.length - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; r.setStart(n, m); r.setEnd(n, m + 1); if ((r.getClientRects()[0]?.bottom ?? 0) <= line.top + 1) lo = m + 1; else hi = m; }
+  while (lo < n.data.length - 1 && !n.data[lo].trim()) lo++;
+  return lo;
 }
 /** A row's box as far as it shows: a picture in a long message that is cut short ends at the fold. */
 function seen(row: Element): DOMRect {
