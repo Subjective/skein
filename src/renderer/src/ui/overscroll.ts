@@ -26,7 +26,8 @@ function keepRoom(el: HTMLElement | null) {
 export function startOverscroll() {
   // after any scroll (a gesture, a key, the chat following new text) comes to rest
   document.addEventListener('scrollend', e => keepRoom(e.target instanceof HTMLElement ? scroller(e.target) : null), true);
-  // an area that has never scrolled yet: make room for the next gesture (only as one starts, never mid-bounce)
-  let last = -Infinity;
-  document.addEventListener('wheel', e => { if (e.timeStamp - last > 100) keepRoom(scroller(e.target)); last = e.timeStamp; }, { passive: true, capture: true });
+  // and as soon as a trackpad gesture goes quiet, without waiting for its bounce to settle, so the next swipe
+  // (or an area's first) finds the room at once
+  let quiet = 0;
+  document.addEventListener('wheel', e => { clearTimeout(quiet); const el = scroller(e.target); quiet = window.setTimeout(() => keepRoom(el), 50); }, { passive: true, capture: true });
 }
