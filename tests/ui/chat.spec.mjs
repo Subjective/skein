@@ -1510,7 +1510,7 @@ await test('reader: gg scrolls the transcript all the way to the top, G all the 
   const sc = () => p.locator('.pane.focus .thread').evaluate(t => ({ top: t.scrollTop, max: t.scrollHeight - t.clientHeight }));
   assert.ok((await sc()).max > 40, 'the thread scrolls');
   await keys(p, 'g g');
-  assert.ok((await sc()).top <= 1, 'gg: at the very top (resting a pixel short, so a pull there bounces)');
+  assert.equal((await sc()).top, 0, 'gg: at the very top');
   await keys(p, 'G');
   const s = await sc();
   assert.ok(s.max - s.top <= 1, `G: at the very bottom (${s.top} of ${s.max})`);
@@ -1967,18 +1967,32 @@ await test('links in a reply: enter and g x follow the link under the cursor', a
   assert.equal(await p.evaluate(() => window.__external.length), 2, 'g x follows it too');
 });
 
-await test('rubber band: the reader rests a pixel short of each end, so a pull there bounces natively', async p => {
+await test('rubber band: a swipe that starts at an end is held for a step back, so it latches and bounces natively', async p => {
   await openChat(p, 'Fix session-restore race');
   await openAll(p);
   await settle(p, 400);
   const th = p.locator('.pane.focus .chat > .thread');
-  const room = () => th.evaluate(el => [el.scrollTop, el.scrollHeight - el.clientHeight - el.scrollTop].map(Math.round));
+  // a swipe's first wheel event, dispatched at the reader; returns whether it was held and the room left
+  const swipe = (dy, gap = 60) => th.evaluate(async (el, [dy, gap]) => {
+    await new Promise(r => setTimeout(r, gap));
+    const e = new WheelEvent('wheel', { deltaY: dy, cancelable: true, bubbles: true });
+    el.dispatchEvent(e);
+    return { held: e.defaultPrevented, top: Math.round(el.scrollTop), end: Math.round(el.scrollHeight - el.clientHeight - el.scrollTop) };
+  }, [dy, gap]);
   await th.evaluate(el => { el.scrollTop = el.scrollHeight; });
-  await p.waitForFunction(() => { const el = document.querySelector('.pane.focus .chat > .thread'); return Math.round(el.scrollHeight - el.clientHeight - el.scrollTop) === 1; });
+  let r = await swipe(10);
+  assert.ok(r.held && r.end === 1, `a downward swipe at the bottom is held a pixel short of it: ${JSON.stringify(r)}`);
+  await th.evaluate(el => { el.scrollTop = el.scrollHeight - el.clientHeight - 200; });
+  r = await swipe(10);
+  assert.ok(!r.held, 'a swipe with room to scroll is left alone');
   await th.evaluate(el => { el.scrollTop = 0; });
-  await p.waitForFunction(() => Math.round(document.querySelector('.pane.focus .chat > .thread').scrollTop) === 1);
-  // G (a scroll from a key) settles a pixel short too
+  r = await swipe(-10);
+  assert.ok(r.held && r.top === 1, `an upward swipe at the top is held a pixel short of it: ${JSON.stringify(r)}`);
+  await th.evaluate(el => { el.scrollTop = 0; });
+  r = await swipe(10);
+  assert.ok(!r.held, 'a swipe away from the end it rests at is left alone');
+  // G rests at the very end; nothing moves it until a swipe starts there
   await keys(p, 'Shift+G');
   await settle(p, 400);
-  assert.equal((await room())[1], 1, 'G ends a pixel short of the end');
+  assert.equal(await th.evaluate(el => Math.round(el.scrollHeight - el.clientHeight - el.scrollTop)), 0, 'G ends at the very end');
 });
