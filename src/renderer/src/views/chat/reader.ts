@@ -164,6 +164,7 @@ export class Reader {
     }
     this.own();
     this.draw();
+    this.watch(root);
   }
   private own() {
     if (!this.offDown) {   // any mousedown outside the quote bar ends reading (the mockup's Reader.off); a click on the text starts it again on mouseup
@@ -172,7 +173,22 @@ export class Reader {
     }
     this.unreg?.(); this.unreg = registerTab(this.host.tabId, this.surface); update(s => { s.tick++; }); }
   /** Stop drawing; the composer or something else takes the keys. */
+  /** Text under the cursor that changes in place (a running turn's timer ticking) collapses the drawn range to
+   *  nothing, so the cursor vanished: draw it again on the new text, where it was, without scrolling. */
+  private watch(root: HTMLElement) {
+    this.seen?.disconnect();
+    this.seen = new MutationObserver(rs => {
+      const f = this.f, a = this.a; if (!this.on || !f || !a) return;
+      if (!rs.some(r => r.target === f.n || r.target === a.n)) return;
+      for (const p of [f, a]) p.o = Math.max(0, Math.min(p.o, p.n.data.length - 1));
+      if (!this.alive()) return;
+      this.still = true; try { this.draw(); } finally { this.still = false; }
+    });
+    this.seen.observe(root, { characterData: true, subtree: true });
+  }
+  private seen: MutationObserver | null = null;
   clear() {
+    this.seen?.disconnect(); this.seen = null;
     if (!this.on) return;
     this.mem = this.f;   // where k from the field below (or leader [) comes back to
     HL?.delete('vcur');
