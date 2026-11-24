@@ -1942,13 +1942,15 @@ async function pageThrough(p) {
     const shows = !!r && (row && r.height > b.height ? r.bottom > b.top && r.top < b.bottom : r.top >= b.top - 1 && r.bottom <= b.bottom + 1);
     return { top: Math.round(t.scrollTop), max: t.scrollHeight - t.clientHeight, half: Math.round(t.clientHeight / 2), shows };
   });
+  // pictures decode and a message opened with Show more grows: page only once the thread's height holds still
+  await p.waitForFunction(() => new Promise(ok => { const t = document.querySelector('.pane.focus .thread'), h = t.scrollHeight; setTimeout(() => ok(t.scrollHeight === h), 400); }));
   let s = await st(), downs = 0, ups = 0;
   assert.ok(s.max > s.half * 3, `the thread is several pages long (${s.max})`);
   while (s.top < s.max - 1) {
     await keys(p, 'Control+d'); downs++;
     const n = await st();
     assert.ok(n.top > s.top, `ctrl-d ${downs} scrolled (${s.top} to ${n.top} of ${n.max})`);
-    assert.ok(n.top - s.top <= n.half + 2 && (n.top - s.top >= n.half - 2 || n.top >= n.max - 1), `by half a page (${n.top - s.top}, half ${n.half})`);
+    assert.ok(n.top - s.top <= n.half + 2 && (n.top - s.top >= n.half - 2 || n.top >= n.max - 1), `by half a page (${n.top - s.top}, half ${n.half}, at ${n.top} of ${n.max})`);
     assert.ok(n.shows, `the cursor is on screen after ctrl-d ${downs}`);
     assert.ok(downs < 200); s = n;
   }
