@@ -334,7 +334,7 @@ export class Reader {
     for (const n of this.texts(this.root!)) {
       const row = this.mode === 'n' ? n.parentElement?.closest(ROWS) ?? null : null;
       if (row) { if (rows.has(row)) continue; rows.add(row); }
-      const p = { n, o: n.data.length - n.data.trimStart().length }; if (!this.ok(p)) continue;
+      const p = { n, o: n.data.length - n.data.trimStart().length }; if (!this.ok(p) || folded(n)) continue;
       const r = document.createRange(); r.selectNodeContents(n);
       const clip = n.parentElement?.closest('.m-clip.shut'), cut = clip ? clip.getBoundingClientRect().bottom - 8 : Infinity;
       const qs = row ? [seen(row)] : [...r.getClientRects()].filter(q => q.width > 0 && q.height > 0 && q.top < cut);
@@ -607,6 +607,13 @@ export function onText(x: number, y: number): boolean {
     r.setStart(t, o); r.setEnd(t, o + 1);
     for (const b of r.getClientRects()) if (x >= b.left - 2 && x <= b.right + 2 && y >= b.top - 2 && y <= b.bottom + 2) return true;
   }
+  return false;
+}
+/** Inside a shut fold (and not on the summary that folds it): the browser still gives such text boxes, but it is
+ *  not on screen. */
+function folded(n: Node): boolean {
+  for (let d = n.parentElement?.closest('details:not([open])'); d; d = d.parentElement?.closest('details:not([open])'))
+    if (![...d.children].some(c => c.matches('summary') && c.contains(n))) return true;
   return false;
 }
 /** The first character of a text node on the line of a box (one of its getClientRects). */

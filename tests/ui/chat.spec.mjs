@@ -1939,8 +1939,10 @@ async function pageThrough(p) {
     const t = document.querySelector('.pane.focus .thread'), b = t.getBoundingClientRect();
     const row = document.querySelector('.pane.focus .rowcur'), h = CSS.highlights?.get('vcur')?.values().next().value;
     const r = row ? row.getBoundingClientRect() : h?.getBoundingClientRect();
+    const n = row ?? h?.startContainer, el = n && (n.nodeType === 1 ? n : n.parentElement);
+    const drawn = !!el && el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true }) && !el.closest('details:not([open]) > :not(summary)');
     const shows = !!r && (row && r.height > b.height ? r.bottom > b.top && r.top < b.bottom : r.top >= b.top - 1 && r.bottom <= b.bottom + 1);
-    return { top: Math.round(t.scrollTop), max: t.scrollHeight - t.clientHeight, half: Math.round(t.clientHeight / 2), shows };
+    return { top: Math.round(t.scrollTop), max: t.scrollHeight - t.clientHeight, half: Math.round(t.clientHeight / 2), shows: shows && drawn };
   });
   // pictures decode and a message opened with Show more grows: page only once the thread's height holds still
   await p.waitForFunction(() => new Promise(ok => { const t = document.querySelector('.pane.focus .thread'), h = t.scrollHeight; setTimeout(() => ok(t.scrollHeight === h), 400); }));
