@@ -29,6 +29,8 @@ function keepRoom(el: HTMLElement | null) {
 /** A scroll this soon after a wheel event is the fingers' own; this long without one, the fingers have stopped. */
 const WHEEL_DRIVEN_MS = 40;
 const WHEEL_QUIET_MS = 80;
+/** A pause between wheel events this long starts a new swipe (a swipe's own events come ~8 ms apart). */
+const SWIPE_GAP_MS = 25;
 
 export function startOverscroll() {
   // TEMP (overscroll debugging, PR #52): a trace of wheel and scroll events, when the main process asks for it
@@ -52,23 +54,34 @@ export function startOverscroll() {
     keepRoom(e.target instanceof HTMLElement ? scroller(e.target) : null);
   }, { passive: true, capture: true });
   // A swipe that starts at an end (the area stayed there through the last swipe's stretch and momentum)
-  // would chain past the area and never stretch. Only a swipe's first wheel event can be cancelled, and
-  // Chromium doesn't start the scroll until it's answered: swallow it, step off the end, and keep swallowing
-  // for the two frames it takes the new position to reach the compositor, so the swipe latches here.
+  // would chain past the area and never stretch. Chromium doesn't start a swipe's scroll until its first
+  // wheel event is answered, and while we cancel them every event of the swipe stays cancellable: at an end,
+  // cancel, step a pixel back, and keep cancelling for the two frames it takes the new position to reach the
+  // compositor. Then let the swipe through and leave it alone, so it latches here, reaches the end, stretches.
   let holdUntil = -1;
+  let through = false;  // this swipe has been let through
+  let prevWheel = -Infinity;
   document.addEventListener('wheel', e => {
-    if (!e.cancelable || e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    const now = performance.now();
+    // events of one swipe, momentum included, come a frame apart; a new swipe comes after a pause
+    if (now - prevWheel > SWIPE_GAP_MS) { through = false; if (holdUntil === 0) holdUntil = -1; }
+    prevWheel = now;
+    if (through || !e.cancelable || e.ctrlKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) { through = true; return; }
     const el = scroller(e.target);
-    if (!roomy(el)) return;
-    if (performance.now() < holdUntil) { e.preventDefault(); return; }
+    if (!roomy(el)) { through = true; return; }
+    if (now < holdUntil) { e.preventDefault(); return; }
     const max = el.scrollHeight - el.clientHeight;
     const atTop = el.scrollTop < 0.5, atEnd = el.scrollTop > max - 0.5;
-    if (!(e.deltaY < 0 ? atTop : e.deltaY > 0 ? atEnd : atTop || atEnd)) return;
-    e.preventDefault();
-    keepRoom(el);
-    holdUntil = Infinity;
-    requestAnimationFrame(() => requestAnimationFrame(() => { holdUntil = -1; }));
-    dbg('hold', el.className.split(' ')[0]);
+    if (holdUntil === -1 && (e.deltaY < 0 ? atTop : e.deltaY > 0 ? atEnd : atTop || atEnd)) {
+      e.preventDefault();
+      keepRoom(el);
+      holdUntil = Infinity;
+      requestAnimationFrame(() => requestAnimationFrame(() => { holdUntil = 0; }));
+      dbg('hold', el.className.split(' ')[0]);
+      return;
+    }
+    holdUntil = -1;
+    through = true;
   }, { passive: false, capture: true });
   // an area that hasn't scrolled yet gets its room when the pointer comes over it, before any swipe
   document.addEventListener('pointerover', e => keepRoom(scroller(e.target)), { passive: true, capture: true });
