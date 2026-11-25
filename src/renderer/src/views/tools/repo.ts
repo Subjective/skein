@@ -85,6 +85,24 @@ export function useRepo(machine: string, dir: string): RepoEntry {
   return e;
 }
 
+/** The repository at a folder for a glance (the status bar's branch, a new thread's branch chip): read when the
+ *  folder or `dep` changes and when the window comes back, without polling. */
+export function useRepoLook(machine: string | undefined, dir: string | undefined, dep?: unknown): RepoEntry | null {
+  const e = machine && dir ? repoEntry(machine, dir) : null;
+  useEffect(() => {
+    if (!e) return;
+    void refresh(e);
+    const back = () => void refresh(e);
+    window.addEventListener('focus', back);
+    return () => window.removeEventListener('focus', back);
+  }, [e, dep]);
+  return e;
+}
+/** The branch to show: the live one (a short hash when detached), `fallback` until the first look answers, none
+ *  outside a repository. */
+export const branchOf = (e: RepoEntry | null, fallback?: string) =>
+  !e || e.repo === undefined ? fallback : e.repo ? (e.repo.branch || e.repo.head?.slice(0, 7)) : undefined;
+
 // ---------------- agent turns ----------------
 
 export interface Turn { thread: string; root: string; machine: string; base: string; head?: string; at: number }

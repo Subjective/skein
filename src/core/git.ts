@@ -219,6 +219,26 @@ export async function switchBranch(m: Machine, root: string, branch: string, cre
   ok(await g(m, root, create ? ['switch', '-c', branch] : ['switch', branch]));
 }
 
+/** A worktree for a new thread: ~/.skein/worktrees/<repo>/<name> on the machine, on a new branch skein/<name> made
+ *  from the folder's HEAD. Returns the folder to start in (the same subfolder of the new worktree). */
+export async function addWorktree(m: Machine, dir: string): Promise<string> {
+  const [top] = await multi(m, dir, [['rev-parse', '--show-toplevel', '--show-prefix']]);
+  if (top.code !== 0 || !top.stdout.trim()) throw new Error('Not a git repository');
+  const [root, prefix = ''] = top.stdout.split('\n').map(x => x.trim());
+  const repoName = root.split(/[\\/]/).filter(Boolean).pop() || 'repo', name = randomBytes(3).toString('hex'), branch = `skein/${name}`;
+  const sub = prefix.replace(/\/$/, '');
+  if (m.ssh) {
+    const r = ok(await run(m, `sh -c ${sq(`cd ${sqPath(root)} && p="$HOME/.skein/worktrees/"${sq(repoName)}/${sq(name)} && mkdir -p "$(dirname "$p")" && git worktree add -q -b ${sq(branch)} "$p" HEAD >&2 && printf %s "$p"`)}`), 'git worktree');
+    const p = r.stdout.trim();
+    return sub ? `${p}/${sub}` : p;
+  }
+  const { homedir } = await import('node:os'); const { join } = await import('node:path'); const { mkdir } = await import('node:fs/promises');
+  const p = join(homedir(), '.skein', 'worktrees', repoName, name);
+  await mkdir(join(p, '..'), { recursive: true });
+  ok(await g(m, root, ['worktree', 'add', '-q', '-b', branch, p, 'HEAD']), 'git worktree');
+  return sub ? join(p, sub) : p;
+}
+
 // ---------------- changing things ----------------
 
 export async function stage(m: Machine, dir: string, ps: string[], on: boolean) {

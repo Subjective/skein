@@ -224,6 +224,12 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   `m` / `:moveto`. The bar shows the folder's live branch (`git` on the folder's machine, read when the tab or
   the thread's state changes and when the window regains focus; no polling of its own), not the transcript's.
   The mode pill and the workspace name stay as they were.
+- **New thread's branch chip** (owner, 2026-11-25): it showed a fixed "main" and toggled a worktree flag nothing
+  used. It now shows the folder's branch (hidden outside a repo) and opens the branch picker; picking a branch
+  switches the folder's checkout, as in Codex. The picker's first row, New worktree, makes the chip read "New
+  worktree from <branch>"; sending runs `git worktree add -b skein/<6 hex>` from HEAD into
+  `~/.skein/worktrees/<repo>/<name>` on the thread's machine (`core/git` addWorktree) and starts the thread there,
+  in the same subfolder. Worktrees are never removed by Skein.
 
 ## What the owner consistently asks for
 
