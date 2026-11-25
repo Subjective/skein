@@ -24,14 +24,24 @@ function asPopupOf(s: Surface): Surface {
   return m;
 }
 
+/** The sidebar cursor from app NORMAL (j / k / enter / o, as in the mockup), for a key pressed here. A held key keeps
+ *  moving it only when its first press did: holding j to the end of a chat's reader hands the keys to the chat's
+ *  app-NORMAL surface mid-hold, and its repeats must not run on into the sidebar, a pane that isn't focused. */
+let held: string | null = null;
+const toCursor = (k: string, e: KeyLike): boolean => {
+  if (e.repeat) return held === k ? cursorKey(k) : !!cursorStep(k);   // a repeat that didn't start here stops
+  held = cursorKey(k) ? k : null;
+  return held != null;
+};
+const cursorStep = (k: string) => k === 'down' || k === 'up' || (S.settings.vim && (k === 'j' || k === 'k'));
 /** The layout itself (a pane with nothing that takes keys): App NORMAL, where j / k / enter / o drive the
  *  sidebar cursor as in the mockup; everything else goes to the normal layer. */
-const appLayout: Surface = { kind: 'layout', mode: () => 'NORMAL', key: k => cursorKey(k) };
+const appLayout: Surface = { kind: 'layout', mode: () => 'NORMAL', key: (k, e) => toCursor(k, e) };
 /** A tab's own app-NORMAL surface (a chat with nothing focused) keeps its keys; what it leaves goes to the cursor. */
 const withCursor = new WeakMap<Surface, Surface>();
 const layoutOf = (s: Surface): Surface => {
   let m = withCursor.get(s);
-  if (!m) { m = { ...s, kind: s.kind, mode: () => s.mode(), key: (k, e) => s.key(k, e) || (s.mode() === 'NORMAL' && cursorKey(k)) }; withCursor.set(s, m); }
+  if (!m) { m = { ...s, kind: s.kind, mode: () => s.mode(), key: (k, e) => s.key(k, e) || (s.mode() === 'NORMAL' && toCursor(k, e)) }; withCursor.set(s, m); }
   return m;
 };
 
@@ -67,6 +77,7 @@ export function startKeyboard() {
     if (capture && capture(e)) { e.preventDefault(); e.stopImmediatePropagation(); return; }
     // Show more / Show less under a long message, reached with tab: enter and space press it, as any button
     if ((e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey && !e.altKey && (e.target as Element | null)?.closest?.('.m-more')) return;
+    if (!e.repeat) held = null;   // a new press: whoever takes it, a hold of it starts there
     d.keymap = keymap();
     if (d.handle(e)) { e.preventDefault(); e.stopImmediatePropagation(); }
   }, true);

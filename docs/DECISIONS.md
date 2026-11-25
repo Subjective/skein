@@ -130,7 +130,8 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
     when that machine knows it, else takes its most recent one; a machine without the harness switches the model
     and says which. A thread dropped on a machine heading with a same-named repo goes straight to the Move dialog.
   - App NORMAL `j` / `k` / `enter` / `o` drive the sidebar cursor without focusing the sidebar (`cursorKey`); a
-    chat's own app-NORMAL keys come first. The palette lists archived threads and side chats; popping a tab out
+    chat's own app-NORMAL keys come first. A held key moves the cursor only when its first press did, so holding `j`
+    to the end of a chat's reader stops there instead of running on into the sidebar. The palette lists archived threads and side chats; popping a tab out
     activates the tab before it; switching or creating a workspace clears the sidebar cursor; a dragged project
     shows its folder and name under the pointer.
 
