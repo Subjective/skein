@@ -13,7 +13,7 @@ import { init, opPending, setText, step, tokAt, typed, vrange, type Effect, type
 import { opCursor } from './opcursor';
 import { S, toast, update } from '../state/store';
 import { cx } from './primitives';
-import { revealCaret } from './caret';
+import { caretBox, posAt, revealCaret } from './caret';
 
 export interface VimFieldHandle { focus(insert?: boolean): void; set(text: string, pos?: number): void; state(): TextState; el(): HTMLTextAreaElement | null; /** Put the cursor at an offset, in NORMAL or with a VISUAL selection (a reader handing over to the editor). */ at(pos: number, vis?: { anchor: number; mode: 'VISUAL' | 'V-LINE' }): void }
 
@@ -134,6 +134,20 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
     }
   };
 
+  /** ctrl-d / ctrl-u (NORMAL, VISUAL): as in Vim, the draft scrolls half the field's height and the cursor goes as
+   *  far, keeping its place in the field; where it can't scroll (a short draft, or its end) the cursor makes up the
+   *  rest. Measured on screen lines, so a long wrapped paragraph pages like any other text. */
+  const half = (d: number) => {
+    const el = ta.current, s = st.current; if (!el) return;
+    const by = Math.round(el.clientHeight / 2), from = caretBox(el, s.pos), before = el.scrollTop;
+    el.scrollTop = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, before + d * by));
+    const y = from.top + from.height / 2 + d * by - (el.scrollTop - before);   // where the cursor's line goes, on screen
+    let pos = posAt(el, from.left, y);
+    if (s.mode === 'NORMAL' && s.text[pos] === '\n' && pos > 0 && s.text[pos - 1] !== '\n') pos--;   // NORMAL sits on a character
+    const tok = tokAt(s.text, pos); if (tok) pos = tok[0];
+    apply({ ...s, pos, pending: '', col: undefined }, []);
+  };
+
   const surface: Surface = {
     kind: 'field',
     mode: () => (S.settings.vim ? st.current.mode : 'INSERT'),
@@ -146,6 +160,7 @@ export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimFi
         if (k === 'esc') { if (!vim) { props.current.onLeave?.(); return true; } const r = step(s, 'esc'); apply(r.s, r.fx); return true; }
         return false;
       }
+      if ((k === 'ctrl-d' || k === 'ctrl-u') && /^\d*$/.test(s.pending)) { half(k === 'ctrl-d' ? 1 : -1); return true; }
       // one register for every field (input/register); p / P with it empty put the system clipboard
       const shared = getReg();
       const before = { ...s, reg: shared };

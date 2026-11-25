@@ -48,3 +48,22 @@ export function revealCaret(el: HTMLTextAreaElement, pos: number) {
   if (top - padT < el.scrollTop) el.scrollTop = Math.max(0, top - padT);
   else if (top + height + padB > el.scrollTop + el.clientHeight) el.scrollTop = top + height + padB - el.clientHeight;
 }
+
+/** The character nearest a point on screen: on the screen line at height y (the first or last line past the text),
+ *  the one whose box is nearest x. */
+export function posAt(el: HTMLTextAreaElement, x: number, y: number): number {
+  const n = el.value.length; if (!n) return 0;
+  const top = (p: number) => caretBox(el, p);
+  // the first character of the line holding y: lines only go down as the text goes on
+  let lo = 0, hi = n;
+  while (lo < hi) { const m = (lo + hi) >> 1, b = top(m); if (b.top + b.height <= y) lo = m + 1; else hi = m; }
+  if (lo >= n) { lo = n; while (lo > 0 && top(lo - 1).top === top(n).top) lo--; }   // past the end: the last line
+  const row = top(Math.min(lo, n)).top;
+  let best = lo, bd = Infinity;
+  for (let p = lo; p <= n; p++) {
+    const b = top(p); if (b.top !== row) break;
+    const dist = Math.abs(b.left + b.width / 2 - x); if (dist < bd) { bd = dist; best = p; }
+    if (el.value[p] === '\n') break;
+  }
+  return best;
+}
