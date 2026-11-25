@@ -268,7 +268,7 @@ test('chat reader: ? searches backwards', async p => {
 // ---------- coming back to a thread ----------
 // Josh, 2026-11-23: a new thread opens ready to type, but coming back to a thread's tab (after a split, another pane
 // or tab) keeps the NORMAL it was left in. A split remounts the chat, so the composer's mode has to outlive that.
-const compBox = p => p.locator('.pane.focus .compw textarea');
+const compBox = p => p.locator('.pane.focus .compw .cm-content');
 
 test('coming back: a split and back keeps the composer in NORMAL, with its draft and undo', async p => {
   await openChat(p, 'Add timestamps to chat rows');
@@ -304,7 +304,7 @@ test('coming back: a brand-new thread still opens its composer in INSERT, even f
   await keys(p, 'Escape Control+w v');   // the split's launcher starts in NORMAL
   assert.equal(await mode(p), 'NORMAL');
   await keys(p, 'Enter');   // enter in NORMAL starts the thread too
-  await p.waitForSelector('.pane.focus .compw textarea');
+  await p.waitForSelector('.pane.focus .compw .cm-content');
   await settle(p);
   assert.ok(await compBox(p).evaluate(el => el === document.activeElement), 'the new thread\'s composer has the keys');
   assert.equal(await mode(p), 'INSERT');
@@ -423,10 +423,10 @@ test('fields: y and p share one register across fields; p takes the clipboard wh
   await p.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await p.evaluate(() => navigator.clipboard.writeText('from outside'));
   await openChat(p, 'Add timestamps to chat rows');
-  const box = p.locator('.pane.focus .compw textarea');
+  const box = p.locator('.pane.focus .compw .cm-content');
   await box.pressSequentially('hello world');
   await keys(p, 'Escape 0 p');
-  await p.waitForFunction(() => document.querySelector('.pane.focus .compw textarea').value === 'hfrom outsideello world');
+  await p.waitForFunction(() => window.__skein.val(document.querySelector('.pane.focus .compw .cm-content')) === 'hfrom outsideello world');
   await keys(p, 'u');
   assert.equal(await box.inputValue(), 'hello world');
   await keys(p, '0 y w $ p');
@@ -443,23 +443,24 @@ test('fields: y and p share one register across fields; p takes the clipboard wh
 
 test('fields: an operator waiting for its motion shows a half-block cursor, in a composer and a menu search', async p => {
   await openChat(p, 'Add timestamps to chat rows');
-  const box = p.locator('.pane.focus .compw textarea');
+  const box = p.locator('.pane.focus .compw .cm-content');
   await box.pressSequentially('hello world');
   await keys(p, 'Escape 0');
-  const half = p.locator('.pane.focus .compw .bk .vcur.vop');
-  assert.equal(await half.count(), 0, 'NORMAL: a full block');
+  // the composer is the code editor: its Vim draws the half block (the lower half of the character)
+  const half = () => box.evaluate(el => {
+    const c = el.closest('.cm-editor').querySelector('.cm-fat-cursor'), lh = parseFloat(getComputedStyle(el).lineHeight);
+    return !!c && c.getBoundingClientRect().height < lh * 0.7;
+  });
+  assert.equal(await half(), false, 'NORMAL: a full block');
   await keys(p, 'd');
-  assert.equal(await half.innerText(), 'h', 'd waits: the half block on the character');
-  const bg = await half.evaluate(e => getComputedStyle(e).backgroundImage);
-  assert.match(bg, /linear-gradient/);
-  assert.ok(await box.evaluate(e => e.classList.contains('op')));
+  assert.equal(await half(), true, 'd waits: the half block on the character');
   await keys(p, 'w');
   assert.equal(await box.inputValue(), 'world');
-  assert.equal(await half.count(), 0, 'dw done: a full block again');
+  assert.equal(await half(), false, 'dw done: a full block again');
   await keys(p, 'c');
-  assert.equal(await half.count(), 1);
+  assert.equal(await half(), true);
   await keys(p, 'Escape');
-  assert.equal(await half.count(), 0, 'esc lets the operator go');
+  assert.equal(await half(), false, 'esc lets the operator go');
   // a menu's search field in NORMAL
   await keys(p, `${mod}+k`);
   await p.keyboard.type('abc');

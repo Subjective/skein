@@ -156,7 +156,7 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 
 | Surface | Kind | Opens in | Notes |
 |---|---|---|---|
-| Composer, edit box | Field | INSERT | `enter` sends from INSERT or NORMAL. While a turn runs `enter` queues and `mod-enter` steers (Settings swaps them); after a stop, `enter` with nothing typed continues a Codex turn |
+| Composer, edit box | Field (the code editor, rule 23) | INSERT | The same CodeMirror Vim as an open file, so motions, text objects, operators, `.` and registers behave as there. `enter` sends from INSERT or NORMAL. While a turn runs `enter` queues and `mod-enter` steers (Settings swaps them); after a stop, `enter` with nothing typed continues a Codex turn |
 | Queued messages (above the composer) | List | NORMAL | `k` from the composer's first line lands on the last row; `j` / `k` move (`gg` / `G`), `j` past the last row is the composer, `k` past the first reads the thread. `h` / `l` ring the row's buttons and `enter` / `space` press (Steer first); `s` steers (Send now when idle), `x` / `dd` delete (Undo in the toast), `e` / `i` / `a` / `c` edit in place (`enter` saves, `esc` `esc` keeps it), `K` / `J` move the row, `.` opens ⋯, `r` resumes a queue a stop paused |
 | Terminal (TUI or shell) | Terminal | TERMINAL | rule 11; leader `[` for its scrollback |
 | Mirror bar, handoff card, upload error, SSH dialog buttons, move dialog | List (one row) | NORMAL | rule 16 |
@@ -199,7 +199,7 @@ The Electron build must also drop the default menu accelerators that would swall
 - **Search in the chat transcript matches within one run of text.** A phrase split by formatting (inline code,
   bold, a link) is not found as a whole; each part is.
 - **Search is literal.** No regular expressions, no `*` / `#` (search for the word under the cursor), no `:s`.
-- **One register outside the code editor.** Composers and other fields have no named registers, no explicit `"+` / `"*`, and `p` in VISUAL does not replace the selection; the code editor (an open file) has all of these, as Vim does. Moving the composer and the edit box onto the code editor is the next step.
+- **One register outside the code editor.** The small fields (a menu's search, a dialog, the queue's edit row) have no named registers, no explicit `"+` / `"*`, and `p` in VISUAL does not replace the selection; the code editor has all of these, as Vim does, and every composer and the edit box are the code editor.
 - **Counts stop at the edges they knew before**: `5j` past a reader's last line goes to the field below (rule 7)
   like `j` does, and a count before `G` in the chat transcript is ignored.
 - **App NORMAL `k` in a chat** enters the transcript reader (and `enter` goes back to the composer), so there only

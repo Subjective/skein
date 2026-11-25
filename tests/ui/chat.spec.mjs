@@ -8,7 +8,7 @@ async function openChat(p, title) {
   if ((await seg.getAttribute('aria-pressed')) !== 'true') await seg.click();
   await p.waitForSelector('.pane.focus .chat .col[data-read] > *');
 }
-const composer = p => p.locator('.pane.focus .compw textarea');
+const composer = p => p.locator('.pane.focus .compw .cm-content');
 /** Into the reader (esc, k) and open every fold (zR), for tests about the whole transcript's text. */
 async function openAll(p) { await composer(p).press('Escape'); await keys(p, 'k z Shift+R'); await settle(p); }
 
@@ -187,7 +187,7 @@ await test('requests: 1 of 3, y allows the oldest, n denies the next, buttons an
 await test('edit and resend: click a message, esc cancels, enter rewinds and resends', async p => {
   await openChat(p, 'Add timestamps to chat rows');
   await p.locator('.pane.focus .m-user').first().click();
-  const box = p.locator('.pane.focus .m-edit textarea');
+  const box = p.locator('.pane.focus .m-edit .cm-content');
   await box.waitFor();
   assert.equal(await box.inputValue(), 'Add a timestamp to each message in the Markdown export.');
   await box.press('Escape'); await box.press('Escape');
@@ -209,10 +209,10 @@ await test('edit: a click on your message puts the caret before the clicked lett
     const q = r.getBoundingClientRect(); return { x: q.left + 1, y: q.top + q.height / 2 };
   });
   await p.mouse.click(pt.x, pt.y);
-  const box = p.locator('.pane.focus .m-edit textarea');
+  const box = p.locator('.pane.focus .m-edit .cm-content');
   await box.waitFor(); await settle(p);
   assert.equal(await mode(p), 'INSERT');
-  assert.equal(await box.evaluate(el => el.selectionStart), 'Add a t'.length, 'the caret is where the click was, not at the end');
+  assert.equal(await box.evaluate(el => window.__skein.at(el)[0]), 'Add a t'.length, 'the caret is where the click was, not at the end');
   await box.press('Escape'); await box.press('Escape');
   await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
   // a message sent with trailing newlines opens without them (the bubble never showed them)
@@ -224,7 +224,7 @@ await test('edit: a click on your message puts the caret before the clicked lett
 await test('edit: esc esc then straight to the composer, before the reader takes the message, types and sends there', async p => {
   await openChat(p, 'Add timestamps to chat rows');
   await p.locator('.pane.focus .m-user .mt').first().click();
-  const box = p.locator('.pane.focus .m-edit textarea');
+  const box = p.locator('.pane.focus .m-edit .cm-content');
   await box.waitFor(); await settle(p);
   await box.press('Escape');
   // a slow frame: the box is gone, the reader not yet back on the message, and the composer gets the focus first
@@ -307,7 +307,7 @@ await test('edit from the reader: x on your message edits it in NORMAL', async p
   await settle(p);
   await p.keyboard.press('0');
   await p.keyboard.press('x');
-  const box = p.locator('.pane.focus .m-edit textarea');
+  const box = p.locator('.pane.focus .m-edit .cm-content');
   await box.waitFor();
   // the edit box animates in and takes the keys a frame later; on a loaded CI runner the first read can land before that
   await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'NORMAL' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
@@ -317,7 +317,7 @@ await test('edit from the reader: x on your message edits it in NORMAL', async p
 
 await test('edit from the reader: i, a and cw on your message type into it in INSERT', async p => {
   await openChat(p, 'Tidy PowerShell profile');
-  const box = p.locator('.pane.focus .m-edit textarea');
+  const box = p.locator('.pane.focus .m-edit .cm-content');
   await composer(p).press('Escape');   // into the reader; esc esc out of each edit puts it back on the message
   for (const [ks, typed, want] of [['i', 'Z', 'ZMy PowerShell'], ['a', 'Z', 'MZy PowerShell'], ['c w', 'Our', 'Our PowerShell']]) {
     await p.keyboard.press('g'); await p.keyboard.press('g'); await settle(p);
@@ -335,7 +335,7 @@ await test('edit from the reader: i, a and cw on your message type into it in IN
 
 await test('edit from the reader: keys typed before the edit box shows (c w, i Z on a slow frame) still go into it', async p => {
   await openChat(p, 'Tidy PowerShell profile');
-  const box = p.locator('.pane.focus .m-edit textarea');
+  const box = p.locator('.pane.focus .m-edit .cm-content');
   await composer(p).press('Escape');
   // a slow machine: the box mounts a while after the key that opens it, and the next key comes before that
   await p.evaluate(() => { const r = window.requestAnimationFrame.bind(window); window.requestAnimationFrame = f => setTimeout(() => r(f), 60); });
@@ -364,7 +364,7 @@ await test('edit from the reader and a double-click: the cursor lands on the sam
   await p.keyboard.press('['); await p.keyboard.press('['); await settle(p);
   await p.keyboard.press('j'); await p.keyboard.press('0'); await settle(p);
   await p.keyboard.press('x');
-  const box = p.locator('.pane.focus .m-edit textarea');
+  const box = p.locator('.pane.focus .m-edit .cm-content');
   await box.waitFor();
   await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'NORMAL' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
   assert.equal(await box.inputValue(), 'Intro line\n- **old** item', 'x took the b, past the bullet and the stars');
@@ -376,7 +376,7 @@ await test('edit from the reader and a double-click: the cursor lands on the sam
   await p.mouse.dblclick(at.x, at.y);
   await box.waitFor();
   await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'VISUAL', null, { timeout: 2000 }).catch(() => {});
-  const [a, z] = await box.evaluate(el => [el.selectionStart, el.selectionEnd]);
+  const [a, z] = await box.evaluate(el => window.__skein.at(el).slice(0, 2));
   assert.equal('Intro line\n- **bold** item'.slice(a, z), 'item');
 });
 
@@ -405,11 +405,11 @@ await test('subagent: a row opens its popup in INSERT, ready to message it', asy
   const pop = p.locator('.peek.focus');
   await pop.waitFor();
   assert.ok((await pop.locator('.tb').innerText()).includes('Test runner'));
-  assert.equal(await pop.locator('textarea').getAttribute('placeholder'), 'Message Test runner');
+  assert.equal(await pop.locator('.cm-content').getAttribute('placeholder'), 'Message Test runner');
   await settle(p);
   assert.equal(await mode(p), 'INSERT');
-  await pop.locator('textarea').pressSequentially('anything else?');
-  await pop.locator('textarea').press('Enter');
+  await pop.locator('.cm-content').pressSequentially('anything else?');
+  await pop.locator('.cm-content').press('Enter');
   await pop.locator('.m-user', { hasText: 'anything else?' }).waitFor();
   await pop.locator('.m-asst', { hasText: 'Nothing else failed' }).waitFor();
 });
@@ -447,9 +447,9 @@ await test('side chat: link opens it; Send to thread quotes the answer back', as
   assert.equal(await mode(p), 'INSERT');
   await pop.getByRole('button', { name: 'Send to thread' }).click();
   await settle(p);
-  const v = await p.locator('.pane .compw textarea').first().inputValue();
+  const v = await p.locator('.pane .compw .cm-content').first().inputValue();
   assert.ok(v.includes('A mutex only covers'), 'quote is in the thread composer');
-  assert.equal(await p.locator('.pane .compw .bk .tok').count(), 1, 'drawn as a chip');
+  assert.equal(await p.locator('.pane .compw .cm-content .tok').count(), 1, 'drawn as a chip');
 });
 
 await test('side chat links on one reply: h / l move the cursor between them; enter opens one', async p => {
@@ -489,7 +489,7 @@ await test('/sidechats offers New side chat; it opens a side chat popup in INSER
   await p.locator('.menu .mi', { hasText: 'New side chat' }).click();
   const pop = p.locator('.peek.focus');
   await pop.waitFor();
-  assert.equal(await pop.locator('textarea').getAttribute('placeholder'), 'Ask in this side chat');
+  assert.equal(await pop.locator('.cm-content').getAttribute('placeholder'), 'Ask in this side chat');
 });
 
 await test('/side starts a side chat at once; /sidechats still lists them', async p => {
@@ -500,7 +500,7 @@ await test('/side starts a side chat at once; /sidechats still lists them', asyn
   await p.locator('.menu .mi', { hasText: 'New side chat about' }).click();
   const pop = p.locator('.peek.focus');
   await pop.waitFor();
-  assert.equal(await pop.locator('textarea').getAttribute('placeholder'), 'Ask in this side chat');
+  assert.equal(await pop.locator('.cm-content').getAttribute('placeholder'), 'Ask in this side chat');
   assert.equal(await p.evaluate(() => window.__skein.S.threads.filter(t => t.side).length), before + 1, 'one new side chat');
 });
 
@@ -692,7 +692,7 @@ await test('quote: a selection goes into the composer as a chip (mod-l)', async 
   });
   await p.keyboard.press(`${mod}+l`);
   await settle(p);
-  assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 1);
+  assert.equal(await p.locator('.pane.focus .compw .cm-content .tok').count(), 1);
   assert.equal(await mode(p), 'INSERT');
 });
 
@@ -707,7 +707,7 @@ await test('quote toolbar: a mouse drag shows Add to Chat', async p => {
     return [a.left - bar.left - 1, i.left - a.right, c.left - i.right, bar.right - 1 - c.right].map(Math.round); });
   assert.deepEqual(gaps, [3, 3, 3, 3], 'both buttons sit the same distance from the edges and the divider');
   await p.locator('.seltb').getByRole('button', { name: 'Add to Chat' }).click();
-  assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 1);
+  assert.equal(await p.locator('.pane.focus .compw .cm-content .tok').count(), 1);
 });
 
 await test('folds: Compact shuts a finished turn under Worked for; zr Balanced, zr Detailed, zm back; zR / zM open and shut all', async p => {
@@ -842,7 +842,7 @@ await test('esc esc stops a running turn: the first arms the stop button, the se
   await p.keyboard.press('Escape');                  // arms
   await p.locator('.pane.focus .cf .send.armed', { hasText: 'Esc' }).waitFor();
   assert.equal(await send.getAttribute('aria-label'), 'Press Esc again to stop');
-  assert.equal(await p.evaluate(() => document.activeElement?.tagName === 'TEXTAREA' && !!document.activeElement.closest('.pane.focus .comp')), true, 'still in the composer');
+  assert.equal(await p.evaluate(() => !!document.activeElement?.matches('.cm-content') && !!document.activeElement.closest('.pane.focus .comp')), true, 'still in the composer');
   await p.keyboard.press('Escape');                  // stops
   await p.locator('.pane.focus .note-row', { hasText: 'Interrupted' }).waitFor();
   assert.equal(await p.locator('.pane.focus .cf .send.armed').count(), 0);
@@ -860,7 +860,7 @@ await test('esc esc: after the 1.5 s window nothing stops, and the next esc leav
   await p.keyboard.press('Escape');                  // as before: out of the composer
   await settle(p);
   assert.equal(await p.locator('.pane.focus .cf .send.armed').count(), 0, 'not armed again');
-  assert.equal(await p.evaluate(() => document.activeElement?.tagName === 'TEXTAREA' && !!document.activeElement.closest('.pane.focus .comp')), false, 'left the composer');
+  assert.equal(await p.evaluate(() => !!document.activeElement?.matches('.cm-content') && !!document.activeElement.closest('.pane.focus .comp')), false, 'left the composer');
   assert.equal(await p.locator('.pane.focus .note-row', { hasText: 'Interrupted' }).count(), 0);
 });
 
@@ -999,7 +999,7 @@ await test('model picker: the effort track is a row j / k reach (wrapping), h / 
 
 await test('model picker: the effort track shows the levels of the model under the cursor; picking snaps the effort', async p => {
   await p.locator('#side').getByText('New thread').first().click();
-  await p.locator('.pane.focus .newp textarea:visible').waitFor();
+  await p.locator('.pane.focus .newp .cm-content:visible').waitFor();
   await p.locator('.pane.focus .newp .chip[title="Model and effort"]:visible').click();
   const menu = p.locator('.menu.model');
   await menu.waitFor();
@@ -1026,7 +1026,7 @@ await test('model picker: the effort track shows the levels of the model under t
 
 await test('model picker on a machine without the harness: dimmed rows and Install copies', async p => {
   await p.locator('#side').getByText('New thread').first().click();
-  const T = p.locator('.pane.focus .newp textarea:visible');
+  const T = p.locator('.pane.focus .newp .cm-content:visible');
   await T.waitFor();
   await p.locator('.pane.focus .newp .chip[title="Machine"]:visible').click();
   await p.locator('.menu .mi', { hasText: 'build-07' }).click();
@@ -1117,13 +1117,17 @@ await test('quotes are one item: motions, the block cursor, x and backspace take
   await p.keyboard.type('is wrong');
   const v = await composer(p).inputValue(), end = v.indexOf('⁣', 1) + 1;
   assert.ok(v.startsWith('⁣') && v.endsWith('is wrong'), 'the typing goes after the quote');
-  const sel = () => composer(p).evaluate(t => [t.selectionStart, t.selectionEnd]);
+  const sel = () => composer(p).evaluate(t => window.__skein.at(t).slice(0, 2));
+  const block = () => p.locator('.pane.focus .compw .tok.on').count();
   await keys(p, 'Escape 0');
-  assert.deepEqual(await sel(), [0, end], 'the block covers the whole quote');
+  assert.deepEqual(await sel(), [0, 0]);
+  assert.equal(await block(), 1, 'the block covers the whole quote');
   await keys(p, 'l');
-  assert.deepEqual(await sel(), [end, end + 1], 'l steps over it');
+  assert.deepEqual(await sel(), [end, end], 'l steps over it');
+  assert.equal(await block(), 0);
   await keys(p, 'h');
-  assert.deepEqual(await sel(), [0, end]);
+  assert.deepEqual(await sel(), [0, 0]);
+  assert.equal(await block(), 1);
   await keys(p, 'x');
   assert.equal(await composer(p).inputValue(), ' is wrong');
   await keys(p, 'u A');
@@ -1147,19 +1151,19 @@ await test('quotes stay linked: the source lights up, hover brightens it, x remo
   await settle(p);
   const hl = () => p.evaluate(() => [CSS.highlights.get('note')?.size ?? 0, CSS.highlights.get('note-hot')?.size ?? 0]);
   assert.deepEqual(await hl(), [1, 0], 'the quoted text is marked while the quote waits');
-  const tok = await p.locator('.pane.focus .compw .bk .tok').boundingBox();
+  const tok = await p.locator('.pane.focus .compw .cm-content .tok').boundingBox();
   await p.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2);
   await p.locator('.tokx').waitFor();
   assert.deepEqual(await hl(), [0, 1], 'hovering it brightens its source');
   await p.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2 + 1);
   await p.mouse.down(); await p.mouse.up();
-  const [a, b] = await composer(p).evaluate(t => [t.selectionStart, t.selectionEnd]);
+  const [a, b] = await composer(p).evaluate(t => window.__skein.at(t).slice(0, 2));
   assert.equal(a, b);
   const v = await composer(p).inputValue();
   assert.ok(a === 0 || a === v.indexOf('⁣', 1) + 1, 'the caret is never inside the quote');
   await p.locator('.tokx').hover();
   await p.locator('.tokx').click();
-  assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 0);
+  assert.equal(await p.locator('.pane.focus .compw .cm-content .tok').count(), 0);
   await settle(p);
   assert.deepEqual(await hl(), [0, 0]);
 });
@@ -1181,7 +1185,7 @@ await test('images open in the viewer: composer thumbnails and sent ones; esc or
 
 await test('launcher: the chat composer, with / and @ menus, attach, paste, permission and branch chips', async p => {
   await p.locator('#side').getByText('New thread').first().click();
-  const T = p.locator('.pane.focus .newp textarea:visible');
+  const T = p.locator('.pane.focus .newp .cm-content:visible');
   await T.waitFor();
   const newp = p.locator('.pane.focus .newp:visible');
   assert.equal(await newp.locator('.cf .chip[title="Permissions"]').innerText(), 'Manual mode');
@@ -1241,9 +1245,9 @@ await test('quotes: a second Add to chat goes after the first, the caret after i
   await selectIn(p, 0, 10, 18);
   await p.keyboard.press(`${mod}+l`);
   await settle(p);
-  const toks = p.locator('.pane.focus .compw .bk .tok');
+  const toks = p.locator('.pane.focus .compw .cm-content .tok');
   assert.equal(await toks.count(), 2);
-  const [v, caret] = await composer(p).evaluate(el => [el.value, el.selectionStart]);
+  const [v, caret] = await composer(p).evaluate(el => [window.__skein.val(el), window.__skein.at(el)[0]]);
   const first = await p.evaluate(() => document.querySelectorAll('.pane.focus .m-asst p')[0].firstChild.textContent);
   assert.ok(v.indexOf(first.slice(0, 8)) < v.indexOf(first.slice(10, 18)), 'quotes keep their order');
   assert.ok(caret >= v.lastIndexOf('⁣'), 'the caret sits after the last quote');
@@ -1316,7 +1320,7 @@ await test('composer controls: i goes back into the text at its end', async p =>
   await p.keyboard.press('i');
   await settle(p);
   assert.equal(await mode(p), 'INSERT');
-  assert.equal(await composer(p).evaluate(el => el.selectionStart), 'one two three'.length);
+  assert.equal(await composer(p).evaluate(el => window.__skein.at(el)[0]), 'one two three'.length);
 });
 
 // ---------- wave 3: clicks ----------
@@ -1359,7 +1363,7 @@ await test('double-click on your own message: edit box with the word in VISUAL; 
   await p.locator('.pane.focus .m-edit').waitFor();
   await settle(p);
   assert.equal(await mode(p), 'VISUAL');
-  assert.equal(await p.locator('.pane.focus .m-edit textarea').evaluate(el => el.value.slice(el.selectionStart, el.selectionEnd)), 'regression');
+  assert.equal(await p.locator('.pane.focus .m-edit .cm-content').evaluate(el => { const [a, b] = window.__skein.at(el); return window.__skein.val(el).slice(a, b); }), 'regression');
   assert.equal(await p.locator('.menu').count(), 0);
   await p.keyboard.press('Escape'); await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
   await settle(p);
@@ -1381,12 +1385,12 @@ await test('esc esc leaves the composer unfocused; i types at the end', async p 
   await p.keyboard.press('i');
   await settle(p);
   assert.equal(await mode(p), 'INSERT');
-  assert.equal(await composer(p).evaluate(el => el.selectionStart), 7);
+  assert.equal(await composer(p).evaluate(el => window.__skein.at(el)[0]), 7);
 });
 
 await test('launcher: j walks from the controls to the chips and the cards', async p => {
   await p.locator('#side').getByText('New thread').first().click();
-  const T = p.locator('.pane.focus .newp textarea:visible');
+  const T = p.locator('.pane.focus .newp .cm-content:visible');
   await T.waitFor();
   await T.press('Escape');
   await p.keyboard.press('j');
@@ -1523,24 +1527,23 @@ await test('reader yank: V y in a code block copies it with its fences; v y copi
 await test('edit box: a long message scrolls with the NORMAL cursor (j, G, gg), and the block cursor stays drawn', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await p.locator('.pane.focus .m-user').first().click();
-  const box = p.locator('.pane.focus .m-edit textarea');
+  const box = p.locator('.pane.focus .m-edit .cm-content');
   await box.waitFor();
   await box.fill(Array.from({ length: 30 }, (_, i) => (i % 5 === 3 ? '' : `line ${i}`)).join('\n'));
   await box.press('Escape');
-  // the cursor's line is inside the box: the selection (a character) or the drawn block (a line end, an empty line)
+  // the block cursor is inside the box's visible part
   const seen = () => box.evaluate(el => {
-    const r = el.getBoundingClientRect(), hc = el.closest('.taw').querySelector('.hc i');
-    if (hc) { const b = hc.getBoundingClientRect(); return b.top >= r.top - 1 && b.bottom <= r.bottom + 1; }
-    const lh = parseFloat(getComputedStyle(el).lineHeight), line = el.value.slice(0, el.selectionStart).split('\n').length - 1;
-    const y = parseFloat(getComputedStyle(el).paddingTop) + line * lh - el.scrollTop;   // no line here wraps
-    return y >= -1 && y + lh <= el.clientHeight + 1;   // a pixel either way: lines are 21.7px, scrollTop rounds
+    const sc = el.closest('.cm-scroller'), r = sc.getBoundingClientRect(), c = sc.querySelector('.cm-fat-cursor, .cm-cursor-primary');
+    if (!c) return false;
+    const b = c.getBoundingClientRect(); return b.height > 0 && b.top >= r.top - 1 && b.bottom <= r.bottom + 1;
   });
-  assert.ok(await box.evaluate(el => el.scrollHeight > el.clientHeight), 'the box scrolls');
+  const sc = f => box.evaluate((el, f) => { const s = el.closest('.cm-scroller'); return f === 'top' ? s.scrollTop : s.scrollHeight > s.clientHeight; }, f);
+  assert.ok(await sc('scrolls'), 'the box scrolls');
   await keys(p, 'G');
-  assert.ok(await box.evaluate(el => el.scrollTop > 0), 'G scrolled down');
+  assert.ok(await sc('top') > 0, 'G scrolled down');
   assert.ok(await seen(), 'G: cursor in view');
   await keys(p, 'g g');
-  assert.equal(await box.evaluate(el => el.scrollTop), 0);
+  assert.ok(await sc('top') <= 4, 'gg: back at the top (within the padding)');
   for (let i = 0; i < 25; i++) { await p.keyboard.press('j'); assert.ok(await seen(), `j ${i + 1}: cursor in view`); }
   for (let i = 0; i < 25; i++) { await p.keyboard.press('k'); assert.ok(await seen(), `k ${i + 1}: cursor in view`); }
 });
@@ -1551,23 +1554,21 @@ await test('composer: ctrl-d / ctrl-u in NORMAL page a long draft (wrapped lines
   const long = 'A paragraph long enough to wrap over several lines of the composer, '.repeat(6).trim();
   await box.fill(Array.from({ length: 24 }, (_, i) => (i % 6 === 2 ? long : `line ${i}`)).join('\n'));
   await box.press('Escape');   // NORMAL at the end of the draft (gg here would read the thread)
+  await settle(p);
   const st = () => box.evaluate(el => {
-    const cs = getComputedStyle(el), lh = parseFloat(cs.lineHeight);
-    return { top: Math.round(el.scrollTop), max: el.scrollHeight - el.clientHeight, half: Math.round(el.clientHeight / 2), lh, pos: el.selectionStart, h: el.clientHeight };
+    const sc = el.closest('.cm-scroller'), lh = parseFloat(getComputedStyle(el).lineHeight);
+    return { top: Math.round(sc.scrollTop), max: sc.scrollHeight - sc.clientHeight, half: Math.round(sc.clientHeight / 2), lh, pos: window.__skein.at(el)[2], h: sc.clientHeight };
   });
-  // the caret's line on screen, measured on a copy of the text as the field lays it out
+  // the cursor's line on screen, against the top of the field
   const y = () => box.evaluate(el => {
-    const d = document.createElement('div'), cs = getComputedStyle(el);
-    for (const k of ['font', 'letterSpacing', 'lineHeight', 'paddingTop', 'paddingLeft', 'paddingRight', 'tabSize']) d.style[k] = cs[k];
-    Object.assign(d.style, { position: 'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', width: el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) + 'px' });
-    d.textContent = el.value.slice(0, el.selectionStart); const m = document.createElement('span'); m.textContent = '|'; d.append(m); document.body.append(d);
-    const t = m.offsetTop - el.scrollTop; d.remove(); return t;
+    const sc = el.closest('.cm-scroller'), c = sc.querySelector('.cm-fat-cursor, .cm-cursor-primary');
+    return c.getBoundingClientRect().top - sc.getBoundingClientRect().top;
   });
   let s = await st(), presses = 0;
   assert.ok(s.max > s.half * 2, `the draft scrolls (${s.max})`);
-  assert.ok(s.top >= s.max - 1, 'it starts at the bottom');
+  assert.ok(s.top >= s.max - s.lh, 'it starts at the bottom');
   const page = async (key, d) => {
-    while (d > 0 ? s.top < s.max - 1 : s.top > 0) {
+    while (d > 0 ? s.top < s.max - s.lh : s.top > 0) {
       const y0 = await y();
       await keys(p, key); presses++;
       const n = await st(), y1 = await y();
@@ -1694,7 +1695,7 @@ await test('a triple click selects the whole paragraph, not one wrapped line, an
 await test('popups fit the window: the model picker of an edit box near the top opens below its button', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await p.locator('.pane.focus .m-user').first().click();
-  await p.locator('.pane.focus .m-edit textarea').waitFor();
+  await p.locator('.pane.focus .m-edit .cm-content').waitFor();
   const chip = p.locator('.pane.focus .m-edit .chip[title="Model and effort"]');
   const c = await chip.boundingBox();
   await chip.click();
@@ -1728,10 +1729,10 @@ await test('Markdown tables render as tables: alignment, formatting in cells, si
 });
 
 await test('new thread: after the model or permissions picker closes, the composer has the keys again in INSERT', async p => {
-  const box = p.locator('.pane.focus .comp textarea').first();
+  const box = p.locator('.pane.focus .comp .cm-content').first();
   await box.click();
   const back = async why => {
-    await p.waitForFunction(() => !document.querySelector('.layer .menu') && document.activeElement?.matches('.pane.focus .comp textarea'), null, { timeout: 2000 }).catch(() => {});
+    await p.waitForFunction(() => !document.querySelector('.layer .menu') && document.activeElement?.matches('.pane.focus .comp .cm-content'), null, { timeout: 2000 }).catch(() => {});
     assert.ok(await box.evaluate(el => el === document.activeElement), `${why}: the composer has focus`);
     assert.equal(await mode(p), 'INSERT', `${why}: INSERT`);
   };
@@ -1807,17 +1808,19 @@ async function quoteFirst(p) {
   await p.keyboard.press(`${mod}+l`);
   await settle(p);
 }
-/** The chip as drawn: its colour and background, where its icon sits against its words, and whether the icon is in front of the textarea. */
+/** The chip as drawn: its colour and background, and where its icon sits against its words. */
 const chipLook = p => p.evaluate(() => {
-  const comp = document.querySelector('.pane.focus .compw'), tok = comp.querySelector('.bk .tok'), ta = comp.querySelector('textarea');
-  const icon = comp.querySelector('.fk .qi svg'), words = tok.getBoundingClientRect(), ib = icon?.getBoundingClientRect(), cs = getComputedStyle(tok);
+  const comp = document.querySelector('.pane.focus .compw'), toks = [...comp.querySelectorAll('.cm-content .tok')], tok = toks[0];
+  const icon = comp.querySelector('.cm-content .qi svg'), ib = icon?.getBoundingClientRect(), cs = getComputedStyle(tok);
+  const left = Math.min(...toks.flatMap(t => [...t.getClientRects()].map(r => r.left))), top = Math.min(...toks.map(t => t.getBoundingClientRect().top)), bottom = Math.max(...toks.map(t => t.getBoundingClientRect().bottom));
   return {
-    color: cs.color, blue: getComputedStyle(document.documentElement).getPropertyValue('--blue').trim(), bg: cs.backgroundColor, hot: tok.classList.contains('hot'),
-    textarea: getComputedStyle(ta).color, icon: !!icon && getComputedStyle(icon).color === cs.color,
-    iconIn: !!ib && ib.left >= words.left - 1 && ib.right <= words.left + 22 && ib.top >= words.top - 2 && ib.bottom <= words.bottom + 2,
-    front: !!icon && ta.compareDocumentPosition(icon.closest('.fk')) === Node.DOCUMENT_POSITION_FOLLOWING && Number(getComputedStyle(icon.closest('.fk')).zIndex) > 0,
+    color: cs.color, blue: getComputedStyle(document.documentElement).getPropertyValue('--blue').trim(), bg: cs.backgroundColor, hot: tok.classList.contains('hot'), on: tok.classList.contains('on'),
+    icon: !!icon && (getComputedStyle(icon).color === cs.color || tok.classList.contains('on')),
+    iconIn: !!ib && ib.left >= left - 1 && ib.right <= left + 22 && ib.top >= top - 2 && ib.bottom <= bottom + 2,
   };
 });
+/** The composer's selection, from its editor. */
+const compSel = p => p.evaluate(() => { const s = window.__skein.cm('.pane.focus .compw'); return [Math.min(s.head, s.anchor), Math.max(s.head, s.anchor)]; });
 const rgb = hex => { const n = parseInt(hex.slice(1), 16); return `rgb(${n >> 16}, ${(n >> 8) & 255}, ${n & 255})`; };
 
 await test('quote chip: a chat icon, then the words in blue with no pill (dark and light)', async p => {
@@ -1828,9 +1831,7 @@ await test('quote chip: a chat icon, then the words in blue with no pill (dark a
     const c = await chipLook(p);
     assert.equal(c.color, rgb(c.blue), `${theme}: the words are blue`);
     assert.equal(c.bg, 'rgba(0, 0, 0, 0)', `${theme}: no pill while idle`);
-    assert.equal(c.textarea, 'rgba(0, 0, 0, 0)', 'the layer behind draws the words, not the textarea');
     assert.ok(c.icon && c.iconIn, `${theme}: the blue chat icon sits at the chip's start`);
-    assert.ok(c.front, 'the icon is in front of the textarea');
   }
   const v = await composer(p).inputValue();
   assert.ok(v.startsWith('⁣  “'), 'the icon holds its own space in the text');
@@ -1840,16 +1841,16 @@ await test('quote chip: typed words stay the normal colour, and INSERT shows the
   await quoteFirst(p);
   await p.keyboard.type('why');
   const [plain, caret] = await p.evaluate(() => {
-    const bk = document.querySelector('.pane.focus .compw .bk'), ta = document.querySelector('.pane.focus .compw textarea');
-    return [getComputedStyle(bk).color === getComputedStyle(document.body).color, getComputedStyle(ta).caretColor];
+    const ln = document.querySelector('.pane.focus .compw .cm-line');
+    return [getComputedStyle(ln).color === getComputedStyle(document.body).color, !!document.querySelector('.pane.focus .compw .cm-cursor-primary')];
   });
   assert.ok(plain, 'words outside the chip use --fg');
-  assert.notEqual(caret, 'rgba(0, 0, 0, 0)', 'the INSERT caret still shows');
+  assert.ok(caret, 'the INSERT caret still shows');
 });
 
 await test('quote chip: hover gives it a soft fill and the x; leaving takes both away', async p => {
   await quoteFirst(p);
-  const tok = await p.locator('.pane.focus .compw .bk .tok').boundingBox();
+  const tok = await p.locator('.pane.focus .compw .cm-content .tok').last().boundingBox();
   await p.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2);
   await p.locator('.tokx').waitFor();
   await settle(p, 200);
@@ -1866,16 +1867,15 @@ await test('quote chip: hover gives it a soft fill and the x; leaving takes both
 await test('quote chip: the NORMAL block and VISUAL cover it whole, and its icon still shows', async p => {
   await quoteFirst(p);
   const end = (await composer(p).inputValue()).indexOf('⁣', 1) + 1;
-  const sel = () => composer(p).evaluate(t => [t.selectionStart, t.selectionEnd]);
   await keys(p, 'Escape 0');
-  assert.deepEqual(await sel(), [0, end], 'NORMAL: the block is the whole chip');
-  assert.ok((await chipLook(p)).front, 'NORMAL: the icon is drawn over the block');
+  assert.ok((await chipLook(p)).on, 'NORMAL: the block is the whole chip');
+  assert.ok((await chipLook(p)).icon, 'NORMAL: the icon shows on the block');
   await keys(p, 'v l');
   assert.equal(await mode(p), 'VISUAL');
-  const [a, b] = await sel();
-  assert.ok(a === 0 && b > end, 'VISUAL: the selection takes the chip and goes on');
+  const [a, b] = await compSel(p);
+  assert.ok(a === 0 && b >= end, `VISUAL: the selection takes the chip and goes on (${a}, ${b}, ${end})`);
   const c = await chipLook(p);
-  assert.ok(c.front && c.iconIn, 'VISUAL: the icon still shows');
+  assert.ok(c.iconIn, 'VISUAL: the icon still shows');
   assert.equal(c.color, rgb(c.blue), 'VISUAL: the words stay blue under the selection');
 });
 
@@ -1883,16 +1883,16 @@ await test('quote chip: removed from the keyboard, icon and all (x in NORMAL, d 
   await quoteFirst(p);
   await p.keyboard.type('why');
   await keys(p, 'Escape 0 x');
-  assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 0);
-  assert.equal(await p.locator('.pane.focus .compw .fk').count(), 0, 'no icon left behind');
+  assert.equal(await p.locator('.pane.focus .compw .cm-content .tok').count(), 0);
+  assert.equal(await p.locator('.pane.focus .compw .qi').count(), 0, 'no icon left behind');
   await keys(p, 'u');
-  assert.equal(await p.locator('.pane.focus .compw .fk .qi svg').count(), 1, 'undo brings the chip and its icon back');
-  const tok = await p.locator('.pane.focus .compw .bk .tok').boundingBox();
+  assert.equal(await p.locator('.pane.focus .compw .qi svg').count(), 1, 'undo brings the chip and its icon back');
+  const tok = await p.locator('.pane.focus .compw .cm-content .tok').last().boundingBox();
   await p.mouse.move(tok.x + tok.width / 2, tok.y + tok.height / 2);
   await p.locator('.tokx').waitFor();   // still a quote (it lights up its source), not just its words
   await p.mouse.move(tok.x, tok.y - 150);
   await keys(p, '0 v d');
-  assert.equal(await p.locator('.pane.focus .compw .bk .tok').count(), 0, 'VISUAL d takes it whole');
+  assert.equal(await p.locator('.pane.focus .compw .cm-content .tok').count(), 0, 'VISUAL d takes it whole');
   assert.ok((await composer(p).inputValue()).endsWith('why'));
 });
 
@@ -1904,8 +1904,8 @@ await test('quote chip: two chips each get an icon, in order', async p => {
   });
   await p.keyboard.press(`${mod}+l`);
   await settle(p);
-  const xs = await p.evaluate(() => [...document.querySelectorAll('.pane.focus .compw .fk .qi svg')].map(s => s.getBoundingClientRect().left));
-  const ts = await p.evaluate(() => [...document.querySelectorAll('.pane.focus .compw .bk .tok')].map(s => s.getBoundingClientRect().left));
+  const xs = await p.evaluate(() => [...document.querySelectorAll('.pane.focus .compw .qi svg')].map(s => s.getBoundingClientRect().left));
+  const ts = await p.evaluate(() => [...new Set([...document.querySelectorAll('.pane.focus .compw .tok[data-q]')].map(s => s.dataset.q))].map(q => Math.min(...[...document.querySelectorAll(`.pane.focus .compw .tok[data-q="${q}"]`)].map(s => s.getBoundingClientRect().left))));
   assert.equal(xs.length, 2);
   assert.ok(Math.abs(xs[0] - ts[0]) < 3 && Math.abs(xs[1] - ts[1]) < 3, 'each icon at its own chip');
 });
@@ -1913,7 +1913,7 @@ await test('quote chip: two chips each get an icon, in order', async p => {
 await test('popups keep the side they opened on: filtering the / menu and the model picker never flips them', async p => {
   await p.setViewportSize({ width: 1100, height: 800 });
   const side = () => p.evaluate(() => { const m = document.querySelector('.menu'), c = document.querySelector('.pane.focus .comp'); return m && (m.getBoundingClientRect().top >= c.getBoundingClientRect().bottom - 1 ? 'below' : 'above'); });
-  await p.locator('.pane.focus .comp textarea').first().click();
+  await p.locator('.pane.focus .comp .cm-content').first().click();
   await p.keyboard.type('/'); await settle(p, 250);
   const first = await side();
   assert.equal(first, 'below', 'the whole list has no room above the new-thread composer');
@@ -1987,7 +1987,7 @@ await test('reader: "Worked for" is not part of the answer\'s selection (mouse, 
 
 await test('/ menu: shrinks to fit as you type, on the side it opened on', async p => {
   await p.setViewportSize({ width: 1100, height: 620 });
-  await p.locator('.pane.focus .comp textarea').first().click();
+  await p.locator('.pane.focus .comp .cm-content').first().click();
   await p.keyboard.type('/'); await settle(p, 250);
   const menu = p.locator('.menu.composer-menu');
   const full = await menu.boundingBox();

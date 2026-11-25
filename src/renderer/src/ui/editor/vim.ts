@@ -4,7 +4,7 @@
 // reader, and back), a yank also goes to the system clipboard, and the mode an editor is in is the mode the status
 // bar shows.
 import { Vim, getCM, type CodeMirror } from '@replit/codemirror-vim';
-import type { EditorView } from '@codemirror/view';
+import { EditorView } from '@codemirror/view';
 import type { Mode } from '../../input/dispatcher';
 import type { KeyLike } from '../../input/keys';
 import { getReg, setReg, watchReg, yank } from '../../input/register';
@@ -84,3 +84,10 @@ export function setupVim() {
 }
 /** Called before a key reaches an editor: a test or a hot reload can replace Vim's register controller. */
 export const keepBridge = bridge;
+
+/** Whether the focused element is a code editor or field that is typing (INSERT, or any mode with Vim off). */
+export function editorTyping(el: Element | null, vimOn: boolean): boolean {
+  const ed = el?.closest?.('.cm-editor') as HTMLElement | null; if (!ed) return false;
+  const v = EditorView.findFromDOM(ed); if (!v) return false;
+  return !vimOn || modeOf(cmOf(v)) === 'INSERT';
+}

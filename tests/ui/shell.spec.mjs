@@ -755,7 +755,7 @@ test('stepping tabs keeps the mode: H / L land in NORMAL even on a composer left
   assert.equal(await p.locator('.pane .tb .tab').count(), 3);
   // every composer left in INSERT: type in each, then leave it with the leader's tab key, which works while typing
   await p.locator('.pane .tb .tab', { hasText: 'Fix session-restore race' }).click(); await settle(p, 300);
-  await p.locator('.pane.focus .comp textarea:visible').first().click();
+  await p.locator('.pane.focus .comp .cm-content:visible').first().click();
   for (let i = 0; i < 3; i++) {
     await p.keyboard.type('draft ');
     assert.equal(await mode(p), 'INSERT');
@@ -783,5 +783,5 @@ test('i on a new-thread tab reached by L from a file left in its editor: the com
   assert.equal(await mode(p), 'NORMAL');
   await keys(p, 'i'); assert.equal(await mode(p), 'INSERT');
   await p.keyboard.type('hey');
-  assert.equal(await p.locator('.pane.focus .comp textarea:visible').first().inputValue(), 'hey');
+  assert.equal(await p.locator('.pane.focus .comp .cm-content:visible').first().inputValue(), 'hey');
 });
