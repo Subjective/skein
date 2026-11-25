@@ -58,7 +58,8 @@ function createWindow() {
     width: 1400, height: 880, minWidth: 560, minHeight: 400, show: false,
     backgroundColor: dark ? '#212121' : '#fdfdfd',
     titleBarStyle: 'hidden',
-    ...(mac ? { trafficLightPosition: { x: 14, y: 14 } } : { titleBarOverlay: { color: '#00000000', symbolColor: dark ? '#b6b6b6' : '#4a4a4a', height: 40 } }),
+    // macOS takes the icon from the app bundle; Windows and Linux use this for the window and taskbar, also when run from source
+    ...(mac ? { trafficLightPosition: { x: 14, y: 14 } } : { icon: join(app.getAppPath(), 'resources/icon.png'), titleBarOverlay: { color: '#00000000', symbolColor: dark ? '#b6b6b6' : '#4a4a4a', height: 40 } }),
     webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false, contextIsolation: true, spellcheck: false, webviewTag: true },
   });
   win.once('ready-to-show', () => win?.show());
