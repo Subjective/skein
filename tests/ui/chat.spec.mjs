@@ -170,6 +170,65 @@ await test('reader: k from the composer never scrolls; leader [ goes back to whe
   assert.ok(d && d.top >= 0 && d.bottom >= 0, 'the cursor is on screen');
 });
 
+/** The reader's cursor: its message's text (a bubble or a reply) and whether it is on screen. */
+const cursorAt = p => p.evaluate(() => {
+  const h = [...(CSS.highlights.get('vcur') || [])][0], row = document.querySelector('.pane.focus .rowcur');
+  const node = row || (h && h.toString() ? h.startContainer.parentElement : null), r = row ? row.getBoundingClientRect() : h?.getBoundingClientRect();
+  const s = document.querySelector('.pane.focus .thread').getBoundingClientRect();
+  return node ? { msg: node.closest('[data-read] > *')?.textContent.trim().slice(0, 30), on: !!r && r.height > 0 && r.top >= s.top && r.bottom <= s.bottom } : null;
+});
+await test('reader: j and k near the edge of the screen go one line at a time, never past a message', async p => {
+  await openChat(p, 'Walk through the backlog');
+  await composer(p).press('Escape');
+  await keys(p, 'g g'); await settle(p);
+  const seen = new Set([(await cursorAt(p)).msg]);
+  for (let i = 0; i < 40; i++) { await p.keyboard.press('j'); const c = await cursorAt(p); assert.ok(c?.on, `j ${i + 1}: the cursor is on screen`); seen.add(c.msg); }
+  for (let n = 1; n <= 12; n++) assert.ok(seen.has(`Backlog item ${n}: what is left?`), `j reached your message ${n}`);
+  await keys(p, 'Shift+G'); await settle(p);
+  seen.clear();
+  for (let i = 0; i < 40; i++) { await p.keyboard.press('k'); const c = await cursorAt(p); assert.ok(c?.on, `k ${i + 1}: the cursor is on screen`); seen.add(c.msg); }
+  for (let n = 70; n >= 59; n--) assert.ok(seen.has(`Backlog item ${n}: what is left?`), `k reached your message ${n}`);
+});
+await test('reader: a cursor on a running turn\'s Working line stays drawn when the turn\'s work replaces it', async p => {
+  await openChat(p, 'Profile slow orders query');
+  await composer(p).fill('hello there'); await composer(p).press('Enter');
+  await composer(p).press('Escape'); await keys(p, 'k'); await settle(p, 50);
+  assert.equal(await p.evaluate(() => [...CSS.highlights.get('vcur')][0].startContainer.parentElement.closest('.live') != null), true, 'on the Working line');
+  await p.waitForTimeout(1500);   // the work (a Read row, the streamed reply) takes the Working line's place
+  const c = await cursorAt(p);
+  assert.ok(c?.on, `the cursor is still drawn on screen (${JSON.stringify(c)})`);
+  await keys(p, 'k'); assert.ok((await cursorAt(p))?.on, 'and it moves from there');
+});
+
+await test('reader: closing ctrl-k, ctrl-p, : or the workspace menu puts the reading cursor back (rule 15)', async p => {
+  await openChat(p, 'Profile slow orders query');
+  await composer(p).press('Escape'); await keys(p, 'k k k w'); await settle(p);
+  const at = () => p.evaluate(() => { const h = [...(CSS.highlights.get('vcur') || [])][0]; return h ? h.startContainer.data.slice(0, 20) + '@' + h.startOffset : null; });
+  const where = await at();
+  assert.ok(where, 'reading');
+  for (const k of [`${mod}+k`, `${mod}+p`, 'Shift+:', 'Control+Space w']) {
+    await keys(p, k); await settle(p);
+    assert.equal(await p.locator('.menu, .pal').count() > 0, true, `${k} opened`);
+    await keys(p, 'Escape Escape'); await settle(p, 200);
+    assert.equal(await at(), where, `after ${k}: the cursor is back on its character`);
+    assert.ok(!(await composer(p).evaluate(el => el === document.activeElement)), `after ${k}: the composer did not take the keys`);
+  }
+  await keys(p, 'j'); assert.ok(await at() !== where || await p.locator('.pane.focus .rowcur').count(), 'and the reader still moves');
+});
+
+await test('reader: a subagent popup opened with enter on its row closes back onto that row (rule 15)', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).press('Escape'); await keys(p, 'k'); await settle(p);
+  const row = () => p.evaluate(() => document.querySelector('.pane.focus .rowcur')?.textContent || '');
+  for (let i = 0; i < 6 && !/Review/.test(await row()); i++) await keys(p, 'k');
+  assert.match(await p.locator('.pane.focus .rowcur').textContent(), /Review/);
+  await keys(p, 'Enter'); await settle(p, 300);
+  assert.equal(await p.locator('.pop').count() + await p.locator('.popped').count() > 0, true, 'the popup opened');
+  await keys(p, 'Escape'); await settle(p, 300);
+  assert.match(await p.locator('.pane.focus .rowcur').textContent(), /Review/, 'the cursor is back on the row');
+  assert.ok(!(await composer(p).evaluate(el => el === document.activeElement)), 'the composer did not take the keys');
+});
+
 await test('requests: 1 of 3, y allows the oldest, n denies the next, buttons answer the last', async p => {
   await openChat(p, 'Plan image paste over SSH');
   await p.locator('.pane.focus .appr .count', { hasText: '1 of 3' }).waitFor();
