@@ -218,6 +218,12 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   their word out, keep the rest of the draft, and open their picker. A word like `/usr/bin` that matches no
   command opens nothing. A terminal prompt keeps / at the start only, because the TUI owns its line.
 
+- **Status bar branch and place** (owner, 2026-11-25): the branch opens the branch picker (the same one as
+  Changes' branch chip: filter, switch, create; an amber dot on the current branch when the tree is dirty),
+  and a thread's machine and folder open the sidebar's move menu. Keys: leader `g` / `:branch [name]`, leader
+  `m` / `:moveto`. The bar shows the folder's live branch (`git` on the folder's machine, read when the tab or
+  the thread's state changes and when the window regains focus; no polling of its own), not the transcript's.
+  The mode pill and the workspace name stay as they were.
 
 ## What the owner consistently asks for
 

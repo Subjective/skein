@@ -13,6 +13,9 @@ import { detachThread } from '../views/terminal/TerminalView';
 import { knownDirs, openFolderPicker, openMenu } from './overlays';
 import { base, projectName } from './meta';
 import { threadDrag, type PaneDrag } from './tabdrag';
+import * as A from '../state/actions';
+
+type Place = 'top-start' | 'bottom-start';
 
 const reason = (e: unknown) => String((e as Error)?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 
@@ -23,10 +26,10 @@ const projectsOn = (m: string) => [...new Set(S.threads.filter(t => t.machine ==
 const machineBlocked = (t: ThreadMeta, mid: string) => { const m = machine(mid); return !m || (m.ssh && m.link !== 'up') || !m.has.includes(t.harness); };
 
 /** Where can this thread go: every project on every machine, and any other folder. */
-export function moveMenu(id: string, anchor: HTMLElement) {
+export function moveMenu(id: string, anchor: HTMLElement, place: Place = 'bottom-start') {
   const t = thread(id); if (!t) return;
   openMenu<{ m: string; d?: string }>({
-    anchor: anchor.getBoundingClientRect(), place: 'bottom-start', width: 320, className: 'move-to', search: { placeholder: 'Move to a project or folder' },
+    anchor: anchor.getBoundingClientRect(), place, width: 320, className: 'move-to', search: { placeholder: 'Move to a project or folder' },
     items: S.machines.flatMap(m => [
       { head: true, label: m.name, icon: <Icon name={m.ssh ? 'host' : 'laptop'} /> },
       ...projectsOn(m.id).filter(d => !(m.id === t.machine && d === t.dir)).map(d => ({ label: projectName(m.id, d), hint: d, icon: <Icon name="folder" />, data: { m: m.id, d } })),
@@ -34,17 +37,25 @@ export function moveMenu(id: string, anchor: HTMLElement) {
     ]),
     onPick: it => {
       const to = it.data!;
-      if (to.d) openMove(id, to.m, to.d); else pickFolder(id, to.m, anchor);
+      if (to.d) openMove(id, to.m, to.d); else pickFolder(id, to.m, anchor, place);
     },
   });
 }
 
 /** The folder menu on a machine, then the dialog. */
-export function pickFolder(id: string, mid: string, anchor: HTMLElement) {
+export function pickFolder(id: string, mid: string, anchor: HTMLElement, place: Place = 'bottom-start') {
   const t = thread(id), m = machine(mid); if (!t || !m) return;
   if (machineBlocked(t, mid)) { openMove(id, mid, '~'); return; }
   // the shared folder field (known folders, typed paths, browse), as a new thread's folder chip
-  openFolderPicker(mid, anchor.getBoundingClientRect(), d => openMove(id, mid, d), { place: 'bottom-start', width: 320, exclude: d => mid === t.machine && d === t.dir });
+  openFolderPicker(mid, anchor.getBoundingClientRect(), d => openMove(id, mid, d), { place, width: 320, exclude: d => mid === t.machine && d === t.dir });
+}
+
+/** The status bar's machine and folder, `:moveto`, leader m: the same menu for the focused tab's thread, above the bar. */
+export function moveHere() {
+  const t = A.currentTab(), th = thread(t.thread);
+  if (!th || th.side || th.archived) { toast('Only a thread can move'); return; }
+  // a frame first: from the leader, the bar is still drawing the leader's keys in place of the folder
+  requestAnimationFrame(() => { const at = document.querySelector<HTMLElement>('#status .sb-loc') || document.getElementById('status'); if (at) moveMenu(th.id, at, 'top-start'); });
 }
 
 /** A thread dropped on a machine heading: a folder there with the same repo name goes straight to the dialog

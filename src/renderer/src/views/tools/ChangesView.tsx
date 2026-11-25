@@ -13,6 +13,7 @@ import { yank as yankReg } from '../../input/register';
 import type { Tab } from '../../state/layout';
 import { openLayer, S, thread, toast, update, useApp } from '../../state/store';
 import { openMenu } from '../../shell/overlays';
+import { openBranches } from '../../shell/branches';
 import { Menu, type MenuItem } from '../../ui/Menu';
 import { ReaderSearch, type Searchable } from '../../ui/search';
 import { animate, MOTION } from '../../ui/motion';
@@ -255,19 +256,7 @@ export function ChangesView({ t, focused }: { t: Tab; focused: boolean }) {
     });
   };
   const setScope = (s: DiffScope) => { if (v.scope === s) return; v.scope = s; if (s !== 'commits') v.range = null; v.cur = 0; v.anchor = null; update(); };
-  const pickBranch = async (anchor = anchorOf('[data-k=branch]')) => {
-    if (!repo) return;
-    let list: Awaited<ReturnType<typeof api.git.branches>> = [];
-    try { list = await api.git.branches(ctx.machine, repo.root); } catch (e) { toast(errText(e)); return; }
-    openMenu<{ name: string; create?: boolean }>({
-      anchor, place: 'bottom-start', width: 280, search: { placeholder: 'Switch branch or name a new one' }, empty: 'No branches',
-      items: q => [
-        ...list.map(b => ({ label: b.name, icon: <Icon name="branch" />, on: b.current, right: <span className="age">{b.when.replace(/ ago$/, '')}</span>, data: { name: b.name } })),
-        ...(q.trim() && !list.some(b => b.name === q.trim()) ? [{ label: `Create branch “${q.trim()}”`, display: <>Create branch <b>{q.trim()}</b></>, icon: <Icon name="plus" />, data: { name: q.trim(), create: true } }] : []),
-      ],
-      onPick: it => { if (it.data && !(list.find(b => b.current)?.name === it.data.name)) void run(async () => { await api.git.switch(ctx.machine, repo.root, it.data!.name, it.data!.create); toast(`On ${it.data!.name}`, { icon: 'branch' }); }); },
-    });
-  };
+  const pickBranch = (anchor = anchorOf('[data-k=branch]')) => { if (repo) void openBranches({ machine: ctx.machine, dir: ctx.dir, anchor, done: refresh }); };
   const trunk = isTrunk(repo);
   const total = v.counts.uncommitted;
   const anyStaged = (v.counts.staged?.files || 0) > 0;
