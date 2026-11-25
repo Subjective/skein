@@ -1301,7 +1301,7 @@ await test('launcher: the chat composer, with / and @ menus, attach, paste, perm
   const newp = p.locator('.pane.focus .newp:visible');
   assert.equal(await newp.locator('.cf .chip[title="Permissions"]').innerText(), 'Manual mode');
   assert.equal(await newp.locator('.cf .ib[title^="Attach image"]').count(), 1);
-  assert.equal(await newp.locator('.under .chip[title="Start in a new git worktree"]').innerText(), 'main');
+  assert.equal(await newp.locator('.under .bchip').count(), 0, 'no branch chip outside a repository (statusbar.spec covers it in one)');
   await T.pressSequentially('/');
   const menu = p.locator('.composer-menu');
   await menu.waitFor();
