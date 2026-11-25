@@ -1499,6 +1499,52 @@ await test('edit box: a long message scrolls with the NORMAL cursor (j, G, gg), 
   for (let i = 0; i < 25; i++) { await p.keyboard.press('k'); assert.ok(await seen(), `k ${i + 1}: cursor in view`); }
 });
 
+await test('composer: ctrl-d / ctrl-u in NORMAL page a long draft (wrapped lines too) and a short one', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  const box = composer(p);
+  const long = 'A paragraph long enough to wrap over several lines of the composer, '.repeat(6).trim();
+  await box.fill(Array.from({ length: 24 }, (_, i) => (i % 6 === 2 ? long : `line ${i}`)).join('\n'));
+  await box.press('Escape');   // NORMAL at the end of the draft (gg here would read the thread)
+  const st = () => box.evaluate(el => {
+    const cs = getComputedStyle(el), lh = parseFloat(cs.lineHeight);
+    return { top: Math.round(el.scrollTop), max: el.scrollHeight - el.clientHeight, half: Math.round(el.clientHeight / 2), lh, pos: el.selectionStart, h: el.clientHeight };
+  });
+  // the caret's line on screen, measured on a copy of the text as the field lays it out
+  const y = () => box.evaluate(el => {
+    const d = document.createElement('div'), cs = getComputedStyle(el);
+    for (const k of ['font', 'letterSpacing', 'lineHeight', 'paddingTop', 'paddingLeft', 'paddingRight', 'tabSize']) d.style[k] = cs[k];
+    Object.assign(d.style, { position: 'absolute', visibility: 'hidden', whiteSpace: 'pre-wrap', overflowWrap: 'break-word', width: el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) + 'px' });
+    d.textContent = el.value.slice(0, el.selectionStart); const m = document.createElement('span'); m.textContent = '|'; d.append(m); document.body.append(d);
+    const t = m.offsetTop - el.scrollTop; d.remove(); return t;
+  });
+  let s = await st(), presses = 0;
+  assert.ok(s.max > s.half * 2, `the draft scrolls (${s.max})`);
+  assert.ok(s.top >= s.max - 1, 'it starts at the bottom');
+  const page = async (key, d) => {
+    while (d > 0 ? s.top < s.max - 1 : s.top > 0) {
+      const y0 = await y();
+      await keys(p, key); presses++;
+      const n = await st(), y1 = await y();
+      assert.ok(d > 0 ? n.top > s.top : n.top < s.top, `${key} ${presses} scrolled (${s.top} to ${n.top})`);
+      assert.ok(d > 0 ? n.pos > s.pos : n.pos < s.pos, `${key} ${presses} moved the cursor`);
+      assert.ok(y1 >= 0 && y1 + n.lh <= n.h + 1, `the cursor is in the field (${y1})`);
+      if (Math.abs(n.top - s.top) >= n.half - 1) assert.ok(Math.abs(y1 - y0) <= n.lh, `a full step keeps the cursor's place (${y0} to ${y1})`);
+      assert.ok(presses < 60); s = n;
+    }
+  };
+  await page('Control+u', -1);
+  await page('Control+d', 1);
+  assert.equal(await mode(p), 'NORMAL');
+  // a short draft: nothing scrolls, the cursor goes down half the field and back
+  await box.press('i'); await box.fill('one\ntwo\nthree\nfour\nfive'); await box.press('Escape');
+  const end = (await st()).pos;
+  await keys(p, 'Control+u');
+  const up = await st();
+  assert.ok(up.pos < end && up.top === 0, `ctrl-u moved the cursor up a short draft (${end} to ${up.pos})`);
+  await keys(p, 'Control+d');
+  assert.ok((await st()).pos > up.pos, 'ctrl-d back down');
+});
+
 await test('a long link wraps inside your message bubble and inside a reply', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await composer(p).fill('see https://example.com/' + 'averyverylongsegment'.repeat(14) + ' please');
