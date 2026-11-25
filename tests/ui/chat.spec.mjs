@@ -42,6 +42,29 @@ await test('/ menu: lists commands, filters, picks one in place', async p => {
   assert.equal(await menu.count(), 0);
 });
 
+await test('model picker: INSERT -> NORMAL moves nothing (the empty field\'s cursor sits over the placeholder)', async p => {
+  await openChat(p, 'Fix session-restore race');
+  await p.locator('.pane.focus .cf .chip[title="Model and effort"]').click();
+  const menu = p.locator('.menu.model');
+  await menu.waitFor();
+  const where = () => menu.evaluate(m => {
+    const r = e => { const b = e.getBoundingClientRect(); return [Math.round(b.x), Math.round(b.y), Math.round(b.width), Math.round(b.height)]; };
+    // the placeholder's first letter: the input's text box in INSERT, the drawn .ph in NORMAL
+    const ph = m.querySelector('.m-q .ph'), inp = m.querySelector('.m-s input');
+    const x = ph && ph.offsetParent ? ph.getBoundingClientRect().x : inp.getBoundingClientRect().x + parseFloat(getComputedStyle(inp).paddingLeft);
+    return { menu: r(m), row: r(m.querySelector('.mi')), ph: Math.round(x) };
+  });
+  assert.equal(await mode(p), 'INSERT');
+  const ins = await where();
+  await keys(p, 'Escape');
+  assert.equal(await mode(p), 'NORMAL');
+  await menu.locator('.m-q .hc i').waitFor();
+  assert.deepEqual(await where(), ins, 'the popup, its rows and the placeholder stay put');
+  await keys(p, 'i');
+  assert.deepEqual(await where(), ins, 'and back');
+  await p.keyboard.press('Escape');
+});
+
 await test('/ anywhere: /model mid-message keeps the draft and opens the picker', async p => {
   await openChat(p, 'Add timestamps to chat rows');
   await composer(p).pressSequentially('fix this /mod');

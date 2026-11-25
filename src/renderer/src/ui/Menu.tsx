@@ -295,7 +295,8 @@ export function Menu<D>(p: MenuProps<D>) {
   const shown = () => {   // the NORMAL field: text, the block cursor (or the VISUAL selection), placeholder when empty
     const f = fs.current, t = f.text;
     const op = opPending(f) && 'vop';
-    if (!t) return <><i className={cx('ncur', op)}>{' '}</i>{p.search?.placeholder && <span className="ph">{p.search.placeholder}</span>}</>;
+    // empty: the composer's slim cursor, drawn over the placeholder so the placeholder stays where INSERT shows it
+    if (!t) return <><span className={cx('hc', op && 'op')}><i /></span>{p.search?.placeholder && <span className="ph">{p.search.placeholder}</span>}</>;
     if (f.mode === 'VISUAL' || f.mode === 'V-LINE') { const [a, b] = vrange(f); return <>{t.slice(0, a)}<span className="mqv">{t.slice(a, b)}</span>{t.slice(b)}</>; }
     const at = Math.min(f.pos, t.length - 1);
     return <>{t.slice(0, at)}<i className={cx('ncur', op)}>{t[at]}</i>{t.slice(at + 1)}</>;
