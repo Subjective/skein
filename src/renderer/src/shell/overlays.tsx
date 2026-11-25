@@ -105,7 +105,7 @@ const ACTIONS: [string, string, string][] = [
   ['Shell to the right', 'terminal', 'vshell'], ['Show thread as chat / terminal', 'chat', 'view'],
   ['Open changes beside', 'diff', 'changes'], ['Open files beside', 'file', 'files'], ['Open browser beside', 'globe', 'browser'],
   ['Zoom pane', 'zoom', 'zoom'], ['Close tab', 'x', 'q'],
-  ['Workspaces', 'layers', 'workspace'], ['Machines', 'host', 'machines'], ['Settings', 'sliders', 'settings'], ['Keyboard shortcuts', 'keyboard', 'keys'],
+  ['Workspaces', 'layers', 'workspace'], ['Switch branch', 'branch', 'branch'], ['Move thread', 'folderOpen', 'moveto'], ['Machines', 'host', 'machines'], ['Settings', 'sliders', 'settings'], ['Keyboard shortcuts', 'keyboard', 'keys'],
   ['Agent work: Compact', 'layers', 'compact'], ['Agent work: Balanced', 'layers', 'balanced'], ['Agent work: Detailed', 'layers', 'detailed'],
 ];
 /** A thread's state on the right of a row, as in the sidebar: spinner, shield, dot, else its age. */
@@ -405,10 +405,11 @@ const KEYS = (): [string, KRow[]][] => [
     { label: 'Previous tab', cmd: 'tabprev', def: 'H' }, { label: 'Chat or terminal', cmd: 'view', def: 'ldr t' }]],
   ['Workspaces', [{ label: 'Switch workspace, most recent first', def: kb('ctrl-tab') }, { label: 'Search, create and manage', cmd: 'workspace', def: 'ldr w' }]],
   ['Threads', [{ label: 'Move in the sidebar', def: 'j k' }, { label: 'Open thread', def: 'enter' }, { label: 'Allow or deny a request', def: 'y n' },
-    { label: 'Add selection to chat', def: kb('mod-l') }, { label: 'Add selection to a side chat', def: kb('mod-shift-s') }]],
+    { label: 'Add selection to chat', def: kb('mod-l') }, { label: 'Add selection to a side chat', def: kb('mod-shift-s') },
+    { label: 'Move to another folder or machine', cmd: 'moveto', def: 'ldr m' }]],
   ['Terminal', [{ label: 'Read the scrollback', def: 'ldr [' }, { label: 'Back to the program', def: 'i' }]],
   ['Editing', [{ label: 'Undo', def: 'u' }, { label: 'Redo', def: kb('ctrl-r') }]],
-  ['Changes and files', [{ label: 'Search the file tree', def: 'f' }, { label: 'Stage the file under the cursor', def: 's' }, { label: 'Revert it (with Undo)', def: 'x' },
+  ['Changes and files', [{ label: 'Switch or create a branch', cmd: 'branch', def: 'ldr g' }, { label: 'Search the file tree', def: 'f' }, { label: 'Stage the file under the cursor', def: 's' }, { label: 'Revert it (with Undo)', def: 'x' },
     { label: 'Show folded lines', def: 'enter' }, { label: 'Back, forward in an open file', def: kb('ctrl-o') + ' ' + kb('ctrl-i') }]],
 ];
 const same = (a: string, b: string) => a === b || ALIASES[a] === b || ALIASES[b] === a;

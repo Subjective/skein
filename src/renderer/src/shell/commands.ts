@@ -5,6 +5,8 @@ import { ALIASES, COMMANDS } from '../input/keymap';
 import { S, toast, update, ws } from '../state/store';
 import * as A from '../state/actions';
 import { cycleWorkspaces } from './switcher';
+import { branchHere, openBranchesHere } from './branches';
+import { moveHere } from './move';
 import { armLeader, owner } from './keyboard';
 import { pathTo, resize } from '../state/layout';
 import { here, knownDirs, openCmdline, openKeys, openMachines, openPalette, openPaneSearch, openSettings, openWorkspaces } from './overlays';
@@ -72,6 +74,8 @@ const RUN: Record<string, (args: string[]) => void | boolean> = {
     const n = args.join(' '), hit = S.workspaces.find(x => x.name === n);
     if (hit) A.switchWorkspace(hit.id); else { const c = here(); A.newWorkspace(n, c.machine, c.dir); }
   },
+  branch: args => { if (args.length) void branchHere(args.join(' ')); else openBranchesHere(); },
+  moveto: () => moveHere(),
   wsnext: () => cycleWorkspaces(1),
   wsprev: () => cycleWorkspaces(-1),
   'focus h': () => A.focusDir('h'), 'focus j': () => A.focusDir('j'), 'focus k': () => A.focusDir('k'), 'focus l': () => A.focusDir('l'),

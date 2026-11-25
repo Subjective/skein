@@ -1440,14 +1440,14 @@ await test('a click on chrome while typing drops the composer to NORMAL; reader 
   await openChat(p, 'Tidy PowerShell profile');
   await composer(p).click();
   assert.equal(await mode(p), 'INSERT');
-  await p.locator('#status').click({ position: { x: 300, y: 5 } });
+  await p.locator('#status').click({ position: { x: 1000, y: 13 } });  // blank bar, past its buttons
   await settle(p);
   assert.equal(await mode(p), 'NORMAL');
   const b = await p.locator('.pane.focus .m-asst p').first().boundingBox();
   await p.mouse.click(b.x + 10, b.y + 8);
   await settle(p);
   assert.ok(await p.locator('.pane.focus [data-read].rd').count(), 'reader on');
-  await p.locator('#status').click({ position: { x: 300, y: 5 } });
+  await p.locator('#status').click({ position: { x: 1000, y: 13 } });  // blank bar, past its buttons
   await settle(p);
   assert.equal(await p.locator('.pane.focus [data-read].rd').count(), 0, 'reader cleared');
 });
