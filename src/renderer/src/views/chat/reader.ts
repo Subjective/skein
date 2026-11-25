@@ -45,6 +45,8 @@ const KROWS = '.af, .m-acts';
 const BLOCKS = '[data-src], .ag, .sc-link, .sc-anchor';
 /** The margin reveal keeps between the cursor and the transcript's edges. */
 const MARGIN = 24;
+/** How near a long message's fold (its cut-off bottom) a line must come before the message opens to show it. */
+const FOLD = 32;
 /** What bounds a selection: one message, a whole reply (everything up to the next message of yours) or one of
  * your bubbles. Code blocks, paragraphs and tool rows inside a reply are not bounds of their own. */
 export const SEL_BLOCK = '[data-read] > *';
@@ -241,7 +243,7 @@ export class Reader {
     // a cursor below the fold of a long message opens it (Show more) before it is brought into view
     const node = at instanceof Range ? at.startContainer : at, clip = (node.nodeType === 1 ? node as Element : node.parentElement)?.closest('.m-clip.shut');
     const low = at instanceof Element && at.matches('.m-pic') ? at.getBoundingClientRect().top + 32 : at.getBoundingClientRect().bottom;   // a picture is on screen once its top is
-    if (clip && low > clip.getBoundingClientRect().bottom - 32) clip.dispatchEvent(new Event('skein-open'));
+    if (clip && low > clip.getBoundingClientRect().bottom - FOLD) clip.dispatchEvent(new Event('skein-open'));
     if (this.still) return;
     const root = this.root, sc = this.scroller(); if (!root || !sc) return;
     const ns = this.texts(root), f = this.f;
@@ -392,6 +394,10 @@ export class Reader {
         if (row && row.contains(c.startContainer)) continue;
         const cr = c.getClientRects()[0];
         if (cr && ((!row && Math.abs(cr.top - rect.top) < 3) || y < cr.top - 3 || y > cr.bottom + 3)) continue;
+        // going up into a long message that is cut short (k from its Show more): the lines fading out at its fold
+        // would open it (reveal), so the cursor goes on to the last line above the fade and the message stays shut
+        const clip = d < 0 && cr ? c.startContainer.parentElement?.closest('.m-clip.shut') : null;
+        if (clip && cr && cr.bottom > clip.getBoundingClientRect().bottom - FOLD) continue;
         const dist = Math.abs(px - x); if (dist < bd) { bd = dist; best = c; } if (px === x) break;
       }
       return best;
