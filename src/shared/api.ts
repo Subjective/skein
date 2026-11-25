@@ -165,7 +165,7 @@ export interface SkeinApi {
     history(id: string): Promise<ThreadEvent[]>;
     /** A subagent's turns (its `sub` event: id, and `agent` when known), read from what the harness keeps of it. */
     sub(id: string, sub: { id: string; agent?: string }): Promise<ThreadEvent[]>;
-    /** Move an idle thread to another folder, on this machine or another (HANDOFF "Moving a thread"). Its
+    /** Move an idle thread to another folder, on this machine or another (DECISIONS "Moving a thread"). Its
      *  terminals close and its chat driver lets go first; the session file is copied where the harness will
      *  look for it (the original stays). Rejects with the reason when it can't move. */
     move(id: string, machine: string, dir: string): Promise<ThreadMeta>;

@@ -1,4 +1,4 @@
-// When a thread can move (HANDOFF "Moving a thread"). Shared so the confirm dialog says why before main refuses.
+// When a thread can move (DECISIONS "Moving a thread"). Shared so the confirm dialog says why before main refuses.
 import type { Harness, Machine, ThreadMeta } from './types';
 
 const NAME: Record<Harness, string> = { claude: 'Claude Code', codex: 'Codex' };

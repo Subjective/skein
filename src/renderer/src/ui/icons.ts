@@ -1,4 +1,4 @@
-// Icon set, from the mockup (mockups/icons.js): 24px grid, 1.6px round strokes; harness marks are filled.
+// Icon set, from the mockup: 24px grid, 1.6px round strokes; harness marks are filled.
 // Generated once; add new icons here by hand.
 export const STROKE = {
  "stop": "<circle cx=\"12\" cy=\"12\" r=\"8\"/><rect x=\"9.25\" y=\"9.25\" width=\"5.5\" height=\"5.5\" rx=\"1\"/>",

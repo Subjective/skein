@@ -1,6 +1,6 @@
 # Working on Skein
 
-Skein is a desktop interface for Claude Code and Codex, locally and over SSH. The current deliverable is the interactive HTML mockup in `mockups/`. Work on that prototype until the desktop build is approved. Start in the [home scene](mockups/index.html?scene=home). The layers button opens other scenes.
+Skein is a desktop app for Claude Code and Codex threads, on local and remote machines. The app is in `src/`; how to build and run it is in [README.md](README.md).
 
 ## Product model
 
@@ -25,6 +25,6 @@ Skein is a desktop interface for Claude Code and Codex, locally and over SSH. Th
 
 ## Verifying changes
 
-Try the changed interaction in the relevant mockup scene, on both keyboards (`?os=mac` and `?os=win`). For a reference image, compare the rendered state at a similar pane width and theme. For a focus change, exercise entry, action, dismissal, and return. Report what you observed and identify anything verified only through a scripted check.
+Try the changed interaction in the app (`pnpm dev:web` runs the UI with sample data), on both keyboards where it differs. For a reference image, compare the rendered state at a similar pane width and theme. For a focus change, exercise entry, action, dismissal, and return. Report what you observed and identify anything verified only through a scripted check.
 
-[HANDOFF.md](HANDOFF.md) maps the implementation. [PROMPTS.md](PROMPTS.md) records the design history. When prompts conflict, follow the latest explicit decision. Treat open questions as design history.
+[docs/DECISIONS.md](docs/DECISIONS.md) maps the code and records the decisions behind it. When decisions conflict, follow the latest explicit one.

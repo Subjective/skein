@@ -1,6 +1,6 @@
 # Mockup parity
 
-The interactive mockup in `mockups/` (`app.js`, `keys.js`, `annot.js`, `view-*.js`, `styles.css`) is the spec for
+The interactive mockup (since removed from the repo) was the spec for
 how Skein looks and how it responds: clicks, double and right clicks, hover, drag, keys and animations. This page
 records how the real app (`src/renderer/src`) compares with it, row by row.
 
@@ -42,8 +42,8 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | keys M8 | Tab picks like enter in every menu (folder lists go in) | Fixed | `ui/Menu.tsx:151-156`. |
 | keys M9 | enter with nothing to pick closes a menu without search and lets enter through | Fixed | `ui/Menu.tsx:153-156`; the @ menu's Loading state is handled in the composer. |
 | keys M10 | NORMAL space picks without closing | Fixed | `ui/Menu.tsx:169`. |
-| keys M11 | NORMAL `x` in a menu deletes the search's last character | Proposed deviation | HANDOFF "Closing VIM-MODEL section 6": the search field is a full Vim field in NORMAL. |
-| keys M13 | `l` in a menu without search goes to its own keys | Proposed deviation | `l` picks (`ui/Menu.tsx:181`), documented in HANDOFF. |
+| keys M11 | NORMAL `x` in a menu deletes the search's last character | Proposed deviation | DECISIONS "Closing VIM-MODEL section 6": the search field is a full Vim field in NORMAL. |
+| keys M13 | `l` in a menu without search goes to its own keys | Proposed deviation | `l` picks (`ui/Menu.tsx:181`), documented in DECISIONS. |
 | keys B1 | Rows of buttons (rule 16): h / l move, enter / space press | Fixed | `ui/kbrow.ts:20` useKbRow for terminal rows; the mirror bar in `views/chat/ChatView.tsx:137-146`. |
 | keys B2 | esc in a button row presses `[data-esc]` | Fixed | `ui/kbrow.ts`, `views/chat/ChatView.tsx:144`. |
 | keys B3 | `[` and `{` from the mirror bar read the thread above | Fixed | `views/chat/ChatView.tsx:147` (`[[` and `{` on the idle surface). |
@@ -127,7 +127,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | chat P23 | `inoremap jk` | Proposed deviation | See keys I3. |
 | chat P24 | An image pasted anywhere in the tab attaches it | Fixed | `views/chat/ChatView.tsx:49-54`. |
 | chat M4 | Tab picks in the / and @ menus | Fixed | See keys M8. |
-| chat M9 | /model at the start of an empty draft clears it | Proposed deviation | Only the word is removed, so a draft is never lost (HANDOFF). |
+| chat M9 | /model at the start of an empty draft clears it | Proposed deviation | Only the word is removed, so a draft is never lost (DECISIONS). |
 | chat M11 | /model, /side, /sidechats, /subagents typed alone run on enter | Fixed | `views/chat/Composer.tsx:150-156`. |
 | chat M12 | /model in a subagent | Proposed deviation | A subagent uses its thread's model. |
 | chat SUB1 | A subagent popup shows the subagent's turns, live and from history | Fixed | Claude: the SDK's `forwardSubagentText` streams them (`core/harness/claude/driver.ts`); history reads `<session>/subagents/agent-<id>.jsonl` (`claude/history.ts` claudeSubHistory). Codex: a sub-agent is a thread of its own, read with `thread/read` and listened to live (`codex/driver.ts`). API `threads.sub`; the popup re-reads every 2.5 s while the subagent runs (`views/chat/ChatView.tsx` useSubTurns). |
@@ -174,11 +174,11 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | shell B1 | View toggle title ends "· click to switch" | Fixed | Sidebar top row. |
 | shell B3 | A machine with nothing in it is not listed | Proposed deviation | Remote machines stay listed so `+` can add their first project. |
 | shell B4 / CT-5 | Archived row always shown; its chevron animates | Fixed | `shell/Sidebar.tsx:346`. |
-| shell B10 | A click in the sidebar gives it the keys | Fixed | `shell/Sidebar.tsx:308`; opening a thread hands them to the thread (HANDOFF). |
+| shell B10 | A click in the sidebar gives it the keys | Fixed | `shell/Sidebar.tsx:308`; opening a thread hands them to the thread (DECISIONS). |
 | shell B13 | Sidebar focus re-picks a cursor that is gone | Fixed | `shell/Sidebar.tsx:203`. |
 | shell B19 | A thread dropped on a machine with a same-named repo goes straight to Move | Fixed | `dropOnMachine` (`shell/move.tsx:52`). |
 | shell B20 / CT-8 | A new or moved thread's row flashes (`.fresh`) | Fixed | `shell/Sidebar.tsx:208-218, 237`. |
-| shell F2 | Folder rows with sub-folders show a chevron | Proposed deviation | It would need a listing per row, slow over SSH (HANDOFF). |
+| shell F2 | Folder rows with sub-folders show a chevron | Proposed deviation | It would need a listing per row, slow over SSH (DECISIONS). |
 | shell F4 | A new thread's folder chip uses the shared folder field (recent folders, typed paths) | Fixed | `openFolderPicker`, top-start, 360 wide (`shell/Launcher.tsx:96`); the old `dirMenu` is gone. |
 | shell F5 | Move's "Other folder…" uses the shared folder field | Fixed | `shell/move.tsx:47`. |
 | shell F6 | Folders used once are remembered | Fixed | Saved with `api.app.save('dirs')`. |
@@ -192,7 +192,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | shell W3 | Switching workspace lands in NORMAL with the sidebar cursor cleared | Fixed | `state/actions.ts:295` (and a new workspace at 289). |
 | shell W5 | Leader hint row matches the mockup | Fixed | `shell/StatusBar.tsx`. |
 | shell K6 | "Connected to X" toast after signing in | Fixed | `shell/App.tsx:59-62`. |
-| shell K8 | Move with a code choice; a running thread waits | Proposed deviation | HANDOFF: code never moves; a busy thread is refused with the reason. |
+| shell K8 | Move with a code choice; a running thread waits | Proposed deviation | DECISIONS: code never moves; a busy thread is refused with the reason. |
 | KNOWN-44 | Sidebar resizes by dragging its edge, width remembered | Fixed | `shell/Sidebar.tsx:291` (200px to 60%, kept on this computer) |
 | KNOWN-45 | Sidebar by keyboard: alt-h from the leftmost pane, ctrl-w h, back with alt-l or enter | Fixed | `state/actions.ts` focusDir / sideFocus |
 | KNOWN-46 | Sidebar stays live: Recent reorders on activity, outside sessions rediscovered, ages tick | Fixed | `core/threads.ts` update, `shell/App.tsx` rediscover (local every 60s and on focus, remote on focus at most every 5 min) |
@@ -225,7 +225,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | shell T12 | A side chat tab shows the chat icon; an SSH shell is "bash" | Fixed / Deviation | Icon fixed in this review (`shell/meta.ts:24`); the SSH shell is titled with the machine's name, which says more. |
 | shell D4 | Dropping a tab on its own pane's middle changes nothing | Fixed | `shell/tabdrag.ts`. |
 | shell D8 / CT-50 | A sidebar row dragged onto the panes opens there | Fixed | `shell/move.tsx:132-159`. |
-| shell D9 | A tab dropped outside every pane | Proposed deviation | It pops out (HANDOFF). |
+| shell D9 | A tab dropped outside every pane | Proposed deviation | It pops out (DECISIONS). |
 | shell P2 | Side chat popups are narrower | Fixed | `shell/Workspace.tsx:195`. |
 | shell P3 | Dragging a popup by its header drops to NORMAL | Fixed | `shell/Workspace.tsx:171`. |
 | shell P5 | Closing a popup restores where the keys were | Fixed | `state/actions.ts:181-215`; ChatView registers place / restore. |
@@ -261,7 +261,7 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | CT-80 | The open file's header has a ⋯ menu (Cursor's, trimmed to what Skein does): Reveal in Finder (File Explorer on Windows), Copy relative path, Copy remote URL; Diff view, Line numbers and Word wrap switches; Save (also `:w` and mod-s) and Discard changes only with unsaved edits; the header has no Save button. No LSP, Cursor Tab, Git Blame, Auto Save or keybindings rows | Proposed deviation (asked for by Josh on 2026-11-21) | The mockup has no such menu. `views/tools/fileactions.tsx`; every row is also an ex command (`:reveal`, `:copypath`, `:copyurl`, `:diffview`, `:numbers`, `:wrap`, `:discard`, `:filemenu` opens the menu) and a File group in ctrl-k. Toggles keep the menu open. Line numbers and wrap are settings (every file); the diff view is per tab and only for a file changed since its last commit. Remote files can't be revealed. UI tests "file menu: …". |
 | CT-81 | Where a file opens | Proposed deviation (Josh, 2026-11-21: opening files kept splitting panes) | VS Code's rule, `state/layout.ts` placeFor: from a pane showing a file or a tool (Files, Changes, Browser) it opens as a tab in that pane; from a thread or shell it goes to a pane beside that shows files or tools (the one to the right first), else the pane to the right, else one new split. Splitting on purpose: shift-enter in ctrl-p, Files and Changes (`O` in Files and Changes), or a click with a modifier in a tree or ctrl-p, as the sidebar opens a thread in a split. The mockup always split or used the right-hand pane. Unit tests "where a file opens", UI tests "open: …". |
 | KNOWN-59 | Every drag-to-resize edge looks the same (Josh, 2026-11-22: the sidebar's edge showed a thick grey bar, a split's divider a thin blue line) | Proposed deviation | The mockup draws the two differently (`.side-resize` grey 2px, `.dv` blue 1px); the app now uses one `ResizeHandle` (`ui/resize.tsx`, `.rsz` + `--rsz-*` tokens): a hairline at rest, a 2px blue line on hover after 150ms and at once while held, a resize cursor and a 9px hit area, for the sidebar, the file tree and both split directions. Double-click resets the sidebar and tree to their default widths, as it evens out a split. Floating popups keep invisible window-like grips. UI test "resize edges". |
-| CT-77 | Browser tab as a screenshot with a pill address | Proposed deviation | A real webview (HANDOFF); the address field is not a pill. |
+| CT-77 | Browser tab as a screenshot with a pill address | Proposed deviation | A real webview (DECISIONS); the address field is not a pill. |
 
 ## Menus and overlays
 
@@ -269,11 +269,11 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 |---|---|---|---|
 | KNOWN-20 / shell W2 | ctrl-tab switcher, release ctrl to switch | Fixed | `shell/switcher.tsx`. |
 | KNOWN-21 / shell W1 | Workspaces menu anchored at the status button, mini layouts, rename, close, folders | Fixed | `shell/overlays.tsx:241`; driven: opens above the status bar. |
-| KNOWN-23 / shell K1 | Keyboard sheet: groups, vimrc link, rebinding | Fixed | `shell/overlays.tsx:387`; "Search the file tree" is `f` (HANDOFF). |
+| KNOWN-23 / shell K1 | Keyboard sheet: groups, vimrc link, rebinding | Fixed | `shell/overlays.tsx:387`; "Search the file tree" is `f` (DECISIONS). |
 | KNOWN-24 / shell C3 | `:` line docked over the status bar, prefix match, arguments | Fixed | `shell/overlays.tsx:99-120`; driven. |
 | KNOWN-25 / shell C1 | Palette: threads with status, then actions, no key hints | Fixed | `shell/overlays.tsx:84-94`. |
 | shell C1 (scope) | The palette lists archived threads and side chats too | Fixed | Archived ones last, side chats open as popups (`shell/overlays.tsx:86`). |
-| KNOWN-27 / shell K2 | Settings rows (On launch, counts as read, Appearance, vimrc path) | Fixed | `shell/overlays.tsx` Settings; two-list keys per HANDOFF. |
+| KNOWN-27 / shell K2 | Settings rows (On launch, counts as read, Appearance, vimrc path) | Fixed | `shell/overlays.tsx` Settings; two-list keys per DECISIONS. |
 | KNOWN-28 / shell K9, CT-10 | Toasts: one at a time, rich, inline Undo, drop in from above | Fixed | `shell/Layers.tsx:16`, `styles/skein.css:643`. |
 | shell M3 / CT-39 | The composer menu look only for composer menus | Fixed | `ui/Menu.tsx:198`. |
 | shell M4 / CT-38 | Hover moves the selection only in composer menus | Fixed | `ui/Menu.tsx:251`. |

@@ -1,4 +1,4 @@
-// Moving a thread to another folder or machine (HANDOFF "Moving a thread").
+// Moving a thread to another folder or machine (DECISIONS "Moving a thread").
 // Skein's record follows (machine, folder); the harness's own session file goes where the harness will look for it:
 //   Claude Code: ~/.claude/projects/<slug of the cwd>/<session id>.jsonl (and its <session id>/ folder, if any).
 //     The CLI resumes only transcripts under the project of its cwd, so a new folder needs a copy, on the

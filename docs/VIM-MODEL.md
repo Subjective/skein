@@ -1,7 +1,7 @@
 # Skein: how Vim mode works
 
 One model for every part of the app, so a key means the same thing wherever you are.
-This is the reference for the mockup ([mockups/](../mockups/)) and for the Electron build.
+This is the reference for the app.
 
 ## 1. Five kinds of surface
 
@@ -180,7 +180,7 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
 
 ## 5. Keyboard by OS
 
-One table, read by the input layer before anything else (`mockups/platform.js`, `?os=mac|win` in the mockup).
+One table, read by the input layer before anything else (`src/renderer/src/input/platform.ts`).
 
 | Kind of key | Windows | Mac | Why |
 |---|---|---|---|
