@@ -1,6 +1,6 @@
 // One composer for threads, side chats, subagents and the edit-a-message box.
-// Text is a VimField; / anywhere a word starts opens the command menu, @ opens files; images come from
-// the + button, paste or drop; quoted selections sit in the text as chips (painted by the layer behind).
+// Text is a CodeField (the file editor's CodeMirror and Vim); / anywhere a word starts opens the command menu, @ opens
+// files; images come from the + button, paste or drop; quoted selections sit in the text as chips, one item each.
 // Below the text: attach, permissions, model and effort, context used, send / stop. j from the text's
 // last line (NORMAL) moves onto that row: h / l pick, enter presses, k goes back up.
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -9,7 +9,6 @@ import type { Harness, ThreadMeta } from '@shared/types';
 import { snapEffort } from '@shared/models';
 import type { Mode, Surface } from '../../input/dispatcher';
 import { registerTab } from '../../input/surfaces';
-import { tokAt } from '../../input/vimtext';
 import { api } from '../../api';
 import { machine, openLayer, toast, update } from '../../state/store';
 import * as A from '../../state/actions';
@@ -20,13 +19,13 @@ import { placeBy } from '../../ui/place';
 import { animate, MOTION } from '../../ui/motion';
 import { Chip, cx, Icon, IconButton, SendButton } from '../../ui/primitives';
 import { FileIcon } from '../../ui/FileIcon';
-import { VimField, type VimFieldHandle } from '../../ui/VimField';
+import { CodeField, type CodeFieldHandle } from '../../ui/editor/CodeField';
 import { openLightbox } from '../../ui/Lightbox';
 import { useDialogSurface } from '../../ui/Dialog';
 import { effortId, effortLabel, harnessOptions, INSTALL, modelDef, modelId, modelLabel, OURS, permChoices, permLabel, permOf, permRow, slashHit, THREAD_SLASH, useHarnessCommands, type Slash } from './options';
-import { hoverQuote, paintQuotes, QI, revealQuote, saveDraft, setUltra, syncQuotes, TK, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
+import { hoverQuote, paintQuotes, QI, revealQuote, saveDraft, setUltra, syncQuotes, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
 
-export interface ComposerHandle { focus(insert?: boolean): void; caret(): number; field(): VimFieldHandle | null }
+export interface ComposerHandle { focus(insert?: boolean): void; caret(): number; field(): CodeFieldHandle | null }
 
 export interface ComposerProps {
   tabId: string;
@@ -71,34 +70,13 @@ const wordAt = (text: string, pos: number): Pop => {
   return null;
 };
 
-/** The text behind the textarea, which draws it (the textarea's own glyphs are transparent so a quote can be blue):
- *  quotes as chips, plus the block cursor (.hc) or VISUAL's moving end (.vcur). `hot` is the quote under the pointer.
- *  With `icons`, the layer in front: only each quote's chat icon shows, so a block cursor or a selection never hides it. */
-function backLayer(text: string, cur: { hollow: number; vcur: number; op?: boolean } | null, hot = -1, icons = false): React.ReactNode[] {
-  let n = 0;
-  const chip = (t: string, key: string) => {
-    const i = n++, lead = t.indexOf(QI) === 1;
-    return <span key={key} className={cx('tok', i === hot && 'hot')}>{lead ? <>{TK}<span className="qi">{QI}{icons && <Icon name="chat" />}</span>{t.slice(1 + QI.length)}</> : t}</span>;
-  };
-  const part = (str: string, key: string) => {
-    const toks = str.match(TOK) || [];
-    return str.split(TOK).flatMap((x, i, a) => (i < a.length - 1 ? [x, chip(toks[i], key + i)] : [x]));
-  };
-  if (cur && cur.hollow >= 0) { const at = Math.min(cur.hollow, text.length); return [...part(text.slice(0, at), 'a'), <span key="hc" className={cx('hc', cur.op && 'op')}>{!icons && <i />}</span>, ...part(text.slice(at), 'b')]; }
-  if (cur && cur.vcur >= 0 && cur.vcur < text.length) return [...part(text.slice(0, cur.vcur), 'a'), <span key="vc" className={icons ? undefined : cx('vcur', cur.op && 'vop')}>{text[cur.vcur]}</span>, ...part(text.slice(cur.vcur + 1), 'b')];
-  return part(text, 'a');
-}
-
 export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Composer(p, handle) {
-  const field = useRef<VimFieldHandle>(null);
+  const field = useRef<CodeFieldHandle>(null);
   const box = useRef<HTMLDivElement>(null);
   const cf = useRef<HTMLDivElement>(null);
-  const bk = useRef<HTMLDivElement>(null);
   const file = useRef<HTMLInputElement>(null);
   const props = useRef(p); props.current = p;
   const [pop, setPop] = useState<Pop>(null);
-  // the NORMAL cursor where there is no character, and VISUAL's moving end, drawn in the layer behind the text
-  const [cur, setCur] = useState<{ hollow: number; vcur: number; op?: boolean } | null>(null);
   const menu = useRef<Surface | undefined>(undefined);
   const h: Harness = p.thread.harness;
 
@@ -114,7 +92,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   // ---- / and @ ----
   const onChange = (text: string) => {
     set({ text });
-    const pos = field.current?.el()?.selectionStart ?? text.length;
+    const pos = field.current?.state().pos ?? text.length;
     setPop(wordAt(text, pos));
   };
   const [files, setFiles] = useState<{ dir: string; list: { name: string; dir: boolean }[] }>({ dir: '', list: [] });
@@ -163,9 +141,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     }
     const ins = f.kind === 'slash' ? it.data + ' ' : '@' + it.data + (it.data.endsWith('/') ? '' : ' ');
     const text = d.text.slice(0, f.from) + ins + d.text.slice(pos);
-    set({ text }); field.current?.set(text);
-    const at = f.from + ins.length;
-    const el = field.current?.el(); if (el) el.setSelectionRange(at, at);
+    set({ text }); field.current?.set(text, f.from + ins.length);
     setPop(it.data.endsWith('/') && f.kind === 'at' ? { kind: 'at', from: f.from, q: it.data } : null);
   };
 
@@ -304,18 +280,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     if (mode === 'NORMAL' && props.current.onNormalKey?.(k)) return true;
     // NORMAL has no paste event (the keys don't type): ctrl-v / cmd-v still attach an image on the clipboard
     if (mode === 'NORMAL' && (k === 'ctrl-v' || k === 'cmd-v')) { void pasteFromClipboard(); return true; }
-    // INSERT: a quote is one item. Arrows step over it, backspace / delete take it whole.
-    if (mode === 'INSERT' && (k === 'left' || k === 'right' || k === 'backspace' || k === 'delete')) {
-      const el = field.current?.el();
-      if (el && el.selectionStart === el.selectionEnd) {
-        const v = el.value, at = el.selectionStart, tk = tokAt(v, k === 'left' || k === 'backspace' ? at - 1 : at);
-        if (tk) {
-          if (k === 'left' || k === 'right') field.current!.set(v, k === 'left' ? tk[0] : tk[1]);
-          else { const text = v.slice(0, tk[0]) + v.slice(tk[1]); field.current!.set(text, tk[0]); set({ text }); }
-          return true;
-        }
-      }
-    }
     return false;
   };
   const popOpen = useRef(false); popOpen.current = open;
@@ -324,7 +288,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const taw = useRef<HTMLDivElement>(null);
   const [hot, setHot] = useState<{ i: number; id: string; right: number; top: number } | null>(null);
   const tokx = useRef<HTMLButtonElement>(null);
-  const tokUnder = (x: number, y: number) => [...(bk.current?.querySelectorAll('.tok') ?? [])].findIndex(sp => [...sp.getClientRects()].some(r => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom));
+  // a chip may be drawn in pieces (a wrapped line, its icon): each piece carries its quote's index
+  const chipEls = (i?: number) => [...(taw.current?.querySelectorAll<HTMLElement>(i == null ? '.tok[data-q]' : `.tok[data-q="${i}"]`) ?? [])];
+  const tokUnder = (x: number, y: number) => { const el = chipEls().find(sp => [...sp.getClientRects()].some(r => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom)); return el ? Number(el.dataset.q) : -1; };
   useEffect(() => {
     const mv = (e: MouseEvent) => {
       const t = e.target as Node;
@@ -334,7 +300,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       setHot(cur => {
         if (!q) { if (cur) hoverQuote(null); return null; }
         if (cur?.id === q.id) return cur;
-        const rs = bk.current!.querySelectorAll('.tok')[i].getClientRects(), r = rs[rs.length - 1];
+        const rs = chipEls(i).flatMap(el => [...el.getClientRects()]), r = rs[rs.length - 1];
+        if (!r) return null;
         hoverQuote(q.id);
         return { i, id: q.id, right: r.right, top: r.top };
       });
@@ -358,11 +325,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     let n = 0; const again = () => { if (!revealQuote(q) && ++n < 20) setTimeout(again, 80); };
     setTimeout(again, 30);
   };
-  // a click never leaves the caret inside a quote (it goes to the nearer edge); a click on one goes to its source
+  // a click on a quote goes to its source (the field keeps the caret at the quote's nearer edge)
   const onTawUp = (e: React.MouseEvent) => {
-    const el = field.current?.el(); if (!el || e.button !== 0 || el.selectionStart !== el.selectionEnd) return;
-    const v = el.value, a = el.selectionStart, tk = tokAt(v, a);
-    if (tk && a > tk[0]) field.current!.set(v, a - tk[0] < tk[1] - a ? tk[0] : tk[1]);
+    if (e.button !== 0 || e.detail > 1) return;
     const i = tokUnder(e.clientX, e.clientY), q = i >= 0 ? props.current.draft.quotes[i] : undefined;
     if (q) goQuote(q);
   };
@@ -376,13 +341,6 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     ctxClose.current = openLayer(close => <ContextUsage button={button} ctx={t.ctx ?? 0} tokens={t.ctxTokens} onClose={close} />, () => { ctxClose.current = null; });
   };
 
-  // the layer behind the text paints quote chips
-  const fk = useRef<HTMLDivElement>(null);
-  const paintBk = () => { const el = field.current?.el(); if (!el) return; for (const b of [bk.current, fk.current]) if (b) b.scrollTop = el.scrollTop; };
-  useEffect(paintBk);
-  // the textarea also scrolls on its own (the wheel, typing past the bottom, a motion revealing the cursor): the layer follows
-  useEffect(() => { const el = field.current?.el(); if (!el) return; el.addEventListener('scroll', paintBk); return () => el.removeEventListener('scroll', paintBk); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const th = p.thread, ctx = th.ctx;
   const hasText = !!p.draft.text.trim() || p.draft.images.length > 0;
   return (
@@ -394,12 +352,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         ))}</div>
       )}
       <div className="taw" ref={taw} onMouseUp={onTawUp}>
-        <div ref={bk} className="bk" aria-hidden="true">{backLayer(p.draft.text, cur, hot?.i)}{'\u200b'}</div>
-        <VimField ref={field} tabId={p.tabId} value={p.draft.text} onChange={onChange} onCursor={setCur} placeholder={p.placeholder || 'Send follow-up'}
+        <CodeField ref={field} tabId={p.tabId} id={`${p.tabId}|${p.persist ?? 'edit'}`} className="cf-text" value={p.draft.text} onChange={onChange} placeholder={p.placeholder || 'Send follow-up'}
           autoFocus={p.autoFocus} onEnter={() => { if (open) return; if (ourCommand()) return; p.onSend(); }} onLeave={() => { setPop(null); p.onLeave?.(); }}
           onLeaveUp={() => p.onLeaveUp?.()} onLeaveDown={toControls} onKey={onKey} local={() => popOpen.current}
+          chips={{ re: TOK, lead: QI, hot: hot?.i ?? -1 }}
           startMode={p.startMode} onPaste={e => { const fs = clipImages(e.clipboardData); if (fs.length) { e.preventDefault(); addFiles(fs); } }} />
-        {p.draft.text.includes(TK) && <div ref={fk} className="fk" aria-hidden="true">{backLayer(p.draft.text, cur, -1, true)}{'\u200b'}</div>}
       </div>
       <div className="cf" ref={cf}>
         <IconButton icon="plus" label="Attach image · or paste one" onMouseDown={e => e.preventDefault()} onClick={() => file.current?.click()} />

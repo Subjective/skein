@@ -17,8 +17,26 @@ let browser = null;
 export const _setBrowser = b => { browser = b; };
 
 /** A fresh page on the app with page errors collected (a test fails on any). */
+/** A composer is a CodeMirror field (contenteditable), not a textarea: its value and placeholder read the same way. */
+let patched = false;
+function patchLocator(p) {
+  if (patched) return; patched = true;
+  const L = Object.getPrototypeOf(p.locator('body'));
+  const inputValue = L.inputValue, getAttribute = L.getAttribute;
+  L.inputValue = async function (o) {
+    if (await this.evaluate(el => !!el.closest?.('.cm-editor'), undefined, o)) return this.evaluate(el => window.__skein.val(el), undefined, o);
+    return inputValue.call(this, o);
+  };
+  L.getAttribute = async function (name, o) {
+    const v = await getAttribute.call(this, name, o);
+    if (v == null && name === 'placeholder') return getAttribute.call(this, 'aria-placeholder', o);
+    return v;
+  };
+}
+
 export async function page(o = {}) {
   const p = await browser.newPage({ viewport: o.viewport || { width: 1280, height: 800 } });
+  patchLocator(p);
   p.setDefaultTimeout(o.timeout || 8000);
   p.errors = [];
   p.on('pageerror', e => p.errors.push(e.message));

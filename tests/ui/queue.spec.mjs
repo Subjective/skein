@@ -7,7 +7,7 @@ async function openChat(p, title) {
   if ((await seg.getAttribute('aria-pressed')) !== 'true') await seg.click();
   await p.waitForSelector('.pane.focus .chat .col[data-read] > *');
 }
-const composer = p => p.locator('.pane.focus .compw textarea').last();
+const composer = p => p.locator('.pane.focus .compw .cm-content').last();
 const rows = p => p.locator('.pane.focus .qrow');
 const texts = p => rows(p).locator('.qtext').allInnerTexts();
 const cur = p => p.evaluate(() => [...document.querySelectorAll('.pane.focus .qrow')].findIndex(r => r.classList.contains('cur')));

@@ -2,6 +2,7 @@
 // reach the same result (VIM-MODEL rule 10).
 import type { ThreadMeta, ViewKind } from '@shared/types';
 import { api } from '../api';
+import { editorTyping } from '../ui/editor/vim';
 import { openFile as openFileTab } from '../views/tools/open';
 import { tabPlace, tabRestore } from '../views/tools/hooks';
 import {
@@ -110,7 +111,7 @@ let stepped = { at: 0, insert: false };
 export const steppedInsert = (ms = 600): boolean | undefined => (Date.now() - stepped.at < ms ? stepped.insert : undefined);
 export function tabStep(d: number) {
   const el = document.activeElement;
-  stepped = { at: Date.now(), insert: !!el && el.tagName === 'TEXTAREA' && !el.classList.contains('vn') };
+  stepped = { at: Date.now(), insert: !!el && ((el.tagName === 'TEXTAREA' && !el.classList.contains('vn')) || editorTyping(el, S.settings.vim)) };
   update(s => { const p = focusedPane(); const i = p.tabs.indexOf(activeTab(p)); p.active = p.tabs[(i + d + p.tabs.length) % p.tabs.length].id; s.tick++; });
   save();
 }

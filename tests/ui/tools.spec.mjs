@@ -798,10 +798,10 @@ const draftKept = (sel, text) => async (c, at) => assert.equal(await c.locator(`
 await test('popups: every kind pops out and docks back with its state and the keys', async p => {
   // thread chat: a draft in the composer
   await p.locator('#side').getByText('Add timestamps to chat rows', { exact: true }).first().click();
-  await p.locator('.pane.focus .compw textarea').waitFor();
+  await p.locator('.pane.focus .compw .cm-content').waitFor();
   await settle(p, 450);
-  await p.locator('.pane.focus .compw textarea').fill('kept draft');
-  await roundTrip(p, 'chat', '.compw textarea', draftKept('.compw textarea', 'kept draft'));
+  await p.locator('.pane.focus .compw .cm-content').fill('kept draft');
+  await roundTrip(p, 'chat', '.compw .cm-content', draftKept('.compw .cm-content', 'kept draft'));
   // thread terminal: the same session
   await p.locator('.pane.focus .seg button').nth(1).click();
   await p.locator('.pane.focus .xterm >> visible=true').first().waitFor();
@@ -849,19 +849,19 @@ await test('popups: every kind pops out and docks back with its state and the ke
   const seg = p.locator('.pane.focus .tb .seg button[aria-label^="Chat"]');
   if ((await seg.getAttribute('aria-pressed')) !== 'true') await seg.click();
   await p.locator('.pane.focus .ag', { hasText: 'Test runner' }).click();
-  await p.locator('.peek.focus textarea').waitFor();
-  await p.locator('.peek.focus textarea').fill('sub draft');
+  await p.locator('.peek.focus .cm-content').waitFor();
+  await p.locator('.peek.focus .cm-content').fill('sub draft');
   await keys(p, 'Control+Space d');
   await p.locator('.pane.focus .sub-h').waitFor();
-  await roundTrip(p, 'subagent', '.sub-h', draftKept('textarea', 'sub draft'));
+  await roundTrip(p, 'subagent', '.sub-h', draftKept('.comp .cm-content', 'sub draft'));
   await p.locator('#side').getByText(THREAD, { exact: true }).first().click();
   await settle(p, 450);
   await p.locator('.pane.focus .sc-link', { hasText: 'Why not a mutex here?' }).first().click();
   await p.locator('.peek.focus .sc-anchor').waitFor();
-  await p.locator('.peek.focus textarea').fill('side draft');
+  await p.locator('.peek.focus .cm-content').fill('side draft');
   await keys(p, 'Control+Space d');
   await p.locator('.pane.focus .sc-anchor').waitFor();
-  await roundTrip(p, 'side chat', '.sc-anchor', draftKept('textarea', 'side draft'));
+  await roundTrip(p, 'side chat', '.sc-anchor', draftKept('.comp .cm-content', 'side draft'));
 }, { timeout: 15000 });
 
 await test(': opens the command line from Changes, Files and an open file in NORMAL', async p => {
@@ -1043,7 +1043,7 @@ await test('changes: a click draws the character cursor; double click, drag and 
   assert.equal(await p.locator('.tab').count(), tabs, 'no file opened');
   // Add to Chat quotes it into the thread's composer
   await bar(p).getByText('Add to Chat').click();
-  await p.locator('.compw .bk .tok').first().waitFor();
+  await p.locator('.compw .cm-content .tok').first().waitFor();
 });
 
 await test('file: mod-l quotes V-LINE into the thread beside it, even when the file was not opened from one', async p => {
@@ -1051,13 +1051,13 @@ await test('file: mod-l quotes V-LINE into the thread beside it, even when the f
   // as if opened from a pane with no thread (a new tab, the Files tree of a launcher): the tab carries no thread
   await p.evaluate(() => { const { S } = window.__skein; const walk = n => n.type === 'pane' ? n.tabs : [...walk(n.a), ...walk(n.b)]; for (const w of S.workspaces) for (const t of walk(w.tree)) if (t.kind === 'file') delete t.thread; });
   const chat = p.locator('.pane:not(.focus) .compw');
-  assert.equal(await chat.locator('.bk .tok').count(), 0);
+  assert.equal(await chat.locator('.cm-content .tok').count(), 0);
   await keys(p, 'j Shift+V j');
   assert.equal(await mode(p), 'V-LINE');
   await keys(p, `${mod}+l`);
-  await p.locator('.compw .bk .tok').first().waitFor();
+  await p.locator('.compw .cm-content .tok').first().waitFor();
   assert.ok(!(await p.locator('.toast', { hasText: 'Open a thread first' }).count()), 'no toast');
-  assert.ok(await p.locator('.pane.focus .compw .bk .tok').count(), 'the quote is in the thread pane, which now has focus');
+  assert.ok(await p.locator('.pane.focus .compw .cm-content .tok').count(), 'the quote is in the thread pane, which now has focus');
 });
 
 await test('file: line numbers scroll with the code, never drawn over it, at the end of a long line', async p => {
@@ -1346,7 +1346,7 @@ await test('file: a yank in a file puts in a composer (one register for the app)
   await openFile(p, 'package.json');
   await keys(p, 'j 3 l y i w');
   assert.equal((await p.evaluate(() => window.__skein.reg())).text, 'name');
-  const box = p.locator('.compw textarea').first();
+  const box = p.locator('.compw .cm-content').first();
   await box.click();
   await keys(p, 'Escape p');
   assert.match(await box.inputValue(), /name/);

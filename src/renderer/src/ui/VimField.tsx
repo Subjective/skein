@@ -61,7 +61,7 @@ if (typeof document !== 'undefined') document.addEventListener('mousedown', e =>
 export const recentMouse = (ms = 500): Element | null => (Date.now() - down.at < ms ? down.on : null);
 /** A mousedown on any of these keeps a typing field in INSERT (the mockup's app.js 2038: fields, menus, dialogs, the
  *  composer and its controls, the edit box, the quote bar); terminals and pages keep their own keys (rule 11). */
-const KEEPS = '[data-input], input, textarea, select, [contenteditable], .menu, .scrim, .comp, .newp, .m-edit, .seltb, .xterm, webview, iframe';
+export const KEEPS = '[data-input], input, textarea, select, [contenteditable], .menu, .scrim, .comp, .newp, .m-edit, .seltb, .xterm, webview, iframe';
 
 export const VimField = forwardRef<VimFieldHandle, VimFieldProps>(function VimField(p, handle) {
   const ta = useRef<HTMLTextAreaElement>(null);
