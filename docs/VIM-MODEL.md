@@ -89,7 +89,9 @@ Vim's own name for a `:terminal` window that has the keys; leaving it is the sam
     keys belong to the program (rule 11).
 15. **Leaving and coming back keeps your place.** Opening a popup remembers where the keyboard was in the
     pane (the reading cursor, or the composer's mode and position). Closing the popup, or `ctrl-o`, puts it
-    back there; `ctrl-i` returns to where you were in the popup.
+    back there; `ctrl-i` returns to where you were in the popup. The same holds coming back to a chat from the sidebar
+    or another pane: a reading cursor comes back where it was (the composer keeps its own mode and caret). Stepping
+    tabs with `H` / `L` still carries the mode you came from, and opening a thread again starts it ready to type.
 16. **A row of buttons can stand in for a field.** Where a pane has nothing to type into (the chat view of a
     Claude Code thread its terminal is driving, the terminal of one that is still waiting to open, a failed
     upload, an SSH dialog's buttons) the row takes the keys: `h` / `l` move, `enter` presses, `esc` presses its

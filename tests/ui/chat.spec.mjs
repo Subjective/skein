@@ -216,6 +216,24 @@ await test('reader: closing ctrl-k, ctrl-p, : or the workspace menu puts the rea
   await keys(p, 'j'); assert.ok(await at() !== where || await p.locator('.pane.focus .rowcur').count(), 'and the reader still moves');
 });
 
+await test('reader: back from the sidebar or another pane, the reading cursor comes back; opening the thread again types', async p => {
+  await openChat(p, 'Profile slow orders query');
+  await composer(p).press('Escape');
+  await p.keyboard.press('Control+Space'); await p.keyboard.press(':'); await p.keyboard.type('vsplit'); await keys(p, 'Enter'); await settle(p, 300);
+  await keys(p, 'Alt+h'); await settle(p);
+  await keys(p, 'Escape k k w'); await settle(p);
+  const at = () => p.evaluate(() => { const h = [...(CSS.highlights.get('vcur') || [])][0]; return h ? h.startContainer.data.slice(0, 20) + '@' + h.startOffset : null; });
+  const where = await at(); assert.ok(where, 'reading');
+  await keys(p, 'Alt+l'); await settle(p); await keys(p, 'Alt+h'); await settle(p, 200);
+  assert.equal(await at(), where, 'back from the other pane: on the same character');
+  await keys(p, 'Alt+h'); await settle(p); assert.equal(await at(), null, 'the sidebar has the keys');
+  await keys(p, 'Escape'); await settle(p, 200);
+  assert.equal(await at(), where, 'back from the sidebar: on the same character');
+  await keys(p, 'Alt+h'); await settle(p); await keys(p, 'Enter'); await settle(p, 300);
+  assert.equal(await at(), null, 'opening the thread from the sidebar gives the composer the keys');
+  assert.ok(await composer(p).evaluate(el => el === document.activeElement));
+});
+
 await test('reader: a subagent popup opened with enter on its row closes back onto that row (rule 15)', async p => {
   await openChat(p, 'Fix session-restore race');
   await composer(p).press('Escape'); await keys(p, 'k'); await settle(p);

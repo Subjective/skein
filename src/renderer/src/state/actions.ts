@@ -144,8 +144,13 @@ export function markRead(id: string) {
   void api.threads.update(id, { status: 'idle' });
 }
 
+/** When a thread was last opened (the sidebar, the palette): it opens ready to type, so a chat coming back into focus
+ *  then does not put back a reading cursor it had. */
+let opened = 0;
+export const justOpened = (ms = 600) => Date.now() - opened < ms;
 export function openThread(id: string, o: { split?: boolean; view?: ViewKind } = {}) {
   const th = thread(id); if (!th) return;
+  opened = Date.now();
   update(s => {
     const w = ws();
     s.sideFocus = false; s.sideCursor = id;

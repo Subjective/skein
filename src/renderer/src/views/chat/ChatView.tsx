@@ -193,18 +193,20 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
 
   // focus follows the pane: a newly focused chat types into its composer (side chats and subagents open in INSERT)
   const wasFocused = useRef(false);
-  /** The reader had the keys when an overlay (a menu, the palette, file search, the keyboard sheet) took them: closing
-   *  it puts the reading cursor back where it was (rule 15), rather than handing the keys to the composer. */
-  const readingUnder = useRef(false);
+  /** The reader had the keys when something else took them: closing an overlay (a menu, the palette, file search, the
+   *  keyboard sheet, rule 15), or coming back from the sidebar or another pane, puts the reading cursor back where it
+   *  was rather than handing the keys to the composer. Not after H / L (stepping tabs carries the mode you came from),
+   *  a click (it places the keys itself) or opening the thread again (it opens ready to type). */
+  const readingUnder = useRef<false | 'layer' | 'away'>(false);
   useLayoutEffect(() => {
     // back to the thread from a side chat's anchor line comes up in NORMAL (the mockup's D3); a thread opened from
     // the sidebar still opens ready to type (VIM-MODEL: the composer is a Field, INSERT). Stepping tabs with H / L
     // never changes the mode: the composer takes the keys in NORMAL
     const by = recentMouse(), listed = !!by?.closest?.('.sc-anchor');
-    const back = readingUnder.current; if (focused) readingUnder.current = false;
+    const u = readingUnder.current, back = u === 'layer' || (u === 'away' && !by && A.steppedInsert() === undefined && !A.justOpened()); if (focused) readingUnder.current = false;
     if (focused && !wasFocused.current && !reader.on && qref.current == null && !(back && !S.layers.length && read.current && reader.enter(read.current, 'back'))) { if (composer.current) composer.current.focus(listed ? false : A.steppedInsert()); else idle(); }
     if (!focused && wasFocused.current) {
-      readingUnder.current = reader.on && S.layers.length > 0;
+      readingUnder.current = reader.on && (S.layers.length ? 'layer' : 'away');
       const el = document.activeElement as HTMLElement | null;
       if (el && scroller.current?.parentElement?.contains(el)) el.blur();
       reader.clear();
