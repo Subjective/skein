@@ -785,3 +785,16 @@ test('i on a new-thread tab reached by L from a file left in its editor: the com
   await p.keyboard.type('hey');
   assert.equal(await p.locator('.pane.focus .comp textarea:visible').first().inputValue(), 'hey');
 });
+
+test('sidebar from a new-thread tab: alt-h shows a cursor at once and the composer lets go; esc gives it back in NORMAL', async p => {
+  await keys(p, 'Escape'); await settle(p);
+  assert.equal(await mode(p), 'NORMAL');
+  await keys(p, 'Alt+h'); await settle(p);
+  assert.deepEqual(await p.$$eval('#side .cur', es => es.map(e => e.textContent.trim())), ['New thread'], 'one cursor in the sidebar, on its first row');
+  assert.equal(await p.evaluate(() => document.activeElement?.closest('.comp') != null), false, 'the composer does not keep its cursor');
+  await keys(p, 'j'); await settle(p);
+  assert.match(await p.$eval('#side .cur', e => e.textContent), /Pinned/, 'j goes on from there');
+  await keys(p, 'Escape'); await settle(p, 200);
+  assert.equal(await p.evaluate(() => document.activeElement?.closest('.comp') != null), true, 'the composer has the keys again');
+  assert.equal(await mode(p), 'NORMAL');
+});

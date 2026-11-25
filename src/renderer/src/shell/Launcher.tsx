@@ -30,7 +30,9 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   const was = useRef(focused);
   const root = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const back = focused && !was.current; was.current = focused;
+    const back = focused && !was.current, left = !focused && was.current; was.current = focused;
+    // the keys went elsewhere (the sidebar, another pane): the composer lets go, so its cursor is not drawn beside theirs
+    if (left && root.current?.contains(document.activeElement) && document.activeElement?.closest('.comp')) (document.activeElement as HTMLElement).blur();
     // take the keys unless something else in this tab has them (a card, a picker). Focus left in another tab counts as
     // nothing: a file's editor keeps it while its tab hides, and the keys would then reach no field (i did nothing).
     const el = document.activeElement;

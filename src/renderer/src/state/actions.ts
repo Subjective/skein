@@ -39,7 +39,7 @@ export function sideFocus(on: boolean) {
     if (on) {
       s.sideOpen = true; s.sideFocus = true;
       const t = currentTab();
-      if (!s.sideCursor) s.sideCursor = t.kind === 'thread' && t.thread ? t.thread : null;
+      if (!s.sideCursor) s.sideCursor = t.kind === 'thread' && t.thread ? t.thread : 'new';   // a cursor to see: else the first j only showed one
     } else s.sideFocus = false;
     s.tick++;
   });
