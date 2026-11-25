@@ -40,4 +40,4 @@ pnpm typecheck
 pnpm smoke      # node-pty and node:sqlite inside Electron
 ```
 
-Keys: [docs/VIM-MODEL.md](docs/VIM-MODEL.md). Code layout and decisions: [HANDOFF.md](HANDOFF.md).
+Keys: [docs/VIM-MODEL.md](docs/VIM-MODEL.md).
