@@ -276,6 +276,29 @@ await test('a long message: the reader moving below its fold opens it, so the cu
   assert.equal(await mode(p), 'NORMAL');
 });
 
+await test('a long message: k from Show more goes to its last line above the fade and leaves it shut', async p => {
+  await sendLong(p);
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .live'));
+  await settle(p, 300);
+  const u = () => p.evaluate(() => {
+    const m = [...document.querySelectorAll('.pane.focus .m-user')].pop(), clip = m.querySelector('.m-clip').getBoundingClientRect();
+    const r = document.querySelector('.pane.focus .rowcur'), g = CSS.highlights.get('vcur')?.values().next().value;
+    const at = r ? (r.matches('.m-more') && m.contains(r) ? 'more' : 'row') : g && m.contains(g.startContainer) ? 'mine' : 'other';
+    return { at, shut: !!m.querySelector('.m-clip.shut'), fold: clip.bottom, bottom: g?.getBoundingClientRect().bottom ?? 0 };
+  });
+  await composer(p).press('Escape');
+  for (let i = 0; i < 30 && (await u()).at !== 'more'; i++) await keys(p, 'k');   // up from the reply below onto Show more
+  assert.equal((await u()).at, 'more');
+  await keys(p, 'k');
+  const s = await u();
+  assert.equal(s.at, 'mine', 'k goes into the message');
+  assert.ok(s.shut, 'and leaves it cut short');
+  assert.ok(s.bottom <= s.fold - 32, `on a line clear of the fade (${s.bottom} vs fold ${s.fold})`);
+  await keys(p, 'k');
+  assert.equal((await u()).at, 'mine', 'k goes on up through it');
+  assert.ok((await u()).shut);
+});
+
 await test('edit from the reader: x on your message edits it in NORMAL', async p => {
   await openChat(p, 'Tidy PowerShell profile');
   await composer(p).press('Escape');
