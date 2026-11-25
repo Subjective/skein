@@ -39,5 +39,3 @@ pnpm test       # unit tests
 pnpm typecheck
 pnpm smoke      # node-pty and node:sqlite inside Electron
 ```
-
-Keys: [docs/VIM-MODEL.md](docs/VIM-MODEL.md).
