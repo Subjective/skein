@@ -476,6 +476,40 @@ await test('mirror: terminal drives, Take back gives chat the composer', async p
   await p.locator('.pane.focus .compw .comp').waitFor();
 });
 
+await test('mirror: holding j past the end of the reader never moves the sidebar', async p => {
+  await openChat(p, 'Migrate ETL config to TOML');
+  await p.locator('.pane.focus .mirror').waitFor();
+  const side = () => p.evaluate(() => ({ cur: window.__skein.S.sideCursor, top: document.querySelector('#side .list, #side')?.scrollTop ?? 0, rows: document.querySelectorAll('#side .row.cur').length }));
+  await keys(p, 'k k k k');   // the reader, a few lines up from the end
+  const before = await side();
+  // a held key: the first press, then repeats (keyboard.down again without up sends repeat: true)
+  for (let i = 0; i < 30; i++) { await p.keyboard.down('j'); await settle(p, 15); }
+  await p.keyboard.up('j'); await settle(p, 100);
+  assert.deepEqual(await side(), before, 'the repeats stop at the bottom of the chat');
+  await keys(p, 'k k');
+  for (let i = 0; i < 20; i++) { await p.keyboard.down('ArrowDown'); await settle(p, 15); }
+  await p.keyboard.up('ArrowDown'); await settle(p, 100);
+  assert.deepEqual(await side(), before, 'the arrow too');
+  // k held to the top, and ctrl-d / ctrl-u held, stay in the chat too
+  await keys(p, 'k');
+  for (let i = 0; i < 40; i++) { await p.keyboard.down('k'); await settle(p, 10); }
+  await p.keyboard.up('k');
+  await p.keyboard.down('Control');
+  for (const c of ['d', 'u', 'd']) { for (let i = 0; i < 15; i++) { await p.keyboard.down(c); await settle(p, 10); } await p.keyboard.up(c); }
+  await p.keyboard.up('Control'); await settle(p, 100);
+  assert.deepEqual(await side(), before, 'k, ctrl-d and ctrl-u');
+  await keys(p, 'Escape');
+  // a fresh press there still moves the sidebar cursor (app NORMAL, as in the mockup), and holding it keeps moving it
+  await keys(p, 'j');
+  const one = await side();
+  assert.notEqual(one.cur, before.cur);
+  await p.evaluate(() => { window.__skein.S.sideCursor = 't1'; });   // room to move: this thread is near the end
+  for (let i = 0; i < 3; i++) await p.keyboard.down('j');
+  await p.keyboard.up('j'); await settle(p, 100);
+  const steps = await p.evaluate(() => { const ids = [...document.querySelectorAll('#side .row[data-thread]')].map(r => r.dataset.thread); return ids.indexOf(window.__skein.S.sideCursor) - ids.indexOf('t1'); });
+  assert.equal(steps, 3, 'a hold that starts on the sidebar cursor keeps moving it');
+});
+
 await test('subagent: a row opens its popup in INSERT, ready to message it', async p => {
   await openChat(p, 'Fix session-restore race');
   await p.locator('.pane.focus .ag', { hasText: 'Test runner' }).click();

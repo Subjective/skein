@@ -9,7 +9,7 @@ const NAMED: Record<string, string> = {
 };
 const MODIFIER = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'OS', 'Fn', 'AltGraph']);
 
-export interface KeyLike { key: string; code: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean; isComposing?: boolean }
+export interface KeyLike { key: string; code: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean; isComposing?: boolean; repeat?: boolean }
 
 /** null for a lone modifier or an IME composition. */
 export function keyOf(e: KeyLike): string | null {
