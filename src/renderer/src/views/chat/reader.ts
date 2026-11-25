@@ -181,14 +181,40 @@ export class Reader {
     this.seen?.disconnect();
     this.seen = new MutationObserver(rs => {
       const f = this.f, a = this.a; if (!this.on || !f || !a) return;
+      if (!f.n.isConnected || !a.n.isConnected) { this.lost(); return; }
       if (!rs.some(r => r.target === f.n || r.target === a.n)) return;
       for (const p of [f, a]) p.o = Math.max(0, Math.min(p.o, p.n.data.length - 1));
       if (!this.alive()) return;
       this.still = true; try { this.draw(); } finally { this.still = false; }
     });
-    this.seen.observe(root, { characterData: true, subtree: true });
+    this.seen.observe(root, { characterData: true, childList: true, subtree: true });
   }
   private seen: MutationObserver | null = null;
+  /** Where the cursor is as a message and a character offset in its text (set on each draw), so a cursor whose text
+   *  is replaced (a streaming reply rendered again, a running turn's "Working" line swapped for its work) goes back to
+   *  the same character. */
+  private place: { el: Element; off: number } | null = null;
+  private mark() {
+    const f = this.f, el = f?.n.parentElement?.closest('[data-read] > *');
+    this.place = null; if (!f || !el) return;
+    let off = 0; for (const n of this.texts(el)) { if (n === f.n) { this.place = { el, off: off + f.o }; return; } off += n.data.length; }
+  }
+  /** The text under the cursor went away while it was drawn: the same character if its message is still there, else
+   *  the conversation's last line; in NORMAL (a selection that lost its end ends), without scrolling. */
+  private lost() {
+    const root = this.root; if (!root?.isConnected) return;
+    let p: Pt | null = null;
+    const pl = this.place;
+    if (pl && pl.el.isConnected && root.contains(pl.el)) {
+      const ns = this.texts(pl.el); let off = pl.off;
+      for (const n of ns) { if (off < n.data.length) { p = { n, o: off }; break; } off -= n.data.length; }
+      if (!p && ns.length) { const n = ns[ns.length - 1]; p = { n, o: Math.max(0, n.data.trimEnd().length - 1) }; }
+    }
+    if (!p) { const ns = this.texts(root), n = ns[ns.length - 1]; if (n) p = { n, o: n.data.length - n.data.trimStart().length }; }
+    if (!p) return;
+    Object.assign(this, { f: p, a: p, mode: 'n', bound: null });
+    this.still = true; try { this.draw(); } finally { this.still = false; }
+  }
   clear() {
     this.seen?.disconnect(); this.seen = null;
     if (!this.on) return;
@@ -266,7 +292,7 @@ export class Reader {
     if (this.row) {
       this.row.classList.add('rowcur'); HL?.delete('vcur'); s.removeAllRanges();
       if (this.row.matches(KROWS) && !this.row.querySelector('.kcur')) (this.row.querySelector('.primary') || this.row.querySelector('button'))?.classList.add('kcur');
-      this.reveal(this.row); this.host.selection?.(null); update(x => { x.tick++; }); return;
+      this.reveal(this.row); this.mark(); this.host.selection?.(null); update(x => { x.tick++; }); return;
     }
     if (mode === 'n') { if (HL) s.removeAllRanges(); else s.setBaseAndExtent(f.n, f.o, f.n, end(f)); }
     else {
@@ -284,6 +310,7 @@ export class Reader {
     }
     { const c = document.createRange(); c.setStart(f.n, f.o); c.setEnd(f.n, end(f)); this.reveal(c); }
     if (HL) { const c = document.createRange(); c.setStart(f.n, f.o); c.setEnd(f.n, end(f)); HL.set('vcur', new Highlight(c)); }
+    this.mark();
     this.host.selection?.(mode === 'n' ? null : s.toString());
     update(x => { x.tick++; });
   }
@@ -402,10 +429,13 @@ export class Reader {
       }
       return best;
     };
+    // `moved`: how far the probe has scrolled the transcript, so each step goes on from where the last one looked (the
+    // cursor's rect is from before the scroll); without it every step past the edge scrolled again and lines were skipped
+    let moved = 0;
     for (let i = 1; i <= 16; i++) {
-      let y = d > 0 ? rect.bottom + i * lh * 0.55 - 3 : rect.top - i * lh * 0.55 + 3;
+      let y = (d > 0 ? rect.bottom + i * lh * 0.55 - 3 : rect.top - i * lh * 0.55 + 3) - moved;
       const b = sc.getBoundingClientRect();
-      if (y > b.bottom - 4 || y < b.top + 4) { const before = sc.scrollTop; sc.scrollTop += d * lh * 4; y -= sc.scrollTop - before; if (y > b.bottom - 4 || y < b.top + 4) return false; }
+      if (y > b.bottom - 4 || y < b.top + 4) { const before = sc.scrollTop; sc.scrollTop += d * lh * 4; moved += sc.scrollTop - before; y -= sc.scrollTop - before; if (y > b.bottom - 4 || y < b.top + 4) return false; }
       const c = probe(y); if (!c) continue;
       return this.land(c.startContainer, c.startOffset);
     }
@@ -571,7 +601,9 @@ export class Reader {
         // nothing to unfold: a row that names a file (Read) opens it; a button row is pressed
         const link = row.querySelector<HTMLElement>('.flink'), b = row.matches('button') ? row as HTMLButtonElement : row.querySelector('button');
         if (link) { this.clear(); getSelection()?.removeAllRanges(); link.click(); }
-        else if (b) { const keep = row.matches('.m-more'); if (!keep) this.clear(); b.click(); if (keep && this.on && this.alive()) this.draw(); }   // Show more / less stays on its row
+        // Show more / less stays on its row. Otherwise the reader lets go after the press, not before: a popup the press
+        // opens (a subagent, a side chat) notes the reading cursor as the place to come back to (rule 15)
+        else if (b) { const keep = row.matches('.m-more'); b.click(); if (keep && this.on && this.alive()) this.draw(); else if (!keep && this.on) this.clear(); }
         else row.querySelector<HTMLElement>('[data-zoom]')?.click();   // an image opens large
         return true;
       }

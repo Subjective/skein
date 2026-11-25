@@ -4,7 +4,7 @@
 import type { ChatSend, NewThread, SkeinEvent } from '@shared/api';
 import type { Queued, ThreadEvent, ThreadMeta } from '@shared/types';
 
-const shot = 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" font-family="system-ui,sans-serif">
+const shot = 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" font-family="system-ui,sans-serif">
 <rect width="640" height="360" fill="#1b1b1b"/><rect width="150" height="360" fill="#151515"/>
 <rect x="190" y="44" width="300" height="10" rx="5" fill="#444"/><rect x="190" y="68" width="390" height="10" rx="5" fill="#333"/>
 <rect x="182" y="238" width="426" height="84" rx="18" fill="#2c2c2c"/><rect x="202" y="287" width="62" height="24" rx="12" fill="#3d3d3d"/>
