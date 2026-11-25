@@ -1,5 +1,5 @@
 // Sample transcripts and a pretend agent for the chat view in a plain browser (`pnpm dev:web`).
-// Mirrors the mockup's data (mockups/data.js) so every chat state can be looked at and tested:
+// Mirrors the mockup's data so every chat state can be looked at and tested:
 // a running turn with subagents, approvals (1 of 3), a terminal-driven mirror, errors, side chats.
 import type { ChatSend, NewThread, SkeinEvent } from '@shared/api';
 import type { Queued, ThreadEvent, ThreadMeta } from '@shared/types';

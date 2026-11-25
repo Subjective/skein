@@ -3,7 +3,7 @@
 // width (the ghost), which moves to where the tab would land while the other tabs glide around it. Over a
 // pane's body the outcome is drawn in advance: its middle (the slot joins that pane's bar, the body shows
 // the tab's big icon) or an edge (a half-pane panel with its own bar: a new split on that side). Dropped
-// outside every pane, a tab pops out where it was let go (HANDOFF: drop semantics).
+// outside every pane, a tab pops out where it was let go (DECISIONS: drop semantics).
 // A thread row dragged from the sidebar into the panes behaves the same way (shell/move.tsx): its open tab is
 // the one that moves, else a new tab for the thread lands where it is dropped.
 import * as A from '../state/actions';

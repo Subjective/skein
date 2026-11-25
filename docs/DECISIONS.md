@@ -1,9 +1,6 @@
-# Skein: handoff
+# Skein: decisions
 
-## What this is
-
-A desktop app (Electron) to run and view Claude Code and Codex agents, local and over SSH.
-The app is in `src/`; the interactive HTML mockup it follows is in `mockups/`. How to build: [README.md](README.md).
+The code map and the decisions behind it. Keyboard rules are in [VIM-MODEL.md](VIM-MODEL.md).
 
 ## The app (`src/`)
 
@@ -18,11 +15,12 @@ The app is in `src/`; the interactive HTML mockup it follows is in `mockups/`. H
 | `src/renderer/src/ui/` | The component library: `primitives` (Icon, IconButton, Button, Chip, Seg, Dot, Spinner, Kbd, Switch), `Menu` (every list; its search field runs `vimtext` in NORMAL), `Dialog`, `VimField` (every editable text but code), `editor/` (the code editor: `CodeEditor` is CodeMirror 6 + `@replit/codemirror-vim` + Lezer grammars from `@codemirror/language-data`, styled only from tokens in `theme`; `vim` ties CodeMirror's Vim to the app's register, clipboard and status-bar mode; `route` decides Skein's NORMAL keys vs Vim's, see VIM-MODEL rule 23; `markdown` is a Markdown file's live preview, the same editor with the Markdown drawn as it reads), `search` (the `/` `?` prompt and `n` / `N` for every reader), `motion` (animation tokens), `icons` |
 | `src/renderer/src/shell/` | App frame: Sidebar, Workspace (panes, tabs, popups), StatusBar, Launcher (new tab), overlays (palette, : line, settings, keyboard sheet), commands |
 | `src/renderer/src/views/` | `terminal/` (xterm.js with WebGL and image addons, scrollback reader, image paste, Claude handoff), `chat/`, `tools/` |
-| `src/renderer/src/styles/` | `skein.css` is the mockup's stylesheet, the source of the look. `app.css` adds only what the real app needs. |
+| `src/renderer/src/styles/` | `skein.css` is the source of the look. `app.css` adds only what the real app needs. |
 
 Rules for new UI: use the `ui/` components (never hand-written buttons or menus), give the surface a kind
 (field, reader, list, terminal) and register it with `input/surfaces`, add commands to `keymap.ts` COMMANDS
 and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and the : line all see them.
+
 
 ### Decisions made during the build (2026-11-20)
 
@@ -135,24 +133,6 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
     activates the tab before it; switching or creating a workspace clears the sidebar cursor; a dragged project
     shows its folder and name under the pointer.
 
-## Read first
-
-1. [VIM-MODEL.md](docs/VIM-MODEL.md): the rules every keyboard behaviour must follow, and its list of known gaps. Update it with any new behaviour.
-2. Open the [home scene](mockups/index.html?scene=home) in a browser. Scenes are listed by the layers button at the bottom right.
-
-## Code map (`mockups/`, plain JS, no build)
-
-| File | Holds |
-|---|---|
-| `platform.js` | `OS` (mac or win, `?os=` overrides) and `kb()`, which writes a key the way that OS does |
-| `data.js` | Mock machines, folders, models, threads (each a list of events) |
-| `app.js` | State `S`, pane tree `P`, tabs `T`, sidebar, `Menu`, workspaces `WS`, folders `Dirs`, actions `act`, scenes |
-| `keys.js` | The single keydown handler, `Vim` (composer modes), `Ctl` (composer controls), leader keys |
-| `annot.js` | `Reader` (cursor and visual mode over read-only text), `Annot` (quote a selection into a chat) |
-| `view-chat.js`, `view-terminal.js`, `view-tools.js` | The three renderings: chat, terminal, and changes / files / file / vimrc |
-| `styles.css` | Tokens, then components, then appended overrides. Later rules win. |
-
-URL parameters: `scene`, `theme=dark|light`, `side=grouped|recent`, `vim=on|off`, `os=mac|win`.
 
 ## Design decisions that are settled
 
@@ -236,45 +216,11 @@ URL parameters: `scene`, `theme=dark|light`, `side=grouped|recent`, `vim=on|off`
   their word out, keep the rest of the draft, and open their picker. A word like `/usr/bin` that matches no
   command opens nothing. A terminal prompt keeps / at the start only, because the TUI owns its line.
 
-## Flows to look at (scenes)
-
-`file`, `changes` (an open file and the diff) · `move` (moving a thread) · `handoff`, `mirror`, `codex` (who drives a thread) · `paste`, `pasteLocal`, `pasteSsh`, `pasteFail` (images) ·
-`reconnect`, `sshAuth`, `hostKey` (SSH) · `approvals`, `errors`, `missing` · `mac` reloads as a Mac. Resize the
-window under 900 px for the narrow layout.
 
 ## What the owner consistently asks for
 
 - Remove anything redundant or explanatory: no key hints inside menus, labels or helper sentences that an icon or the layout already conveys.
 - One behaviour everywhere. If a key or control works differently in two places, expect it to be questioned.
-- Design questions ("should X...?") want a recommendation, built into the mockup, with the trade-off stated.
+- Design questions ("should X...?") want a recommendation with the trade-off stated.
 - Reports that say what was checked and how. Scripted tests are not the same as trying it by hand; say which.
 
-## How to work on it
-
-- **Verify every change** with a scripted test in headless Edge (Chrome headless is blocked by policy):
-  replace the boot script in a copy of `index.html` (`_debug.html`), dispatch synthetic key events, write
-  results into a `<pre>`, read it back with `--dump-dom`. Screenshot when the change is visual.
-- **Pass `theme`, `side` and `vim` explicitly** in test URLs; the browser profile's localStorage leaks otherwise.
-- **Check a class name is unused before adding it.** Collisions have broken layout several times
-  (`.row`, `.col`, `.sw`, `.done`).
-- **Escapes get mangled** in shell heredocs and `node -e` (`\n`, regex classes, invisible U+2063). Write
-  patch scripts to a file, use `String.fromCharCode(10)`, and use function replacements in `String.replace`.
-- Deleting files is blocked for the agent; ask the owner. `shots/` and `screenshots/` are stale.
-
-## Not verified
-
-- Real mouse feel: tab dragging, popup drag and resize, double-click selection, hover states.
-- Real clipboard image paste; `ctrl-tab` (a browser takes it, so only the scene shows the switcher).
-- A real Mac keyboard. `?os=mac` draws the Mac chrome and reads cmd as the app modifier, but it was checked with
-  synthetic key events in headless Chromium, not by hand.
-- Whether `claude --resume` picks up an SDK session cleanly mid-way, and how long the handoff takes.
-- Assumptions for the build: xterm.js + node-pty for terminals, Claude Agent SDK and Codex app-server for
-  chat, Windows OpenSSH for SSH, and whether either harness lets you message a subagent directly.
-
-## Open
-
-- Gaps listed at the end of [VIM-MODEL.md](docs/VIM-MODEL.md) (search across formatting in chat, literal search only, one register, ...).
-- Whether `y` / `n` should answer a request from the composer or only on the request card.
-- File editing has no undo and no unsaved-changes warning. Folder browsing has no loading state.
-- Place memory covers popups only, not tab or workspace switches.
-- Closing a workspace does not confirm when shells are running in it.

@@ -1,4 +1,4 @@
-// Moving a thread to another folder or machine (HANDOFF "Moving a thread"): `m` on a sidebar thread picks the
+// Moving a thread to another folder or machine (DECISIONS "Moving a thread"): `m` on a sidebar thread picks the
 // place (a project on any machine, or another folder through the folder menu), dragging a thread onto a project
 // or a machine heading does the same with the mouse. Either way a small dialog shows the route and why it
 // can't move, if it can't. The dialog's buttons are a row (VIM-MODEL rule 16): h / l move, enter presses, esc cancels.

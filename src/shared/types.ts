@@ -4,7 +4,7 @@
 export type Harness = 'claude' | 'codex';
 export type Platform = 'mac' | 'win' | 'linux';
 
-/** Link state of a machine. Local machines are always 'up'. See HANDOFF.md "SSH" (G5). */
+/** Link state of a machine. Local machines are always 'up'. See docs/DECISIONS.md "SSH" (G5). */
 export type LinkState = 'up' | 'connecting' | 'reconnecting' | 'auth' | 'down';
 
 export interface SshTarget {
