@@ -106,7 +106,9 @@ export const fakeApi: SkeinBridge = {
   threads: {
     list: async () => threads, discover: async () => [],
     create: async spec => {
-      const t = T('n' + Date.now(), spec.harness, spec.machine, spec.dir, spec.side ? 'New side chat' : 'New thread', 0, { parent: spec.parent, side: spec.side, model: spec.model, effort: spec.effort, perm: spec.perm });
+      // a new worktree lands under ~/.skein/worktrees/<repo>/<name>, as core/git addWorktree makes it
+      const dir = spec.worktree ? `~/.skein/worktrees/${spec.dir.split('/').pop()}/a1b2c3` : spec.dir;
+      const t = T('n' + Date.now(), spec.harness, spec.machine, dir, spec.side ? 'New side chat' : 'New thread', 0, { parent: spec.parent, side: spec.side, model: spec.model, effort: spec.effort, perm: spec.perm });
       threads.unshift(t); chat.fork(spec, t); return t;
     },
     update: async (id, patch) => { const t = threads.find(x => x.id === id)!; Object.assign(t, patch); emit({ type: 'thread', thread: t }); return t; },

@@ -11,7 +11,12 @@ import { here, openMenu } from './overlays';
 const errText = (e: unknown) => (e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
 const rectOf = (sel: string) => document.querySelector(sel)?.getBoundingClientRect() ?? null;
 
-export interface BranchPick { machine: string; dir: string; anchor: DOMRect | null; place?: 'top-start' | 'bottom-start'; done?: () => void }
+export interface BranchPick {
+  machine: string; dir: string; anchor: DOMRect | null; place?: 'top-start' | 'bottom-start' | 'bottom-end'; done?: () => void;
+  /** A new thread's chip: a first row starts the thread in a new worktree (from the branch picked below) instead. */
+  worktree?: { on: boolean; set: (on: boolean) => void };
+}
+type Pick = { name: string; create?: boolean; worktree?: boolean };
 
 export async function openBranches(o: BranchPick) {
   const e = repoEntry(o.machine, o.dir);
@@ -21,16 +26,23 @@ export async function openBranches(o: BranchPick) {
   try { list = await api.git.branches(o.machine, root); } catch (err) { toast(errText(err), { icon: 'alert' }); return; }
   const dirty = Object.keys(e.repo?.changed || {}).length;
   const current = list.find(b => b.current)?.name;
-  openMenu<{ name: string; create?: boolean }>({
+  openMenu<Pick>({
     anchor: o.anchor, place: o.place || 'bottom-start', width: 280, className: 'branches', search: { placeholder: 'Switch branch or name a new one' }, empty: 'No branches',
     items: q => [
+      ...(o.worktree ? [{ label: 'New worktree', icon: <Icon name="folder" />, on: o.worktree.on, data: { name: '', worktree: true } }] : []),
       ...list.map(b => ({
-        label: b.name, icon: <Icon name="branch" />, on: b.current, data: { name: b.name },
+        label: b.name, icon: <Icon name="branch" />, on: b.current && !o.worktree?.on, data: { name: b.name },
         right: <>{b.current && dirty > 0 && <i className="bdot" title={`${dirty} uncommitted change${dirty === 1 ? '' : 's'}`} aria-label="Uncommitted changes" />}<span className="age">{b.when.replace(/ ago$/, '')}</span></>,
       })),
       ...(q.trim() && !list.some(b => b.name === q.trim()) ? [{ label: `Create branch “${q.trim()}”`, display: <>Create branch <b>{q.trim()}</b></>, icon: <Icon name="plus" />, data: { name: q.trim(), create: true } }] : []),
     ],
-    onPick: it => { if (it.data && it.data.name !== current) void switchTo(o, root, it.data.name, it.data.create); },
+    onPick: it => {
+      if (!it.data) return;
+      if (it.data.worktree) { o.worktree!.set(!o.worktree!.on); return; }
+      // a new thread works on the branch picked: in this folder, not a worktree
+      o.worktree?.set(false);
+      if (it.data.name !== current) void switchTo(o, root, it.data.name, it.data.create);
+    },
   });
 }
 
@@ -46,6 +58,9 @@ async function switchTo(o: BranchPick, root: string, name: string, create?: bool
 /** `:branch` with no name, leader g: the picker for the focused tab's folder, from the status bar's branch. */
 export function openBranchesHere() {
   const c = here();
+  // a new thread's page: its own chip, with the worktree row
+  const launcher = document.querySelector<HTMLElement>('.pane.focus .newp .under .bchip');
+  if (launcher) { launcher.click(); return; }
   // a frame first: from the leader, the bar is still drawing the leader's keys in place of the branch
   requestAnimationFrame(() => void openBranches({ ...c, anchor: rectOf('#status .sb-branch') || rectOf('#status .sb-loc') || rectOf('#status'), place: 'top-start' }));
 }

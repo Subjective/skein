@@ -181,7 +181,9 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
         // store the folder as an absolute path, the way discovered sessions record it, so both land in one project
         // a side chat counts the messages it carries over now, while the parent still holds them (an edit there can drop them)
         const parent = spec.side && spec.parent ? { ...spec.parent, carried: carriedPrompts(await historyOf(spec.parent.id).catch(() => []), spec.parent.at) } : spec.parent;
-        const t = threads.create({ ...spec, parent, dir: await files.resolve(M(spec.machine), spec.dir).catch(() => spec.dir) });
+        // a new worktree first (Launcher's branch chip): the thread starts in it
+        const dir = spec.worktree ? await git.addWorktree(M(spec.machine), spec.dir) : spec.dir;
+        const t = threads.create({ ...spec, parent, dir: await files.resolve(M(spec.machine), dir).catch(() => dir) });
         if (!harnesses.start) return t;
         // Codex: the thread exists on the app-server before either view opens, so both views share one session id
         try { const s = await harnesses.start(t, host); return s.sessionId && s.sessionId !== t.sessionId ? threads.update(t.id, { sessionId: s.sessionId }) : t; }

@@ -135,3 +135,57 @@ test('status bar: hover, open and focus states in light and dark', async p => {
     await branchBtn(p).evaluate(el => el.blur());
   }
 });
+
+// ---------- a new thread's branch chip ----------
+const chip = p => p.locator('.pane.focus .newp .bchip');
+async function launcherIn(p, q) {
+  await p.locator('.newp .under .path').click(); await settle(p, 300);
+  await p.keyboard.type(q); await settle(p, 200); await keys(p, 'Enter'); await settle(p, 500);
+}
+
+test('new thread: the branch chip shows the folder\'s branch, hides outside a repository, and the bar shows it too', async p => {
+  await launcherIn(p, 'dotfiles');
+  assert.equal(await chip(p).count(), 0);
+  await launcherIn(p, 'skein');
+  assert.match(await chip(p).innerText(), /fix\/restore-race/);
+  assert.equal(await chip(p).locator('.bdot').count(), 1, 'uncommitted changes');
+  assert.equal(await branchBtn(p).innerText(), 'fix/restore-race');
+});
+
+test('new thread: the chip opens the picker with New worktree; picking a branch switches the folder', async p => {
+  await launcherIn(p, 'skein');
+  await chip(p).click(); await settle(p, 300);
+  assert.equal(await chip(p).getAttribute('aria-expanded'), 'true');
+  const rows = await menu(p).locator('.mi').allInnerTexts();
+  assert.match(rows[0], /New worktree/);
+  await p.keyboard.type('main'); await settle(p);
+  await keys(p, 'Enter'); await settle(p, 400);
+  assert.match(await chip(p).innerText(), /^main/);
+  assert.equal(await branchBtn(p).innerText(), 'main');
+});
+
+test('new thread: New worktree (also by leader g) starts the thread in a new worktree', async p => {
+  await launcherIn(p, 'skein');
+  await keys(p, 'Escape Control+Space g'); await settle(p, 300);
+  assert.equal(await p.locator('.menu.branches').count(), 1);
+  assert.match(await menu(p).locator('.mi').first().innerText(), /New worktree/);
+  await keys(p, 'Escape g g Enter');   // NORMAL in the search, to the first row, pick
+  await settle(p, 300);
+  assert.match(await chip(p).innerText(), /New worktree[\s\S]*from fix\/restore-race/);
+  assert.equal(await chip(p).evaluate(el => el.classList.contains('on')), true);
+  // send: the thread lives in the worktree
+  await p.locator('.pane.focus .newp .cm-content').click();
+  await p.keyboard.type('try the worktree');
+  await keys(p, 'Enter'); await settle(p, 600);
+  const dir = await p.evaluate(() => { const s = window.__skein.S; return s.threads[0].dir; });
+  assert.equal(dir, '~/.skein/worktrees/skein/a1b2c3');
+});
+
+test('new thread: the worktree row toggles off again', async p => {
+  await launcherIn(p, 'skein');
+  for (const on of [true, false]) {
+    await chip(p).click(); await settle(p, 300);
+    await menu(p).locator('.mi', { hasText: 'New worktree' }).click(); await settle(p, 300);
+    assert.equal(await chip(p).evaluate(el => el.classList.contains('on')), on);
+  }
+});

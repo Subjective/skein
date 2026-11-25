@@ -26,6 +26,22 @@ beforeAll(() => {
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 describe('git backend', () => {
+  it('adds a worktree on a new branch under ~/.skein/worktrees, keeping the subfolder', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'skein-home-')), was = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+    process.env.HOME = home; process.env.USERPROFILE = home;
+    try {
+      const at = await git.addWorktree(local, join(dir, 'src'));
+      expect(at.startsWith(join(home, '.skein', 'worktrees', dir.split(/[\\/]/).pop()!))).toBe(true);
+      expect(at.endsWith(join('', 'src'))).toBe(true);
+      expect(existsSync(join(at, 'b.ts'))).toBe(true);
+      const r = await git.repo(local, at);
+      expect(r?.branch).toMatch(/^skein\/[0-9a-f]{6}$/);
+      expect(sh('branch', '--show-current').trim()).toBe('main');   // the folder itself stays where it was
+      sh('worktree', 'remove', '--force', join(at, '..'));
+      await expect(git.addWorktree(local, tmpdir())).rejects.toThrow(/Not a git repository/);
+    } finally { Object.assign(process.env, was); rmSync(home, { recursive: true, force: true }); }
+  });
+
   it('reads the repository', async () => {
     const r = await git.repo(local, join(dir, 'src'));
     expect(r?.branch).toBe('main');

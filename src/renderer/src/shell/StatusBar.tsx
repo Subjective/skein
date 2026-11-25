@@ -7,8 +7,7 @@ import { tildify } from './meta';
 import * as A from '../state/actions';
 import { machine, thread, useApp, ws } from '../state/store';
 import { cx, Icon } from '../ui/primitives';
-import { useEffect } from 'react';
-import { refresh, repoEntry } from '../views/tools/repo';
+import { branchOf, useRepoLook } from '../views/tools/repo';
 import { openBranches } from './branches';
 import { moveHere } from './move';
 import { currentMode } from './keyboard';
@@ -23,16 +22,8 @@ export function StatusBar() {
   const m = machine(th?.machine || t.machine || ws().machine);
   const dir = th?.dir || t.dir || ws().dir;
   const mode = currentMode();
-  const re = m && dir ? repoEntry(m.id, dir) : null;
-  useEffect(() => {
-    if (!re) return;
-    void refresh(re);
-    const back = () => void refresh(re);
-    window.addEventListener('focus', back);
-    return () => window.removeEventListener('focus', back);
-  }, [re, th?.status]);
   // the live branch; the thread's recorded one until the first look answers; none outside a repository
-  const branch = re?.repo === undefined ? th?.branch : re.repo ? (re.repo.branch || re.repo.head?.slice(0, 7)) : undefined;
+  const branch = branchOf(useRepoLook(m?.id, dir, th?.status), th?.branch);
   const movable = !!th && !th.side && !th.archived;
   const where = <><Icon name={m?.ssh ? 'host' : 'laptop'} /><span className="mn">{m?.name}</span><span className="dim">{dir && tildify(m?.id, dir)}</span></>;
   return (

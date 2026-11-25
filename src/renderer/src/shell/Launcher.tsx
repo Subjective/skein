@@ -10,6 +10,9 @@ import { addHostMenu, knownDirs, linkDot, openFolderPicker, openMenu, sshAddr } 
 import { showAuth } from './AuthDialog';
 import { harnessName, tildify } from './meta';
 import { Chip, Dot, Icon } from '../ui/primitives';
+import { kb } from '../input/platform';
+import { branchOf, useRepoLook } from '../views/tools/repo';
+import { openBranches } from './branches';
 import { Composer, type ComposerHandle } from '../views/chat/Composer';
 import { forgetField } from '../ui/VimField';
 import { forgetCodeField } from '../ui/editor/CodeField';
@@ -44,6 +47,9 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
   const missing = m && !m.has.includes(h);
   // the folder: the tab's, else the workspace's project when it is on this machine (as the mockup's new tab)
   const w = ws(), dir = t.dir || (w.machine === (t.machine || m?.id) ? w.dir : '') || '~';
+  // the folder's branch: picking one switches the folder's checkout; New worktree starts the thread in a new one
+  const re = useRepoLook(m?.id, dir), branch = branchOf(re);
+  const dirty = Object.keys(re?.repo?.changed || {}).length;
 
   const start = async () => {
     if (!m) return;
@@ -55,7 +61,9 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
     const ultra = ultraOf(t.id);
     if (!t.dir) t.dir = dir;
     forgetField(t.id); forgetCodeField(t.id);   // a brand-new thread's composer opens in INSERT, whatever the launcher's mode was
-    const th = await A.startThread(t, h, view);
+    let th: ThreadMeta;
+    try { th = await A.startThread(t, h, view); }
+    catch (e) { toast(`Couldn't start: ${String((e as Error)?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`, { icon: 'alert' }, 6000); return; }
     setDraft(blank());
     if (ultra) setUltra(th.id, true);
     if (prompt) void api.threads.update(th.id, { title: prompt.replace(/\s+/g, ' ').slice(0, 60) });
@@ -123,7 +131,9 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
         <Chip icon={m?.ssh ? 'host' : 'laptop'} label={<>{m?.name}{m?.ssh && m.link !== 'up' && <> <Dot color={m.link === 'down' ? 'red' : 'amber'} /></>}</>} caret onClick={e => pickMachine(e.currentTarget)} title="Machine" />
         <Chip className="path" icon="folder" label={tildify(t.machine, dir)} caret onClick={e => pickDir(e.currentTarget)} title="Directory" />
         <span className="sp" />
-        <Chip icon="branch" lbl="lbl" on={!!t.worktree} label={t.worktree ? 'new worktree' : 'main'} title="Start in a new git worktree" onClick={() => { update(x => { t.worktree = !t.worktree; x.tick++; }); A.save(); }} />
+        {branch && <Chip className="bchip" icon="branch" lbl="lbl" on={!!t.worktree} caret title={`Branch, or a new worktree · ${kb(s.settings.leader)} g`}
+          label={<>{t.worktree ? <>New worktree <span className="dim">from {branch}</span></> : branch}{dirty > 0 && !t.worktree && <i className="bdot" title={`${dirty} uncommitted change${dirty === 1 ? '' : 's'}`} />}</>}
+          onClick={e => void openBranches({ machine: m!.id, dir, anchor: e.currentTarget.getBoundingClientRect(), place: 'bottom-end', worktree: { on: !!t.worktree, set: on => { update(x => { t.worktree = on; x.tick++; }); A.save(); } } })} />}
       </div>
       {missing && <div className="link-note"><Icon name="alert" /><span>{harnessName(h)} is not installed on {m?.name}.</span></div>}
       <div className="cards">
