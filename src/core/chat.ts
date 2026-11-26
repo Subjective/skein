@@ -6,6 +6,7 @@ import type { ChatSend } from '../shared/api';
 import type { HarnessCommands } from '../shared/commands';
 import type { HarnessOptions } from '../shared/models';
 import type { Harness, Machine, ThreadEvent, ThreadMeta, ViewKind } from '../shared/types';
+import type { Found } from './discover';
 
 export interface ChatDriver {
   send(msg: ChatSend): Promise<void>;
@@ -47,6 +48,9 @@ export interface Harnesses {
   options?(m: Machine, h: Harness): Promise<HarnessOptions>;
   /** What the harness offers in the / menu in that folder (commands, skills), asked and cached like options. */
   commands?(m: Machine, h: Harness, dir: string): Promise<HarnessCommands>;
+  /** The sessions both harnesses have on the machine, newest first, at most `limit` each, as the harnesses list
+   *  and title them (core/discover). A harness that can't be asked there adds none. */
+  sessions?(m: Machine, limit: number): Promise<Found[]>;
   dispose?(): void;
 }
 

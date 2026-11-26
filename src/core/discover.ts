@@ -1,89 +1,75 @@
-// Finding sessions the harnesses already have, so the sidebar shows existing work on first launch.
-// Claude Code: ~/.claude/projects/<slug>/<session-id>.jsonl   Codex: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
-// Only the head of each file is read. Exported parsers are pure, for tests and for the SSH path.
-import { closeSync, openSync, readdirSync, readSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+// Finding sessions the harnesses already have, so the sidebar shows existing work, under the harness's own titles.
+// Each harness is asked where it can answer: Claude Code through the Agent SDK's listSessions() (its title: the one
+// set with /rename, else the one it generates, else a prompt), Codex through its app-server's thread/list (the name
+// set on the thread, else its preview, the first prompt). The SDK can't reach an SSH machine, so there Claude Code's
+// transcripts are read: their head (folder, branch, first prompt) and their tail, where the titles are appended.
 import type { Machine } from '../shared/types';
+import type { Thread, ThreadListResponse } from './harness/codex/protocol/v2';
+import type { Rpc } from './harness/codex/rpc';
 import { runScript } from './exec';
 
-export interface Found { harness: 'claude' | 'codex'; sessionId: string; dir: string; title: string; branch?: string; updatedAt: number; createdAt: number }
+/** A session found on a machine. No title: the harness has none yet (no prompt written). */
+export interface Found { harness: 'claude' | 'codex'; sessionId: string; dir: string; title?: string; branch?: string; updatedAt: number; createdAt: number }
 
-const head = (file: string, bytes = 65536) => {
-  const fd = openSync(file, 'r');
-  try { const b = Buffer.alloc(bytes); const n = readSync(fd, b, 0, bytes, 0); return b.subarray(0, n).toString('utf8'); } finally { closeSync(fd); }
-};
+const tidy = (s: string | null | undefined) => (s || '').replace(/\s+/g, ' ').trim().slice(0, 80) || undefined;
+
+/** This computer's Claude Code sessions, newest first, from the Agent SDK. */
+export async function claudeLocal(limit: number): Promise<Found[]> {
+  const { listSessions } = await import('@anthropic-ai/claude-agent-sdk');
+  return (await listSessions({ limit })).flatMap(s => (s.cwd ? [{
+    harness: 'claude' as const, sessionId: s.sessionId, dir: s.cwd, title: tidy(s.customTitle || s.summary),
+    branch: s.gitBranch && s.gitBranch !== 'HEAD' ? s.gitBranch : undefined,   // 'HEAD': no repo, or detached
+    updatedAt: s.lastModified, createdAt: s.createdAt ?? s.lastModified,
+  }] : []));
+}
+
+/** A machine's Codex threads, newest activity first, from its app-server. */
+export async function codexThreads(rpc: Pick<Rpc, 'request'>, limit: number): Promise<Found[]> {
+  const out: Thread[] = [];
+  let cursor: string | null = null;
+  do {
+    const r: ThreadListResponse = await rpc.request('thread/list', { limit: limit - out.length, cursor, sortKey: 'updated_at' });
+    out.push(...r.data);
+    cursor = r.nextCursor;
+  } while (cursor && out.length < limit);
+  return out.slice(0, limit).map(t => ({
+    harness: 'codex', sessionId: t.id, dir: t.cwd, title: tidy(t.name || t.preview), branch: t.gitInfo?.branch ?? undefined,
+    updatedAt: t.updatedAt * 1000, createdAt: t.createdAt * 1000,
+  }));
+}
+
+// ---- Claude Code on SSH machines: one round trip sends the head and tail of the newest transcripts ----
+
 const lines = (text: string) => text.split('\n').filter(Boolean).flatMap(l => { try { return [JSON.parse(l)]; } catch { return []; } });
-const tidy = (s: string) => s.replace(/\s+/g, ' ').trim().slice(0, 80);
 /** Harness-injected text (environment context, command wrappers) is not a title. */
 const isNoise = (s: string) => !s.trim() || /^\s*</.test(s) || /^Caveat:/.test(s);
-
 const textOf = (content: unknown): string => {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) return content.map(c => (c && typeof c === 'object' && 'text' in c ? String((c as { text: unknown }).text) : '')).join(' ');
   return '';
 };
 
-export function parseClaudeHead(text: string): Omit<Found, 'updatedAt' | 'createdAt' | 'sessionId'> & { sessionId?: string; created?: number } | null {
-  let dir = '', title = '', summary = '', branch: string | undefined, sessionId: string | undefined, created: number | undefined;
+/** A Claude Code transcript's head and tail (either may hold a cut line, which is skipped). Titles go as
+ *  Claude Code ranks them: the last /rename, else the last generated title, else the first prompt. */
+export function parseClaudeTranscript(text: string): { dir: string; title?: string; branch?: string; sessionId?: string; created?: number } | null {
+  let dir = '', prompt = '', custom = '', ai = '', branch: string | undefined, sessionId: string | undefined, created: number | undefined;
   for (const o of lines(text)) {
-    if (o.type === 'summary' && o.summary && !summary) summary = o.summary;
+    if (o.type === 'custom-title' && o.customTitle) custom = o.customTitle;
+    if (o.type === 'ai-title' && o.aiTitle) ai = o.aiTitle;
     if (o.cwd && !dir) dir = o.cwd;
     if (o.gitBranch && o.gitBranch !== 'HEAD' && !branch) branch = o.gitBranch; // 'HEAD': no repo, or detached
     if (o.sessionId && !sessionId) sessionId = o.sessionId;
     if (o.timestamp && !created) created = Date.parse(o.timestamp);
-    if (o.type === 'user' && !title && !o.isMeta) { const t = textOf(o.message?.content); if (!isNoise(t)) title = tidy(t); }
+    if (o.type === 'user' && !prompt && !o.isMeta) { const t = textOf(o.message?.content); if (!isNoise(t)) prompt = t; }
   }
-  if (!dir) return null;
-  return { harness: 'claude', dir, title: summary || title || 'Untitled', branch, sessionId, created };
+  return dir ? { dir, title: tidy(custom || ai || prompt), branch, sessionId, created } : null;
 }
 
-export function parseCodexHead(text: string): Omit<Found, 'updatedAt' | 'createdAt'> & { created?: number } | null {
-  let dir = '', title = '', id = '', branch: string | undefined, created: number | undefined;
-  for (const o of lines(text)) {
-    const p = o.payload || {};
-    if (o.type === 'session_meta') { id = p.id; dir = p.cwd; branch = p.git?.branch; created = Date.parse(p.timestamp || o.timestamp); }
-    if (!title && o.type === 'event_msg' && p.type === 'user_message' && !isNoise(p.message || '')) title = tidy(p.message);
-    if (!title && o.type === 'response_item' && p.type === 'message' && p.role === 'user') { const t = textOf(p.content); if (!isNoise(t)) title = tidy(t); }
-  }
-  if (!id || !dir) return null;
-  return { harness: 'codex', sessionId: id, dir, title: title || 'Untitled', branch, created };
-}
-
-const safe = <T>(f: () => T, d: T): T => { try { return f(); } catch { return d; } };
-
-/** Local discovery, newest first, at most `limit` per harness. */
-export function discoverLocal(limit = 150, home = homedir()): Found[] {
-  const out: Found[] = [];
-  const claudeRoot = join(process.env.CLAUDE_CONFIG_DIR || join(home, '.claude'), 'projects');
-  const cfiles = safe(() => readdirSync(claudeRoot), [] as string[]).flatMap(d => safe(() => readdirSync(join(claudeRoot, d)).filter(f => f.endsWith('.jsonl')).map(f => join(claudeRoot, d, f)), [] as string[]));
-  for (const f of newest(cfiles, limit)) {
-    const st = statSync(f.file); const h = safe(() => parseClaudeHead(head(f.file)), null);
-    if (h) out.push({ ...h, sessionId: h.sessionId || f.file.replace(/^.*[\\/]/, '').replace(/\.jsonl$/, ''), updatedAt: st.mtimeMs, createdAt: h.created || st.birthtimeMs });
-  }
-  const codexRoot = join(process.env.CODEX_HOME || join(home, '.codex'), 'sessions');
-  const xfiles: string[] = [];
-  const walk = (d: string, depth: number) => { for (const e of safe(() => readdirSync(d, { withFileTypes: true }), [])) { const p = join(d, e.name); if (e.isDirectory() && depth < 4) walk(p, depth + 1); else if (e.name.startsWith('rollout-') && e.name.endsWith('.jsonl')) xfiles.push(p); } };
-  walk(codexRoot, 0);
-  for (const f of newest(xfiles, limit)) {
-    const st = statSync(f.file); const h = safe(() => parseCodexHead(head(f.file)), null);
-    if (h) out.push({ ...h, updatedAt: st.mtimeMs, createdAt: h.created || st.birthtimeMs });
-  }
-  return out.sort((a, b) => b.updatedAt - a.updatedAt);
-}
-
-const newest = (files: string[], n: number) => files.map(file => ({ file, m: safe(() => statSync(file).mtimeMs, 0) })).sort((a, b) => b.m - a.m).slice(0, n);
-
-// ---- remote machines: one ssh round trip lists the newest transcripts and sends each one's head ----
-
-/** sh script for discovery over SSH. Each file is framed by a \x1e header line: harness, mtime, path. */
+/** sh script for discovery over SSH. Each file is framed by a \x1e header line: mtime, path. */
 export function remoteDiscoverScript(limit = 60): string {
   return `C="\${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
-X="\${CODEX_HOME:-$HOME/.codex}/sessions"
 mt() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null || echo 0; }
-emit() { printf "\\036%s\\t%s\\t%s\\n" "$1" "$(mt "$2")" "$2"; head -c "$3" "$2"; printf "\\n"; }
-if [ -d "$C" ]; then ls -t "$C"/*/*.jsonl 2>/dev/null | head -n ${limit} | while IFS= read -r f; do emit claude "$f" 32768; done; fi
-if [ -d "$X" ]; then find "$X" -name "rollout-*.jsonl" 2>/dev/null | sort -r | head -n ${limit} | while IFS= read -r f; do emit codex "$f" 65536; done; fi
+if [ -d "$C" ]; then ls -t "$C"/*/*.jsonl 2>/dev/null | head -n ${limit} | while IFS= read -r f; do printf "\\036%s\\t%s\\n" "$(mt "$f")" "$f"; head -c 32768 "$f"; printf "\\n"; tail -c 32768 "$f"; printf "\\n"; done; fi
 true
 `;
 }
@@ -94,22 +80,17 @@ export function parseRemoteDiscovery(out: string): Found[] {
   for (const chunk of out.split('\x1e')) {
     const nl = chunk.indexOf('\n');
     if (nl < 0) continue;
-    const [harness, mtime, path] = chunk.slice(0, nl).split('\t');
-    const body = chunk.slice(nl + 1);
+    const [mtime, path] = chunk.slice(0, nl).split('\t');
     const updatedAt = (+mtime || 0) * 1000;
-    if (harness === 'claude') {
-      const h = safe(() => parseClaudeHead(body), null);
-      if (h) found.push({ ...h, sessionId: h.sessionId || (path || '').replace(/^.*\//, '').replace(/\.jsonl$/, ''), updatedAt, createdAt: h.created || updatedAt });
-    } else if (harness === 'codex') {
-      const h = safe(() => parseCodexHead(body), null);
-      if (h) found.push({ ...h, updatedAt, createdAt: h.created || updatedAt });
-    }
+    const h = parseClaudeTranscript(chunk.slice(nl + 1));
+    const sessionId = h?.sessionId || (path || '').replace(/^.*\//, '').replace(/\.jsonl$/, '');
+    if (h && sessionId) found.push({ harness: 'claude', sessionId, dir: h.dir, title: h.title, branch: h.branch, updatedAt, createdAt: h.created || updatedAt });
   }
-  return found.filter(f => f.sessionId).sort((a, b) => b.updatedAt - a.updatedAt);
+  return found.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-/** Discovery on an SSH machine, newest first. Throws when the machine can't be reached. */
-export async function discoverRemote(m: Machine, limit = 60): Promise<Found[]> {
+/** Claude Code sessions on an SSH machine, newest first. Throws when the machine can't be reached. */
+export async function claudeRemote(m: Machine, limit = 60): Promise<Found[]> {
   const r = await runScript(m, remoteDiscoverScript(limit), { compress: true, timeout: 90000 });
   if (r.code !== 0) throw new Error(r.stderr.trim().split('\n').pop() || `Could not list sessions on ${m.name}`);
   return parseRemoteDiscovery(r.stdout);

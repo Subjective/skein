@@ -198,13 +198,13 @@ describe('persistent sessions', () => {
 });
 
 describe('remote discovery', () => {
-  it('parses framed transcript heads from both harnesses', () => {
-    const claude = [{ type: 'user', message: { content: 'Fix the flaky test' }, cwd: '/home/me/app', sessionId: 'c-1', timestamp: '2026-01-01T00:00:00Z' }].map(o => JSON.stringify(o)).join('\n');
-    const codex = [{ type: 'session_meta', payload: { id: 'x-1', cwd: '/home/me/svc', timestamp: '2026-01-02T00:00:00Z' } }, { type: 'event_msg', payload: { type: 'user_message', message: 'Speed up the build' } }].map(o => JSON.stringify(o)).join('\n');
-    const out = `\x1eclaude\t1767225600\t/home/me/.claude/projects/-home-me-app/c-1.jsonl\n${claude}\n{"type":"user","trunc\n\x1ecodex\t1767312000\t/home/me/.codex/sessions/2026/01/02/rollout-x.jsonl\n${codex}\n\x1ecodex\t1\t/bad.jsonl\nnot json\n`;
+  it('parses framed Claude Code transcript heads and tails', () => {
+    const a = [{ type: 'user', message: { content: 'Fix the flaky test' }, cwd: '/home/me/app', sessionId: 'c-1', timestamp: '2026-01-01T00:00:00Z' }].map(o => JSON.stringify(o)).join('\n');
+    const b = [{ type: 'user', message: { content: 'Speed up the build' }, cwd: '/home/me/svc' }].map(o => JSON.stringify(o)).join('\n');
+    const out = `\x1e1767225600\t/home/me/.claude/projects/-home-me-app/c-1.jsonl\n${a}\n{"type":"user","trunc\n\x1e1767312000\t/home/me/.claude/projects/-home-me-svc/c-2.jsonl\n${b}\n"ai-title"}\n{"type":"ai-title","aiTitle":"Faster builds"}\n\x1e1\t/bad.jsonl\nnot json\n`;
     const f = parseRemoteDiscovery(out);
     expect(f.map(x => [x.harness, x.sessionId, x.dir, x.title])).toEqual([
-      ['codex', 'x-1', '/home/me/svc', 'Speed up the build'],
+      ['claude', 'c-2', '/home/me/svc', 'Faster builds'],
       ['claude', 'c-1', '/home/me/app', 'Fix the flaky test'],
     ]);
     expect(f[0].updatedAt).toBe(1767312000_000);

@@ -109,7 +109,7 @@ function NameEdit({ value, onDone, label }: { value: string; onDone: (v: string 
     }}
     onBlur={e => finish(e.currentTarget.value.trim())} />;
 }
-const renameThread = (t: ThreadMeta, v: string | null) => { if (v && v !== t.title) void api.threads.update(t.id, { title: v }); };
+const renameThread = (t: ThreadMeta, v: string | null) => { if (v && v !== t.title) void api.threads.update(t.id, { title: v, named: true }); };
 const renameProject = (m: string, d: string, v: string | null) => {
   if (v == null || v === projectName(m, d)) return;
   update(s => { const n = { ...s.names }; if (v) n[m + ':' + d] = v; else delete n[m + ':' + d]; s.names = n; }); A.save();

@@ -9,7 +9,7 @@ The code map and the decisions behind it. Keyboard rules are in [VIM-MODEL.md](V
 | `src/shared/api.ts` | The only contract between renderer and main: `SkeinApi` (request / response) and `SkeinEvent` (pushes). The preload builds `window.skein` from it. Replacing Electron (Tauri fallback) means reimplementing this transport only. |
 | `src/shared/types.ts` | Machine, ThreadMeta, ThreadEvent (normalized chat events), Settings |
 | `src/main/` | Electron shell only: window, our own menu (G3), IPC wiring. `services.ts` implements `SkeinApi` over `src/core`. |
-| `src/core/` | Node-only, no Electron: `store` (node:sqlite metadata), `machines` (local + SSH probe), `exec` (local spawn / system ssh with ControlMaster), `pty` (node-pty), `discover` (sessions in ~/.claude and ~/.codex), `threads`, `files`, `git`, `images` (inbox), `forward` (ssh port forwards for Browser tabs), `chat` (the seam for the chat drivers) |
+| `src/core/` | Node-only, no Electron: `store` (node:sqlite metadata), `machines` (local + SSH probe), `exec` (local spawn / system ssh with ControlMaster), `pty` (node-pty), `discover` (sessions the harnesses list), `threads`, `files`, `git`, `images` (inbox), `forward` (ssh port forwards for Browser tabs), `chat` (the seam for the chat drivers) |
 | `src/renderer/src/input/` | The input layer: `keys` (one key name form), `platform` (per-OS keys, `kb()`), `keymap` (commands, default bindings, vimrc), `dispatcher` (the single keydown handler), `vimtext` (the Vim engine for fields), `surfaces` (who owns the keyboard), `readerkeys` (counts and search matching every reader shares, pure), `register` (the one unnamed register, clipboard fallback) |
 | `src/renderer/src/state/` | `store` (one mutable state + version), `layout` (pane tree, pure), `actions` (what commands do) |
 | `src/renderer/src/ui/` | The component library: `primitives` (Icon, IconButton, Button, Chip, Seg, Dot, Spinner, Kbd, Switch), `Menu` (every list; its search field runs `vimtext` in NORMAL), `Dialog`, `VimField` (the small editable fields: menu search, dialogs, the queue's edit row), `editor/` (the code editor: `CodeEditor` is CodeMirror 6 + `@replit/codemirror-vim` + Lezer grammars from `@codemirror/language-data`, styled only from tokens in `theme`; `vim` ties CodeMirror's Vim to the app's register, clipboard and status-bar mode; `route` decides Skein's NORMAL keys vs Vim's, see VIM-MODEL rule 23; `markdown` is a Markdown file's live preview, the same editor with the Markdown drawn as it reads; `CodeField` is the same editor as a field, for every composer and the edit box: it grows with its text, enter sends, esc / k / j leave it, quotes are chips), `search` (the `/` `?` prompt and `n` / `N` for every reader), `motion` (animation tokens), `icons` |
@@ -37,7 +37,10 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   the DOM event (a surface may answer `'native'`), so IME, keyboard layouts and Vim's own insert-mode keys work as
   CodeMirror intends. A quote in a composer is a chip: an atomic range, and a change that touches it takes it whole.
   `vimtext` / `VimField` remain for the small fields (menu search, the queue's edit row, dialogs, the vimrc editor).
-- Existing sessions are discovered from `~/.claude/projects` and `~/.codex/sessions` (local only for now).
+- Existing sessions and their titles come from the harnesses: Claude Code's `listSessions()` (its /rename title, else
+  its generated title, else a prompt) and Codex's `thread/list` (the thread's name, else its preview). On SSH machines
+  Codex is asked the same way; Claude Code's transcripts are read there (head and tail), since the SDK can't reach them.
+  A harness title replaces Skein's until you rename the thread in Skein.
 - Terminal copy and paste on Windows follow Windows Terminal: `ctrl-c` copies when text is selected (otherwise
   it goes to the program), `ctrl-v` and `ctrl-shift-v` paste. Every paste checks the clipboard for an image first,
   so `ctrl-v` with a screenshot pastes its inbox path (G14) the same way locally and over SSH.

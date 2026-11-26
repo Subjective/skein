@@ -8,7 +8,7 @@ import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SkeinEvent } from '../../shared/api';
-import { discoverRemote } from '../discover';
+import { claudeRemote } from '../discover';
 import { setSink } from '../events';
 import { Machines } from '../machines';
 import { Ptys, ptyAvailable } from '../pty';
@@ -40,9 +40,7 @@ describe.skipIf(!runnable).each([['multiplexed (macOS, Linux)', false], ['one co
     // a stand-in harness: says READY, then echoes lines back
     writeFileSync(join(dir, 'bin', 'codex'), '#!/bin/sh\necho READY\nwhile IFS= read -r l; do echo "got:$l"; done\n', { mode: 0o755 });
     mkdirSync(join(dir, 'claude', 'projects', '-w-app'), { recursive: true });
-    writeFileSync(join(dir, 'claude', 'projects', '-w-app', 'c-e2e.jsonl'), JSON.stringify({ type: 'user', message: { content: 'Remote claude thread' }, cwd: '/w/app', sessionId: 'c-e2e' }) + '\n');
-    mkdirSync(join(dir, 'codex', 'sessions', '2026', '11', '20'), { recursive: true });
-    writeFileSync(join(dir, 'codex', 'sessions', '2026', '11', '20', 'rollout-x.jsonl'), JSON.stringify({ type: 'session_meta', payload: { id: 'x-e2e', cwd: '/w/svc', timestamp: '2026-11-20T00:00:00Z' } }) + '\n' + JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'Remote codex thread' } }) + '\n');
+    writeFileSync(join(dir, 'claude', 'projects', '-w-app', 'c-e2e.jsonl'), JSON.stringify({ type: 'user', message: { content: 'Remote claude thread' }, cwd: '/w/app', sessionId: 'c-e2e' }) + '\n' + JSON.stringify({ type: 'ai-title', aiTitle: 'Tidy the remote app', sessionId: 'c-e2e' }) + '\n');
     writeFileSync(join(dir, 'sshd_config'), [
       `Port ${port}`, 'ListenAddress 127.0.0.1', `HostKey ${join(dir, 'host')}`, `AuthorizedKeysFile ${join(dir, 'authorized_keys')}`,
       'PasswordAuthentication no', 'KbdInteractiveAuthentication no', 'UsePAM no', 'StrictModes no', 'PermitRootLogin yes',
@@ -100,8 +98,8 @@ describe.skipIf(!runnable).each([['multiplexed (macOS, Linux)', false], ['one co
 
   it('finds the sessions already on the remote', async ctx => {
     if (!up) return ctx.skip();
-    const f = await discoverRemote(machines.get('e2e'));
-    expect(f.map(x => [x.harness, x.sessionId, x.title]).sort()).toEqual([['claude', 'c-e2e', 'Remote claude thread'], ['codex', 'x-e2e', 'Remote codex thread']]);
+    const f = await claudeRemote(machines.get('e2e'));
+    expect(f.map(x => [x.harness, x.sessionId, x.title])).toEqual([['claude', 'c-e2e', 'Tidy the remote app']]);
   }, 30000);
 
   it('reconnects by itself when the link drops, without asking again', async ctx => {

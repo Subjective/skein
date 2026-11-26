@@ -23,3 +23,20 @@ describe('forks', () => {
     expect(threads.create({ ...spec, side: true }).side).toBe(true);
   });
 });
+
+describe('discovery titles', () => {
+  const fake = { rows: () => [], put: () => {} } as unknown as import('./store').Store;
+  const f = (title?: string) => ({ harness: 'claude' as const, sessionId: 's1', dir: '/w', title, updatedAt: 1, createdAt: 1 });
+  it('take the harness title once it has one, but never over a name you gave', () => {
+    const threads = new Threads(fake);
+    const [t] = threads.discover('local', [f()]);
+    expect(t.title).toBe('Untitled');
+    threads.discover('local', [f('Fix the restore race')]);   // the prompt landed after the first look
+    expect(threads.get(t.id).title).toBe('Fix the restore race');
+    threads.discover('local', [f('Restore race fix')]);       // Claude Code generated its title
+    expect(threads.get(t.id).title).toBe('Restore race fix');
+    threads.update(t.id, { title: 'Mine', named: true });
+    threads.discover('local', [f('Something else')]);
+    expect(threads.get(t.id).title).toBe('Mine');
+  });
+});

@@ -3,7 +3,7 @@
 import type { SkeinApi } from '../shared/api';
 import { bundledCommands } from '../shared/commands';
 import { bundledOptions } from '../shared/models';
-import type { Settings } from '../shared/types';
+import type { Machine, Settings } from '../shared/types';
 import { unimplemented, type ChatDriver, type Harnesses } from '../core/chat';
 import { emit } from '../core/events';
 import { Forwards } from '../core/forward';
@@ -17,7 +17,6 @@ import { Ptys, ptyAvailable } from '../core/pty';
 import { Handoff } from '../core/handoff';
 import { cwdOf, harnessOf, harnessUnder, listProcs } from '../core/detect';
 import { Follows } from '../core/follow';
-import { discoverLocal, discoverRemote } from '../core/discover';
 import type { Store } from '../core/store';
 import { carriedPrompts, ownEvents } from '../core/side';
 import { Threads } from '../core/threads';
@@ -51,7 +50,8 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
   const threads = new Threads(store);
   const ptys = new Ptys(id => machines.get(id), { whenUp: id => machines.whenUp(id) });
   // each time an SSH machine comes up, pick up sessions that were started there outside Skein
-  machines.onUp(m => { threads.discover(m.id, m).catch(e => log('ssh', m.id, 'discovery failed', (e as Error).message)); });
+  const sessionsOn = async (m: Machine, limit: number) => (harnesses.sessions ? harnesses.sessions(m, limit) : []);
+  machines.onUp(m => { sessionsOn(m, 60).then(f => threads.discover(m.id, f, true), e => log('ssh', m.id, 'discovery failed', (e as Error).message)); });
   const drivers = new Map<string, ChatDriver>();
   // While Skein's chat driver runs a turn (and a few seconds after, for trailing writes), the transcript's new lines
   // are ours: the driver pushes them itself. Other writers are followed from the transcript (core/follow).
@@ -91,7 +91,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       if (patch.external) watchOwner();
     },
     read: t => harnesses.history(t, M(t.machine)),
-    unknown: () => { void threads.discover('local').then(added => { for (const t of added) emit({ type: 'thread', thread: t }); }, () => {}); },
+    unknown: () => { void sessionsOn(M('local'), 150).then(f => { for (const t of threads.discover('local', f)) emit({ type: 'thread', thread: t }); }, () => {}); },
   });
   /** A thread's whole record, read through the follower, so live pushes pick up exactly where it ends. */
   const historyOf = async (id: string) => {
@@ -134,7 +134,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
       const t = threads.list().find(x => x.id === thread);
       if (!t || t.sessionId || !ptys.info(ptyId) || ++n > 1200) return;
       const m = M(t.machine);
-      const found = (m.ssh ? await discoverRemote(m, 10).catch(() => []) : discoverLocal(10))
+      const found = (await sessionsOn(m, 10).catch(() => []))
         .filter(f => f.harness === t.harness && f.createdAt >= since - 5000 && !threads.bySession(f.sessionId))
         .sort((a, b) => Number(b.dir === t.dir) - Number(a.dir === t.dir) || b.createdAt - a.createdAt)[0];
       if (found) {
@@ -176,7 +176,7 @@ export function createServices(store: Store, shell: ShellHooks, harnesses: Harne
     },
     threads: {
       list: async () => threads.list(),
-      discover: async m => threads.discover(m, m === 'local' ? undefined : machines.get(m)),
+      discover: async m => { const ssh = !!M(m).ssh; return threads.discover(m, await sessionsOn(M(m), ssh ? 60 : 150), ssh); },
       create: async spec => {
         // store the folder as an absolute path, the way discovered sessions record it, so both land in one project
         // a side chat counts the messages it carries over now, while the parent still holds them (an edit there can drop them)
