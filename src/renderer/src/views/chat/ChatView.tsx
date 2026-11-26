@@ -18,7 +18,7 @@ import { openMenu, setSetting } from '../../shell/overlays';
 import { clipImages, Composer, LockedComposer, type ComposerHandle } from './Composer';
 import { onText, Reader, SEL_BLOCK, selectable } from './reader';
 import { Ticks } from './Ticks';
-import { fixError, Transcript, type TranscriptCtx } from './Transcript';
+import { fixError, Transcript, transcriptDeps, type TranscriptCtx } from './Transcript';
 import { DENSITY, DENSITY_NAME } from './options';
 import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, sessionFor, startChat, tabChat, tokenOf, useChat, type Draft } from './state';
 import { QueueTray, type QueueTrayHandle } from './QueueTray';
@@ -415,7 +415,8 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     return false;
   };
 
-  const ctx: TranscriptCtx = {
+  // one object, updated in place, so the transcript's handlers stay current when it is not drawn again (transcriptDeps)
+  const ctx = Object.assign(useRef({} as TranscriptCtx).current, {
     thread: th, src: t.kind === 'sub' ? `sub:${t.sub}` : `ev:${th.id}`, main: t.kind !== 'sub' && !th.side, density,
     editing: tc.edit?.event,
     editBox: tc.edit && (
@@ -434,7 +435,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     onOpenSub: id => openSub(th, id),
     onOpenSide: id => openSide(id),
     onFix: e => fixError(th, e, () => A.setView(t, 'term')),
-  };
+  } satisfies TranscriptCtx);
 
   // the mouse (as the mockup): a click in the transcript moves the reader's cursor there (NORMAL), a drag selects
   // (VISUAL), a triple click selects lines. A click outside a message being edited cancels the edit first. A click
@@ -518,7 +519,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
           )}
           {(t.kind === 'sub' ? !subTurns.loaded : !lg.loaded) && !events.length ? <div className="empty"><Spinner /></div>
             : !events.length && !th.side && t.kind !== 'sub' ? <div className="empty"><Icon name={th.harness} size="xl" /></div>
-            : <Transcript events={events} c={ctx} running={!!running} since={since.current} />}
+            : <Transcript events={events} c={ctx} running={!!running} since={since.current} deps={transcriptDeps(ctx)} />}
         </div>
       </div>
       {t.kind !== 'sub' && !th.side && <Ticks scroller={scroller} version={events.length} />}

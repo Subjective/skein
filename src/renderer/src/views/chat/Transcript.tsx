@@ -1,7 +1,7 @@
 // A thread's events as a conversation: your messages as bubbles, each reply as one block of prose,
 // tool rows, diffs, plans and requests. Rows the reader treats as one line carry the classes in reader.ts ROWS.
 import { openLightbox } from '../../ui/Lightbox';
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import type { Density, Harness, StepKind, ThreadEvent, ThreadMeta } from '@shared/types';
 import { dur } from '@shared/duration';
@@ -49,7 +49,7 @@ const kindOf = (e: Ev<'tool'>): StepKind => e.kind ?? ({ Read: 'read', Grep: 'se
 export const ago = (t: number) => { const m = (Date.now() - t) / 60000; return m < 1 ? 'now' : m < 60 ? `${Math.round(m)}m` : m < 1440 ? `${Math.round(m / 60)}h` : `${Math.round(m / 1440)}d`; };
 
 /** Unified diff text to numbered lines. */
-function Diff({ text }: { text: string }) {
+const Diff = memo(function Diff({ text }: { text: string }) {
   const rows: { k: string; n: number | ''; c: string }[] = [];
   let a = 1, b = 1;   // a hunk header resets these; a bare body (a new file's lines) counts from 1
   for (const l of text.split('\n')) {
@@ -61,7 +61,7 @@ function Diff({ text }: { text: string }) {
     if (k !== '+') a++; if (k !== '-') b++;
   }
   return <div className="diff">{rows.map((r, i) => <div key={i} className={cx('dl', r.k === '+' && 'add', r.k === '-' && 'del')}><span className="n">{r.n}</span><span className="c">{r.c}</span></div>)}</div>;
-}
+});
 
 /** Which folds are open: each has a default (from the density, and whether its work is still going) that the
  *  person can override by opening or closing it. A changed density starts over from its defaults. */
@@ -69,11 +69,11 @@ interface Folds { open(key: string, def: boolean): boolean; toggled(key: string,
 function useFolds(density: Density): Folds {
   const [ov, setOv] = useState<Record<string, boolean>>({});
   useEffect(() => setOv({}), [density]);
-  return {
+  return useMemo(() => ({
     open: (k, d) => ov[k] ?? d,
     // React's own changes to `open` fire toggle too: those match the default, and leave nothing to remember
     toggled: (k, d, o) => setOv(m => { if ((m[k] ?? d) === o) return m; const n = { ...m }; if (o === d) delete n[k]; else n[k] = o; return n; }),
-  };
+  }), [ov]);
 }
 
 /** A fold: a row whose summary opens what is under it. */
@@ -239,7 +239,7 @@ function UserMsg({ e, c, src }: { e: Ev<'user'>; c: TranscriptCtx; src: string }
 }
 
 /** One event. */
-function Event({ e, c, all, f, folded }: { e: ThreadEvent; c: TranscriptCtx; all: ThreadEvent[]; f: Folds; folded?: boolean }): ReactNode {
+function Event({ e, c, f, folded }: { e: ThreadEvent; c: TranscriptCtx; f: Folds; folded?: boolean }): ReactNode {
   const src = `${c.src}:${e.id}`;
   switch (e.t) {
     case 'user':
@@ -305,7 +305,7 @@ function Acts({ c, at, text, last, when }: { c: TranscriptCtx; at: string; text:
 }
 
 /** A run of events as they come, with consecutive subagents as one block. */
-function inOrder(list: ThreadEvent[], c: TranscriptCtx, f: Folds, all: ThreadEvent[]): ReactNode[] {
+function inOrder(list: ThreadEvent[], c: TranscriptCtx, f: Folds): ReactNode[] {
   const out: ReactNode[] = [];
   for (let i = 0; i < list.length; i++) {
     const e = list[i];
@@ -316,7 +316,7 @@ function inOrder(list: ThreadEvent[], c: TranscriptCtx, f: Folds, all: ThreadEve
       out.push(<Subagents key={run[0].id} subs={run} c={c} />);
       continue;
     }
-    out.push(<Event key={e.id} e={e} c={c} all={all} f={f} />);
+    out.push(<Event key={e.id} e={e} c={c} f={f} />);
   }
   return out;
 }
@@ -332,11 +332,11 @@ function SideLinks({ at, c }: { at: string; c: TranscriptCtx }) {
   return <div className="sc-links">{sides.map(x => <button key={x.id} type="button" className="sc-link" onClick={() => c.onOpenSide?.(x.id)}><Icon name="chat" /><span>{x.title}</span></button>)}</div>;
 }
 
-function Turn({ reply, c, f, live, all }: { reply: ThreadEvent[]; c: TranscriptCtx; f: Folds; live: boolean; all: ThreadEvent[] }): ReactNode[] {
+function Turn({ reply, c, f, live }: { reply: ThreadEvent[]; c: TranscriptCtx; f: Folds; live: boolean }): ReactNode[] {
   const worked = reply.find((e): e is Ev<'worked'> => e.t === 'worked');
   const evs = reply.filter(e => e.t !== 'worked');
   let last = -1; evs.forEach((e, i) => { if (isStep(e)) last = i; });
-  if (last < 0) return inOrder(evs, c, f, all);   // nothing but words: a plain answer
+  if (last < 0) return inOrder(evs, c, f);   // nothing but words: a plain answer
   const lastTodo = evs.filter(e => e.t === 'todo').pop();
   const pinned = (e: ThreadEvent) => e.t === 'sub' || e.t === 'approval' || e.t === 'error' || e.t === 'interrupted' || e.t === 'image' || e === lastTodo;
   const end = live ? evs.length : last + 1;
@@ -344,7 +344,7 @@ function Turn({ reply, c, f, live, all }: { reply: ThreadEvent[]; c: TranscriptC
   const nodes: ReactNode[] = [];
   for (let i = 0; i < work.length; i++) {
     const e = work[i];
-    if (!isStep(e)) { nodes.push(<Event key={e.id} e={e} c={c} all={all} f={f} folded />); continue; }
+    if (!isStep(e)) { nodes.push(<Event key={e.id} e={e} c={c} f={f} folded />); continue; }
     const run: Step[] = [];
     while (work[i] && isStep(work[i])) run.push(work[i++] as Step);
     i--;
@@ -357,14 +357,23 @@ function Turn({ reply, c, f, live, all }: { reply: ThreadEvent[]; c: TranscriptC
       <div className="fold-b">{nodes}</div>
     </Fold>,
     ...(work.filter(e => e.t === 'text').map(e => <SideLinks key={'sides:' + e.id} at={e.id} c={c} />)),
-    ...inOrder(evs.filter(pinned), c, f, all),
-    ...inOrder(evs.slice(end).filter(e => !pinned(e)), c, f, all),
+    ...inOrder(evs.filter(pinned), c, f),
+    ...inOrder(evs.slice(end).filter(e => !pinned(e)), c, f),
     ...(!live && !open && edits.length ? [<Edited key="edited" edits={edits} />] : []),
   ];
 }
 
+/** What the transcript shows besides its events, as one string: a turn is drawn again only when its events or this
+ *  change (a key in the reader or the composer redraws the app, and redrawing a long thread took tens of ms). The
+ *  context object is one the chat view keeps and updates in place, so a turn's handlers are always the current ones. */
+export function transcriptDeps(c: TranscriptCtx): string {
+  const th = c.thread, sides = c.main ? S.threads.filter(t => t.side && t.parent?.id === th.id).map(t => `${t.id}:${t.parent?.at}:${t.title}`) : [];
+  return [th.id, th.harness, th.updatedAt, machine(th.machine)?.name, c.src, c.main, c.density, c.editing,
+    !!c.onEdit, !!c.onSide, !!c.onFork, pending(th.id).map(e => e.id), sides, Math.floor(Date.now() / 60_000)].join('|');
+}
+
 /** The whole transcript, grouped into your messages and replies. */
-export function Transcript({ events, c, running, since }: { events: ThreadEvent[]; c: TranscriptCtx; running: boolean; since: number }) {
+export function Transcript({ events, c, running, since, deps }: { events: ThreadEvent[]; c: TranscriptCtx; running: boolean; since: number; deps: string }) {
   const f = useFolds(c.density);
   // group: a user message, then everything until the next one is its reply
   const groups: { user?: Ev<'user'>; reply: ThreadEvent[] }[] = [];
@@ -372,18 +381,28 @@ export function Transcript({ events, c, running, since }: { events: ThreadEvent[
     if (e.t === 'user') groups.push({ user: e, reply: [] });
     else { if (!groups.length) groups.push({ reply: [] }); groups[groups.length - 1].reply.push(e); }
   }
-  const out: ReactNode[] = [];
-  groups.forEach((g, gi) => {
-    if (g.user) out.push(<Event key={g.user.id} e={g.user} c={c} all={events} f={f} />);
-    const lastGroup = gi === groups.length - 1, live = lastGroup && running, waiting = lastGroup && pending(c.thread.id).length > 0;
-    const body = Turn({ reply: g.reply, c, f, live: live || waiting, all: events });   // a turn waiting on your answer is still open
-    const streaming = g.reply.some(e => e.t === 'text' && e.streaming);
-    if (live && !streaming) body.push(<Live key="live" since={since} />);
-    const texts = g.reply.filter((e): e is Ev<'text'> => e.t === 'text');
-    if (!live && texts.length && c.main) body.push(<Acts key="acts" c={c} at={texts[texts.length - 1].id} text={texts.map(x => x.text).join('\n\n')} last={lastGroup} when={groups[gi + 1]?.user?.at} />);
-    // data-edits: the turn changed files (the timeline marks its tick)
-    const edited = g.reply.some(e => e.t === 'edit');
-    if (body.length) out.push(<div key={'r' + gi} className="reply" data-edits={edited ? '' : undefined}>{body}</div>);
-  });
-  return <>{out}</>;
+  const waiting = pending(c.thread.id).length > 0;
+  return <>{groups.map((g, gi) => {
+    const last = gi === groups.length - 1;
+    return <Group key={g.user?.id ?? 'g' + gi} user={g.user} reply={g.reply} c={c} f={f} live={last && running} waiting={last && waiting} last={last}
+      nextAt={groups[gi + 1]?.user?.at} since={since} deps={deps} />;
+  })}</>;
 }
+
+interface GroupProps { user?: Ev<'user'>; reply: ThreadEvent[]; c: TranscriptCtx; f: Folds; live: boolean; waiting: boolean; last: boolean; nextAt?: number; since: number; deps: string }
+/** One of your messages and its reply. A turn whose events did not change is not drawn again: a streaming reply
+ *  redraws only itself. */
+const Group = memo(function Group({ user, reply, c, f, live, waiting, last, nextAt, since }: GroupProps) {
+  const body = Turn({ reply, c, f, live: live || waiting });   // a turn waiting on your answer is still open
+  const streaming = reply.some(e => e.t === 'text' && e.streaming);
+  if (live && !streaming) body.push(<Live key="live" since={since} />);
+  const texts = reply.filter((e): e is Ev<'text'> => e.t === 'text');
+  if (!live && texts.length && c.main) body.push(<Acts key="acts" c={c} at={texts[texts.length - 1].id} text={texts.map(x => x.text).join('\n\n')} last={last} when={nextAt} />);
+  // data-edits: the turn changed files (the timeline marks its tick)
+  const edited = reply.some(e => e.t === 'edit');
+  return <>
+    {user && <Event e={user} c={c} f={f} />}
+    {body.length > 0 && <div className="reply" data-edits={edited ? '' : undefined}>{body}</div>}
+  </>;
+}, (a, b) => !b.c.editBox && a.user === b.user && a.f === b.f && a.live === b.live && a.waiting === b.waiting && a.last === b.last
+  && a.nextAt === b.nextAt && a.since === b.since && a.deps === b.deps && a.reply.length === b.reply.length && a.reply.every((e, i) => e === b.reply[i]));

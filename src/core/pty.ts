@@ -112,8 +112,13 @@ export class Ptys {
       useConpty: true,
     });
     live.term = term;
-    term.onData(data => emit({ type: 'pty.data', id, data }));
+    // output goes to the window at most every 5 ms, as one message (as VS Code does): a flood (a build log, `cat` of a
+    // big file) was thousands of IPC messages a second, which kept the main process busy
+    let out = '', timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => { if (timer) clearTimeout(timer); timer = null; if (out) emit({ type: 'pty.data', id, data: out }); out = ''; };
+    term.onData(data => { out += data; timer ??= setTimeout(flush, 5); });
     term.onExit(({ exitCode }) => {
+      flush();
       if (live.term !== term) return;
       live.term = undefined;
       // the link dropped under a persistent session: the program is still running there, so wait for the
