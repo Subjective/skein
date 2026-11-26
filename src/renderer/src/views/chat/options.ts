@@ -160,10 +160,10 @@ const VIEWS = ['/clear', '/new', '/diff', '/resume', ...THREAD_SLASH.map(x => x.
 export const SLASH_ARGS = ['/model', '/effort', '/plan'];
 export interface SlashWhere { bare?: boolean; side?: boolean; fresh?: boolean }
 /** Whether the command is one of ours where the composer is: a subagent's has no pickers or actions; a launcher has
- *  no thread to act on yet; a side chat has no side chats of its own. Claude Code's Plan mode is Claude's. */
+ *  no thread to act on yet; a side chat has no side chats of its own. Codex has no Plan mode. */
 export function isOurs(cmd: string, h: Harness, o: SlashWhere): boolean {
   if (o.bare) return false;
-  if (cmd === '/plan') return h === 'claude';
+  if (cmd === '/plan') return h !== 'codex';   // Claude Code's and Antigravity's Plan mode
   if (PICKERS.includes(cmd)) return true;
   if (!VIEWS.includes(cmd) || o.fresh) return false;
   return !(o.side && THREAD_SLASH.some(x => x.cmd === cmd));
