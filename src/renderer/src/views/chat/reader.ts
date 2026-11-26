@@ -108,6 +108,21 @@ export class Reader {
     if (e.closest('button') && !e.closest('.ag, .sc-link, .sc-anchor, .af, .m-more')) return false;
     return true;
   }
+  /** The text of the messages on screen or a screen away: what a line on screen can be found in, without measuring
+   *  every line of a long transcript. */
+  private near(band: { lo: number; hi: number }): Text[] {
+    const h = band.hi - band.lo, out: Text[] = [];
+    for (const el of this.root!.children) { const r = el.getBoundingClientRect(); if (r.bottom >= band.lo - h && r.top <= band.hi + h) out.push(...this.texts(el)); }
+    return out;
+  }
+  /** The first (or last) of `texts(el)`, without walking all of them: a long transcript has thousands. */
+  private edgeText(el: Node, last: boolean): Text | null {
+    const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    if (last) { let n: Node = el; while (n.lastChild) n = n.lastChild; w.currentNode = n; }
+    for (let n: Node | null = last ? w.currentNode : w.nextNode(); n; n = last ? w.previousNode() : w.nextNode())
+      if (n.nodeType === 3 && (n as Text).data.trim() && this.inside(n)) return n as Text;
+    return null;
+  }
   texts(el: Node): Text[] {
     const w = document.createTreeWalker(el, NodeFilter.SHOW_TEXT), out: Text[] = [];
     let n: Node | null;
@@ -272,10 +287,11 @@ export class Reader {
     if (clip && low > clip.getBoundingClientRect().bottom - FOLD) clip.dispatchEvent(new Event('skein-open'));
     if (this.still) return;
     const root = this.root, sc = this.scroller(); if (!root || !sc) return;
-    const ns = this.texts(root), f = this.f;
-    if (f && this.mode === 'n' && ns.length) {
-      if (f.n === ns[0] || this.row && this.row.contains(ns[0])) { sc.scrollTop = 0; return; }
-      if (f.n === ns[ns.length - 1] || this.row && this.row.contains(ns[ns.length - 1])) { sc.scrollTop = sc.scrollHeight; return; }
+    const f = this.f, first = f && this.mode === 'n' ? this.edgeText(root, false) : null;
+    if (f && first) {
+      const last = this.edgeText(root, true)!;
+      if (f.n === first || this.row && this.row.contains(first)) { sc.scrollTop = 0; return; }
+      if (f.n === last || this.row && this.row.contains(last)) { sc.scrollTop = sc.scrollHeight; return; }
     }
     const r = at.getBoundingClientRect(), b = sc.getBoundingClientRect(), m = MARGIN;
     if (r.top < b.top + m || r.height > b.height - 2 * m) sc.scrollTop += r.top - b.top - m;
@@ -373,10 +389,10 @@ export class Reader {
     return !!to?.seen;
   }
   /** The line of text (or row) nearest a height on screen, preferring one that shows; seen when it does. */
-  private lineAt(y: number, x: number, band: { lo: number; hi: number }): { p: Pt; seen: boolean } | null {
+  private lineAt(y: number, x: number, band: { lo: number; hi: number }, all = false): { p: Pt; seen: boolean } | null {
     let best: { n: Text; q: DOMRect; row: Element | null } | null = null, bd = Infinity, bs = false;
     const rows = new Set<Element>();
-    for (const n of this.texts(this.root!)) {
+    for (const n of all ? this.texts(this.root!) : this.near(band)) {
       const row = this.mode === 'n' ? n.parentElement?.closest(ROWS) ?? null : null;
       if (row) { if (rows.has(row)) continue; rows.add(row); }
       const p = { n, o: n.data.length - n.data.trimStart().length }; if (!this.ok(p) || folded(n)) continue;
@@ -390,6 +406,7 @@ export class Reader {
         if ((shows && !bs) || (shows === bs && dist < bd)) { best = { n, q, row }; bd = dist; bs = shows; }
       }
     }
+    if (!all && !bs) return this.lineAt(y, x, band, true);   // no line on screen: the nearest one, wherever it is
     if (!best) return null;
     const { n, q, row } = best;
     if (row) { const p = this.firstText(row); return p && { p, seen: bs }; }
@@ -413,8 +430,9 @@ export class Reader {
     const x = row ? (this.x ?? rect.left + 12) : rect.left + 2; if (!row) this.x = x;
     const lh = row ? 18 : Math.max(14, rect.height);
     const probe = (y: number) => {
+      // nearest the cursor's column first, so the first line found is the one to land on
       const b = sc.getBoundingClientRect(), xs = [x]; for (let px = b.left + 10; px < b.right - 4; px += 18) xs.push(px);
-      let best: Range | null = null, bd = Infinity;
+      xs.sort((p, q) => Math.abs(p - x) - Math.abs(q - x));
       for (const px of xs) {
         const c = caretAt(px, y);
         if (!c || c.startContainer.nodeType !== 3 || !this.inside(c.startContainer) || !(c.startContainer as Text).data.trim()) continue;
@@ -425,9 +443,9 @@ export class Reader {
         // would open it (reveal), so the cursor goes on to the last line above the fade and the message stays shut
         const clip = d < 0 && cr ? c.startContainer.parentElement?.closest('.m-clip.shut') : null;
         if (clip && cr && cr.bottom > clip.getBoundingClientRect().bottom - FOLD) continue;
-        const dist = Math.abs(px - x); if (dist < bd) { bd = dist; best = c; } if (px === x) break;
+        return c;
       }
-      return best;
+      return null;
     };
     // `moved`: how far the probe has scrolled the transcript, so each step goes on from where the last one looked (the
     // cursor's rect is from before the scroll); without it every step past the edge scrolled again and lines were skipped

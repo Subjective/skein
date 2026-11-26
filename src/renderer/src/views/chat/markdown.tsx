@@ -1,6 +1,6 @@
 // A small Markdown renderer for replies: paragraphs, headings, lists, quotes, fenced code, GFM pipe tables, inline
 // code, bold, italics and links. Enough for what agents write; no HTML passes through.
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, memo, type ReactNode } from 'react';
 import { Icon } from '../../ui/primitives';
 
 /** Inline code that names a file (a path with an extension, or a well-known file name) links to it (`.flink`). */
@@ -37,7 +37,7 @@ const isTable = (lines: string[], i: number) => i + 1 < lines.length && lines[i]
 
 /** Each block carries the source lines it came from (`data-ml="first-last"`, 0-based, inclusive; a list item its
  *  own line, a fenced block its fences too) so a linewise yank can copy the Markdown, not the rendering. */
-export function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({ text }: { text: string }) {
   const blocks: ReactNode[] = [];
   const ml = (a: number, b: number) => `${a}-${b}`;
   const lines = text.replace(/\r\n/g, '\n').split('\n');
@@ -89,7 +89,7 @@ export function Markdown({ text }: { text: string }) {
     blocks.push(<p key={k++} data-ml={ml(a, i - 1)}>{p.map((x, j) => <Fragment key={j}>{j > 0 && <br />}{inline(x)}</Fragment>)}</p>);
   }
   return <>{blocks}</>;
-}
+});
 
 /** The Markdown source behind the part of a rendered message (`el`, rendered by Markdown from `md`) that `range`
  *  covers, in whole source lines: bullets, numbers, emphasis, links and code fences as written. A code block
