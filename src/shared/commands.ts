@@ -47,6 +47,10 @@ export const CORE: Record<Harness, { name: string; hint: string }[]> = {
     { name: 'mcp', hint: 'Manage MCP servers' }, { name: 'init', hint: 'Create CLAUDE.md' }, { name: 'status', hint: 'Thread and account status' },
   ],
   codex: CODEX_COMMANDS.map(x => ({ name: x.name, hint: x.hint ?? '' })),
+  agy: [
+    { name: 'plan', hint: 'Plan before editing' }, { name: 'compact', hint: 'Summarise to free up context' },
+    { name: 'goal', hint: 'Run until a goal is done' }, { name: 'browser', hint: 'Do a web task in a browser' },
+  ],
 };
 
 /** The fallback lists, for when the harness can't be asked. */
@@ -61,6 +65,14 @@ export const COMMANDS: Record<Harness, { commands: HarnessCommand[]; skills: Har
     skills: [c('/code-review', 'Review the current diff for bugs'), c('/simplify', 'Clean up the changed code'), c('/security-review', 'Security review of pending changes')],
   },
   codex: { commands: CODEX_COMMANDS, skills: [] },
+  // what agy 1.5.18 listed (core/harness/agy/options.ts sorts its live list the same way)
+  agy: {
+    commands: [
+      c('/browser', 'Do a web task in a browser'), c('/compact', 'Summarise to free up context'), c('/goal', 'Run until a goal is done'),
+      c('/plan', 'Plan before editing'), c('/schedule', 'Run on a schedule or a timer'), c('/swarm', 'Run agents in parallel on one task'),
+    ],
+    skills: [],
+  },
 };
 
 export const bundledCommands = (h: Harness, error?: string): HarnessCommands =>

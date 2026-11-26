@@ -1,7 +1,7 @@
 // Types shared by the main process (src/main, src/core) and the renderer.
 // Keep this file free of imports from Node or the DOM.
 
-export type Harness = 'claude' | 'codex';
+export type Harness = 'claude' | 'codex' | 'agy';
 export type Platform = 'mac' | 'win' | 'linux';
 
 /** Link state of a machine. Local machines are always 'up'. See docs/DECISIONS.md "SSH" (G5). */

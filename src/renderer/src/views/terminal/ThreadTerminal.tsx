@@ -26,7 +26,7 @@ function onTitle(id: string, raw: string) {
   const running = titleRunning(raw);
   const title = raw.replace(SPIN, '').replace(/^(Claude Code|Codex)\s*[-–—:]?\s*/i, '').trim();
   const patch: Partial<typeof th> = {};
-  if (title && title.length > 2 && !/^(claude|codex|bash|zsh|pwsh|powershell)$/i.test(title) && th.title !== title) patch.title = title.slice(0, 80);
+  if (title && title.length > 2 && !/^(claude|codex|agy|bash|zsh|pwsh|powershell)$/i.test(title) && th.title !== title) patch.title = title.slice(0, 80);
   const status = running ? 'running' : th.status === 'running' ? 'idle' : undefined;
   if (status && status !== th.status) patch.status = status;
   if (Object.keys(patch).length) { update(() => Object.assign(th, patch)); void api.threads.update(id, patch); }
@@ -47,7 +47,9 @@ export function ThreadTerminal({ t, focused }: { t: Tab; focused: boolean }) {
   const waiting = !!th && th.harness === 'claude' && th.drive !== 'term';
   const spec: PtySpec | null = !th || waiting ? null : {
     machine: th.machine, cwd: th.dir, thread: th.id,
-    run: th.harness === 'claude' ? { kind: 'claude', session: th.sessionId, args: takeArgs(th.id) } : { kind: 'codex', resume: th.sessionId, args: takeArgs(th.id) },
+    run: th.harness === 'claude' ? { kind: 'claude', session: th.sessionId, args: takeArgs(th.id) }
+      : th.harness === 'agy' ? { kind: 'agy', conversation: th.sessionId, args: takeArgs(th.id) }
+      : { kind: 'codex', resume: th.sessionId, args: takeArgs(th.id) },
     cols: 80, rows: 24,
   };
   // Claude Code's TUI quit (/exit): chat has the thread again, and a clean exit shows it there

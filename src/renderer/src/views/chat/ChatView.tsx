@@ -12,7 +12,7 @@ import { allTabs, type Tab } from '../../state/layout';
 import { machine, S, thread, toast, update, useApp, ws } from '../../state/store';
 import * as A from '../../state/actions';
 import { Button, cx, Dot, Icon, Spinner } from '../../ui/primitives';
-import { harnessName, setSubNames } from '../../shell/meta';
+import { canBranch, harnessName, setSubNames } from '../../shell/meta';
 import { dispatchKey } from '../../shell/keyboard';
 import { openMenu, openPalette, setSetting } from '../../shell/overlays';
 import { clipImages, Composer, LockedComposer, type ComposerHandle } from './Composer';
@@ -264,7 +264,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     openMenu<() => void>({ anchor, place: 'top-end', items: [
       { label: 'Edit message', icon: <Icon name="pencil" />, kbd: 'e', data: () => requestAnimationFrame(() => tray.current?.edit(id)) },
       { label: 'Move to top', icon: <Icon name="up" />, dis: i === 0, data: () => void api.chat.orderQueue(th.id, [id, ...queue.filter(x => x.id !== id).map(x => x.id)]) },
-      { label: 'Open in side chat', icon: <Icon name="chat" />, dis: !!th.side, data: () => void newSide(th, lastText()).then(sid => { void api.chat.dropQueued(th.id, id); openSide(sid); void api.chat.send(sid, { text: m.text, images: m.images }); }) },
+      { label: 'Open in side chat', icon: <Icon name="chat" />, dis: !!th.side || !canBranch(th.harness), data: () => void newSide(th, lastText()).then(sid => { void api.chat.dropQueued(th.id, id); openSide(sid); void api.chat.send(sid, { text: m.text, images: m.images }); }) },
       { label: steer ? 'Turn on queueing' : 'Turn off queueing', hint: steer ? 'Enter queues while a turn runs' : 'Enter steers while a turn runs', icon: <Icon name="queue" />, data: () => void setSetting({ followUp: steer ? 'queue' : 'steer' }) },
     ], onPick: it => it.data?.() });
   };
@@ -430,12 +430,12 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
         {laterSides > 0 && <div className="edit-note"><Icon name="branch" /><span>Resending keeps {laterSides === 1 ? 'the side chat' : `the ${laterSides} side chats`} from later replies, unlinked</span></div>}
       </>
     ),
-    onEdit: t.kind === 'sub' || mirror ? undefined : (id, x, y) => {
+    onEdit: t.kind === 'sub' || mirror || !canBranch(th.harness) ? undefined : (id, x, y) => {
       const own = x === undefined ? null : read.current?.querySelector(`.m-user[data-ev="${CSS.escape(id)}"] .mt`);
       startEdit(id, own ? offsetAt(own, x!, y!) : undefined, undefined, true);
     },
-    onSide: t.kind === 'sub' || th.side ? undefined : at => void newSide(th, at).then(openSide),
-    onFork: t.kind === 'sub' || th.side ? undefined : at => void forkAt(th, at),
+    onSide: t.kind === 'sub' || th.side || !canBranch(th.harness) ? undefined : at => void newSide(th, at).then(openSide),
+    onFork: t.kind === 'sub' || th.side || !canBranch(th.harness) ? undefined : at => void forkAt(th, at),
     onOpenSub: id => openSub(th, id),
     onOpenSide: id => openSide(id),
     onFix: e => fixError(th, e, () => A.setView(t, 'term')),

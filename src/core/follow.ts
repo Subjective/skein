@@ -86,7 +86,8 @@ export interface Located { path: string; text: string }
 
 /** Where a thread's transcript is and what it holds now, or null when it doesn't exist (yet). */
 export async function locate(t: ThreadMeta, m: Machine): Promise<Located | null> {
-  if (!t.sessionId || !/^[\w-]+$/.test(t.sessionId)) return null;
+  // Antigravity keeps no transcript file to follow: its history is read through agy (harness/agy/history.ts)
+  if (t.harness === 'agy' || !t.sessionId || !/^[\w-]+$/.test(t.sessionId)) return null;
   if (m.ssh) {
     const glob = t.harness === 'claude'
       ? `"$HOME"/.claude/projects/*/${sq(t.sessionId + '.jsonl')}`

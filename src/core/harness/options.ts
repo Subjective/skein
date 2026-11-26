@@ -6,6 +6,7 @@
 //     the SDK's PermissionMode values (checked against the type below); Auto mode only when a model has it.
 //   Codex: the machine's app-server (`model/list`, every page; `configRequirements/read` narrows the
 //     approval presets to what managed policy allows).
+//   Antigravity: what its sessions say they offer (agy/options.ts).
 // Answers are cached per machine and harness; a failed query falls back to shared/models.ts and is retried
 // sooner.
 import { homedir } from 'node:os';
@@ -16,6 +17,8 @@ import type { Harness, Machine } from '../../shared/types';
 import { log } from '../log';
 import { localExecutable, sshSpawner, type QueryFn } from './claude/driver';
 import type { CodexServers } from './codex/driver';
+import type { AgyServers } from './agy/acp';
+import { agyOptions } from './agy/options';
 import type { Rpc } from './codex/rpc';
 
 // Every PermissionMode the installed SDK defines must have a row in PERMS.claude (and nothing else may):
@@ -177,7 +180,8 @@ export class Kept<T> {
   }
 
   /** Forget a machine's answers (keys start with its id). */
-  drop(machine?: string) { for (const k of [...this.kept.keys()]) if (!machine || k.startsWith(machine + ':')) this.kept.delete(k); }
+  /** Forget the answers for a machine (or all), or for one harness on it. */
+  drop(machine?: string, h?: string) { for (const k of [...this.kept.keys()]) if (!machine || (k.startsWith(machine + ':') && (!h || k.slice(machine.length + 1).split(':')[0] === h))) this.kept.delete(k); }
 }
 
 /** Per machine and harness: the answer, or the fallback with the reason. */
@@ -187,13 +191,19 @@ export class OptionsCache {
     this.kept = new Kept((k, why) => bundledOptions(k.split(':')[1] as Harness, why), now);
   }
   get(m: Machine, h: Harness): Promise<HarnessOptions> { return this.kept.get(`${m.id}:${h}`, () => this.ask(m, h)); }
-  drop(machine?: string) { this.kept.drop(machine); }
+  drop(machine?: string, h?: string) { this.kept.drop(machine, h); }
 }
 
-/** The options source createHarnesses uses: Claude through the SDK, Codex through the machine's app-server. */
-export function harnessOptions(query: () => Promise<QueryFn>, servers: CodexServers) {
+/** The options source createHarnesses uses: Claude through the SDK, Codex through the machine's app-server,
+ *  Antigravity from the newest session its agy opened (agy/options.ts). */
+export function harnessOptions(query: () => Promise<QueryFn>, servers: CodexServers, agy?: AgyServers) {
   return new OptionsCache(async (m, h) => {
     if (h === 'claude') return askClaude(m, await query());
+    if (h === 'agy') {
+      const opened = agy?.offered.get(m.id)?.opened;
+      if (!opened) throw new Error('Antigravity lists its models once a thread opens');
+      return agyOptions(opened);
+    }
     return askCodex(await servers.get(m));
   });
 }

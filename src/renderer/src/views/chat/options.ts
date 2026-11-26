@@ -20,7 +20,7 @@ const asking = new Set<string>();
 /** The last answer from the harness on any machine: labels for threads whose machine hasn't answered yet. */
 const latest: Partial<Record<Harness, HarnessOptions>> = {};
 /** One object per harness, so a picker's memo sees the same lists until the answer comes. */
-const BUNDLED: Record<Harness, HarnessOptions> = { claude: bundledOptions('claude'), codex: bundledOptions('codex') };
+const BUNDLED: Record<Harness, HarnessOptions> = { claude: bundledOptions('claude'), codex: bundledOptions('codex'), agy: bundledOptions('agy') };
 
 /** What the harness offers on the machine. Asks it the first time (and again after a while); the change
  *  arrives as a chat bump (useChat re-renders). */
@@ -60,8 +60,8 @@ export const modelLabel = (h: Harness, v?: string, machine?: string) => {
   return known(h, machine).models.find(m => !m.isDefault && (m.resolved ?? m.id) === d.resolved)?.label ?? d.label;
 };
 export const effortLabel = (v?: string) => { const id = effortId(v); return EFFORTS.find(e => e.id === id)?.label ?? (id ? id[0].toUpperCase() + id.slice(1) : 'Medium'); };
-/** The mode a thread with none set runs in: Claude Code's default mode; Codex's Default preset. */
-const unsetPerm = (h: Harness) => (h === 'claude' ? 'default' : 'auto');
+/** The mode a thread with none set runs in: Claude Code's default mode; Codex's Default preset; Antigravity's Default. */
+const unsetPerm = (h: Harness) => (h === 'codex' ? 'auto' : 'default');
 export const permLabel = (h: Harness, v?: string) => PERMS[h].find(p => p.id === (permId(h, v) ?? unsetPerm(h)))?.label ?? v ?? '';
 /** The current permission id (the harness's default when the thread sets none). */
 export const permOf = (h: Harness, v?: string) => permId(h, v) ?? unsetPerm(h);
@@ -112,7 +112,7 @@ const slashOf = (h: Harness, c: HarnessCommands): SlashLists => {
   }
   return r;
 };
-const BUNDLED_CMDS: Record<Harness, HarnessCommands> = { claude: bundledCommands('claude'), codex: bundledCommands('codex') };
+const BUNDLED_CMDS: Record<Harness, HarnessCommands> = { claude: bundledCommands('claude'), codex: bundledCommands('codex'), agy: bundledCommands('agy') };
 const keptCmds = new Map<string, { at: number; c: HarnessCommands }>();
 const askingCmds = new Map<string, Promise<void>>();
 
@@ -160,10 +160,10 @@ const VIEWS = ['/clear', '/new', '/diff', '/resume', ...THREAD_SLASH.map(x => x.
 export const SLASH_ARGS = ['/model', '/effort', '/plan'];
 export interface SlashWhere { bare?: boolean; side?: boolean; fresh?: boolean }
 /** Whether the command is one of ours where the composer is: a subagent's has no pickers or actions; a launcher has
- *  no thread to act on yet; a side chat has no side chats of its own. Claude Code's Plan mode is Claude's. */
+ *  no thread to act on yet; a side chat has no side chats of its own. Codex has no Plan mode. */
 export function isOurs(cmd: string, h: Harness, o: SlashWhere): boolean {
   if (o.bare) return false;
-  if (cmd === '/plan') return h === 'claude';
+  if (cmd === '/plan') return h !== 'codex';   // Claude Code's and Antigravity's Plan mode
   if (PICKERS.includes(cmd)) return true;
   if (!VIEWS.includes(cmd) || o.fresh) return false;
   return !(o.side && THREAD_SLASH.some(x => x.cmd === cmd));
@@ -172,4 +172,8 @@ export function isOurs(cmd: string, h: Harness, o: SlashWhere): boolean {
 export const slashHidden = (cmd: string, h: Harness, o: SlashWhere) =>
   (PICKERS.includes(cmd) || VIEWS.includes(cmd)) && !isOurs(cmd, h, o);
 
-export const INSTALL: Record<Harness, string> = { claude: 'npm install -g @anthropic-ai/claude-code', codex: 'npm install -g @openai/codex' };
+export const INSTALL: Record<Harness, string> = {
+  claude: 'npm install -g @anthropic-ai/claude-code', codex: 'npm install -g @openai/codex',
+  // Google's installer (Windows: irm https://antigravity.google/cli/install.ps1 | iex)
+  agy: navigator.userAgent.includes('Windows') ? 'irm https://antigravity.google/cli/install.ps1 | iex' : 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+};

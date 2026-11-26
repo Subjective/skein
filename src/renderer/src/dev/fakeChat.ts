@@ -2,7 +2,7 @@
 // Mirrors the mockup's data so every chat state can be looked at and tested:
 // a running turn with subagents, approvals (1 of 3), a terminal-driven mirror, errors, side chats.
 import type { ChatSend, NewThread, SkeinEvent } from '@shared/api';
-import type { Queued, ThreadEvent, ThreadMeta } from '@shared/types';
+import type { Harness, Queued, ThreadEvent, ThreadMeta } from '@shared/types';
 
 const shot = 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" font-family="system-ui,sans-serif">
 <rect width="640" height="360" fill="#1b1b1b"/><rect width="150" height="360" fill="#151515"/>
@@ -103,7 +103,7 @@ export const histories: Record<string, ThreadEvent[]> = {
 };
 
 /** Side chats and other extra threads the sample starts with. */
-export const extraThreads = (T: (id: string, h: 'claude' | 'codex', m: string, dir: string, title: string, age: number, x?: Partial<ThreadMeta>) => ThreadMeta) => [
+export const extraThreads = (T: (id: string, h: Harness, m: string, dir: string, title: string, age: number, x?: Partial<ThreadMeta>) => ThreadMeta) => [
   T('s1', 'claude', 'local', '~/projects/skein', 'Why not a mutex here?', 3, { side: true, parent: { id: 't1', at: histories.t1[2].id } }),
   T('s2', 'claude', 'local', '~/projects/dotfiles', 'Walk through the backlog', 8000),
 ];

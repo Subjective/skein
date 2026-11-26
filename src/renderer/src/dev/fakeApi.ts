@@ -1,7 +1,7 @@
 // A stand-in for the main process, for looking at and testing the UI in a plain browser (`pnpm dev:web`).
 // Data is a small sample; terminals echo what you type.
 import type { SkeinBridge, SkeinEvent } from '@shared/api';
-import type { Machine, Settings, ThreadMeta } from '@shared/types';
+import type { Harness, Machine, Settings, ThreadMeta } from '@shared/types';
 import { moveBlocked } from '@shared/move';
 import { fakeFs, fakeGit } from './fakeRepo';
 import { extraThreads, fakeChat } from './fakeChat';
@@ -13,11 +13,11 @@ const listeners = new Set<(e: SkeinEvent) => void>();
 const emit = (e: SkeinEvent) => setTimeout(() => listeners.forEach(f => f(e)), 0);
 const now = Date.now(), min = 60_000;
 const machines: Machine[] = [
-  { id: 'local', name: 'This PC', os: 'Windows', link: 'up', has: ['claude', 'codex'], home: 'C:\\Users\\you' },
+  { id: 'local', name: 'This PC', os: 'Windows', link: 'up', has: ['claude', 'codex', 'agy'], home: 'C:\\Users\\you' },
   { id: 'linux', name: 'linux', os: 'Linux', link: 'up', has: ['claude', 'codex'], ssh: { host: 'linux-dev' }, home: '/home/you' },
   { id: 'build', name: 'build-07', os: 'Linux', link: 'down', has: ['codex'], ssh: { host: 'build-07' }, note: 'Connection timed out' },
 ];
-const T = (id: string, harness: 'claude' | 'codex', machine: string, dir: string, title: string, ageMin: number, x: Partial<ThreadMeta> = {}): ThreadMeta =>
+const T = (id: string, harness: Harness, machine: string, dir: string, title: string, ageMin: number, x: Partial<ThreadMeta> = {}): ThreadMeta =>
   ({ id, harness, machine, dir, title, sessionId: id + '-session', createdAt: now - ageMin * min - 3600_000, updatedAt: now - ageMin * min, status: 'idle', drive: harness === 'claude' ? 'chat' : undefined, ...x });
 const threads: ThreadMeta[] = [
   T('t1', 'claude', 'local', '~/projects/skein', 'Fix session-restore race', 0, { status: 'running' }),

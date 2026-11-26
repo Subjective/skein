@@ -4,7 +4,12 @@ import type { Tab } from '../state/layout';
 import { machine, S, thread } from '../state/store';
 import { hostOf } from '../views/tools/address';
 
-export const harnessName = (h: Harness) => (h === 'claude' ? 'Claude Code' : 'Codex');
+export const harnessName = (h: Harness) => ({ claude: 'Claude Code', codex: 'Codex', agy: 'Antigravity' } as const)[h];
+/** The harnesses, in the order pickers list them. */
+export const HARNESSES: Harness[] = ['claude', 'codex', 'agy'];
+/** The harness can fork a thread at a reply (side chats, Fork) and rewind it (editing an earlier message). Antigravity
+ *  has neither. */
+export const canBranch = (h: Harness) => h !== 'agy';
 /** A project's name in the sidebar: a name the user gave it, ~ for the home folder, else the folder's name. */
 export const projectName = (m: string, d: string) => S.names[m + ':' + d] || (d === S.machines.find(x => x.id === m)?.home ? '~' : base(d)) || d;
 /** A path as people read it: the machine's home folder shown as ~ (the stored path stays absolute). */

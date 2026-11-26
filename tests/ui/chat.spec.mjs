@@ -1253,8 +1253,8 @@ await test('model picker on a machine without the harness: dimmed rows and Insta
   await menu.waitFor();
   const claudeRows = await menu.locator('.mi:has(.i-claude)').count();
   assert.ok(claudeRows >= 5, 'the Claude models are listed');
-  assert.equal(await menu.locator('.mi.off', { hasText: 'not on build-07' }).count(), claudeRows);
-  assert.equal(await menu.locator('.mx .mgap').count(), 1, 'a gap between the harnesses');
+  assert.equal(await menu.locator('.mi.off:has(.i-claude)', { hasText: 'not on build-07' }).count(), claudeRows);
+  assert.equal(await menu.locator('.mx .mgap').count(), 2, 'a gap between the harnesses');
   await menu.locator('.mi', { hasText: 'Install Claude Code on build-07' }).click();
   await p.locator('.toast', { hasText: 'Copied' }).waitFor();
 });
@@ -1993,7 +1993,7 @@ await test('model picker: hovering a model previews every control that depends o
   await menu.locator('.mi', { hasText: 'GPT-6.2 Sol' }).hover(); await settle(p, 200);
   const s2 = await state();
   assert.ok(!s2.none, 'Sol has levels'); assert.ok(!s2.ultra, 'no Ultracode row for a Codex model'); assert.equal(s2.pins, 2, 'effort and Codex\'s Fast'); assert.equal(s2.h, s0.h);
-  await menu.locator('.mi', { hasText: 'Opus 5.5' }).hover(); await settle(p, 200);
+  await menu.getByRole('option', { name: 'Opus 5.5', exact: true }).hover(); await settle(p, 200);
   const s3 = await state();
   assert.ok(!s3.none && s3.ultra, 'back on a Claude model: both rows');
   await p.keyboard.press('Escape'); await p.keyboard.press('Escape');

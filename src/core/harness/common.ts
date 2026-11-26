@@ -12,7 +12,7 @@ export type ErrorKind = Extract<ThreadEvent, { t: 'error' }>['kind'];
 /** Sort a harness failure into the kinds the chat view offers one action for (G9). */
 export function errorKind(text: string, code?: string | number | null): ErrorKind {
   const s = `${code ?? ''} ${text}`.toLowerCase();
-  if (/\benoent\b|command not found|not recognized as an internal|no such file or directory.*(claude|codex)|exit(ed)? (with )?code 127|cli not found|executable not found/.test(s)) return 'missing';
+  if (/\benoent\b|command not found|not recognized as an internal|no such file or directory.*(claude|codex|agy)|exit(ed)? (with )?code 127|cli not found|executable not found/.test(s)) return 'missing';
   if (/rate.?limit|usage.?limit|overloaded|\b429\b|\b529\b|too many requests|quota|ratelimit|serveroverloaded|usagelimitexceeded/.test(s)) return 'rate';
   if (/auth|login|log in|sign in|unauthori[sz]ed|\b401\b|\b403\b|api key|credential|token (has )?expired|oauth|forbidden/.test(s)) return 'auth';
   return 'other';

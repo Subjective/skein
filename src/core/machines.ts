@@ -20,7 +20,7 @@ const localOs = () => (process.platform === 'darwin' ? 'macOS' : process.platfor
 /** What a connect learns about the remote. Runs in plain sh; the login shell is asked for PATH-dependent tools. */
 export const PROBE = `echo "skein:os:$(uname -s)"
 echo "skein:home:$HOME"
-"\${SHELL:-/bin/sh}" -lc 'command -v claude >/dev/null 2>&1 && echo skein:has:claude; command -v codex >/dev/null 2>&1 && echo skein:has:codex; command -v tmux >/dev/null 2>&1 && tmux -V | sed s/^/skein:tmux:/; command -v screen >/dev/null 2>&1 && echo skein:screen; true' </dev/null 2>/dev/null
+"\${SHELL:-/bin/sh}" -lc 'command -v claude >/dev/null 2>&1 && echo skein:has:claude; command -v codex >/dev/null 2>&1 && echo skein:has:codex; command -v agy >/dev/null 2>&1 && echo skein:has:agy; command -v tmux >/dev/null 2>&1 && tmux -V | sed s/^/skein:tmux:/; command -v screen >/dev/null 2>&1 && echo skein:screen; true' </dev/null 2>/dev/null
 true
 `;
 
@@ -35,7 +35,7 @@ export function parseProbe(out: string): Probe {
     const [, k, ...rest] = l.split(':'); const v = rest.join(':');
     if (k === 'os') p.os = /Darwin/.test(v) ? 'macOS' : /Linux/.test(v) ? 'Linux' : v || undefined;
     if (k === 'home') p.home = v;
-    if (k === 'has' && (v === 'claude' || v === 'codex') && !p.has.includes(v)) p.has.push(v);
+    if (k === 'has' && (v === 'claude' || v === 'codex' || v === 'agy') && !p.has.includes(v)) p.has.push(v);
     if (k === 'tmux') { p.tmux = tmuxVersion(v); if (p.tmux >= 1.8) p.persist = 'tmux'; }
     if (k === 'screen' && !p.persist) p.persist = 'screen';
   }
@@ -74,7 +74,7 @@ export class Machines {
     if (!m) throw new Error(`Unknown machine ${id}`);
     return m;
   }
-  localHarnesses(): Harness[] { return (['claude', 'codex'] as Harness[]).filter(h => which(h)); }
+  localHarnesses(): Harness[] { return (['claude', 'codex', 'agy'] as Harness[]).filter(h => which(h)); }
   /** Run `fn` each time an SSH machine's link comes up (first connect and every reconnect). */
   onUp(fn: UpFn) { this.ups.add(fn); return () => this.ups.delete(fn); }
   /** Resolves the next time the machine is up (now, if it is). */

@@ -51,7 +51,9 @@ export async function moveSession(t: ThreadMeta, from: Machine, to: Machine, dir
   const out: MoveResult = { copied: [], patch: {} };
   if (!(await io.isDir(to, dir))) throw new Error(`${dir} doesn’t exist on ${to.name}.`);
   const same = from.id === to.id;
-  if (!t.sessionId || (same && t.harness === 'codex')) return out;
+  if (!t.sessionId || (same && t.harness !== 'claude')) return out;
+  // agy keeps conversations in a store of its own: the same conversation goes on in the new folder on the same machine
+  if (t.harness === 'agy') throw new Error('An Antigravity thread can only move to another folder on the same machine.');
   const src = await io.find(from, t.harness, t.sessionId);
   if (!src) {
     // nothing written yet: Claude Code starts the session under its id wherever it runs; Codex needs a new thread there
@@ -82,7 +84,8 @@ export async function moveSession(t: ThreadMeta, from: Machine, to: Machine, dir
 
 // ---------- the real machines ----------
 
-const ROOT_ENV: Record<Harness, [string, string]> = { claude: ['CLAUDE_CONFIG_DIR', '.claude'], codex: ['CODEX_HOME', '.codex'] };
+/** Harnesses whose sessions are files Skein can copy (not Antigravity's store). */
+const ROOT_ENV: Partial<Record<Harness, [string, string]>> = { claude: ['CLAUDE_CONFIG_DIR', '.claude'], codex: ['CODEX_HOME', '.codex'] };
 
 async function sh(m: Machine, script: string): Promise<string> {
   const r = await runScript(m, script, { timeout: 60_000 });
@@ -114,7 +117,9 @@ function wait(p: ReturnType<typeof spawn>, what: string): Promise<void> {
 
 export const machineIO: MoveIO = {
   async root(m, h) {
-    const [env, dot] = ROOT_ENV[h];
+    const r = ROOT_ENV[h];
+    if (!r) throw new Error(`Skein can't copy ${h} sessions`);
+    const [env, dot] = r;
     if (!m.ssh) return process.env[env] || join(homedir(), dot);
     return (await sh(m, `printf %s "\${${env}:-$HOME/${dot}}"`)).trim();
   },

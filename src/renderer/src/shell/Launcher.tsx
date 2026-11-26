@@ -19,7 +19,7 @@ import { forgetCodeField } from '../ui/editor/CodeField';
 import { blank, outgoing, sessionFor, setSpeed, setUltra, speedOf, ultraOf, type Draft } from '../views/chat/state';
 import { defaultModel } from '../views/chat/options';
 
-export const harnessOf = (t: Tab): Harness => (t.model?.startsWith('codex') ? 'codex' : t.model?.startsWith('claude') ? 'claude' : (S.settings as unknown as { lastHarness?: Harness }).lastHarness || 'claude');
+export const harnessOf = (t: Tab): Harness => (t.model?.startsWith('codex') ? 'codex' : t.model?.startsWith('claude') ? 'claude' : t.model?.startsWith('agy') ? 'agy' : (S.settings as unknown as { lastHarness?: Harness }).lastHarness || 'claude');
 /** The tab's model id: what was picked, else the harness's first (the shared list, @shared/models, which chat uses too). */
 // any model the harness lists (live lists are longer than the bundled one); none set: the harness's default
 const modelOf = (t: Tab) => { const h = harnessOf(t), id = t.model?.split(':')[1] || ''; return id || defaultModel(h, t.machine).id; };

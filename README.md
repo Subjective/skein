@@ -2,7 +2,7 @@
 
 <h1 align="center">Skein</h1>
 
-<p align="center">A desktop app for Claude Code and Codex threads, on local and remote machines.<br>Vim-first and fully keyboard-driven, with panes and tabs inspired by tmux.</p>
+<p align="center">A desktop app for Claude Code, Codex and Antigravity threads, on local and remote machines.<br>Vim-first and fully keyboard-driven, with panes and tabs inspired by tmux.</p>
 
 ## Run it
 

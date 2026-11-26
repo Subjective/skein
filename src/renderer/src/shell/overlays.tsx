@@ -15,7 +15,7 @@ import { Menu, type MenuItem, type MenuProps } from '../ui/Menu';
 import { Dialog, useDialogSurface } from '../ui/Dialog';
 import { useKeyCursor } from '../ui/modality';
 import { cx, Dot, Icon, IconButton, Spinner, Switch } from '../ui/primitives';
-import { base, harnessName, projectName, tabMeta, tildify } from './meta';
+import { base, HARNESSES, harnessName, projectName, tabMeta, tildify } from './meta';
 import { commandNames, run } from './commands';
 import { WsMini, wsRow, wsWaiting } from './switcher';
 import { ThreadStatus } from './Sidebar';
@@ -354,7 +354,7 @@ export function openAddProject(mid: string, anchor: DOMRect, add: (dir: string) 
 }
 
 // ---------- machines (mockup act.machines) ----------
-const marks = (m: Machine) => (['claude', 'codex'] as const).map(h => <span key={h} className={cx('has', !m.has.includes(h) && 'no')} title={`${harnessName(h)} ${m.has.includes(h) ? 'installed' : 'not found'}`}><Icon name={h} /></span>);
+const marks = (m: Machine) => HARNESSES.map(h => <span key={h} className={cx('has', !m.has.includes(h) && 'no')} title={`${harnessName(h)} ${m.has.includes(h) ? 'installed' : 'not found'}`}><Icon name={h} /></span>);
 export const sshAddr = (m: Machine) => (m.ssh ? `${m.ssh.user ? m.ssh.user + '@' : ''}${m.ssh.host}` : m.os || '');
 
 /** Machines with their address, which harnesses they have and their link; picking one starts a new thread there. */
