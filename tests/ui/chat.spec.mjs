@@ -1931,13 +1931,13 @@ await test('model picker: hovering a model previews every control that depends o
   const menu = p.locator('.menu.model'); await menu.waitFor();
   const state = () => menu.evaluate(m => ({ h: Math.round(m.getBoundingClientRect().height), pins: m.querySelectorAll('.m-pin > *').length, none: !!m.querySelector('.eff.none'), ultra: [...m.querySelectorAll('.mi')].some(x => x.textContent.includes('Ultracode')) }));
   const s0 = await state();
-  assert.equal(s0.pins, 2, 'effort and Ultracode'); assert.ok(!s0.none && s0.ultra);
+  assert.equal(s0.pins, 3, 'effort, Ultracode and Fast mode'); assert.ok(!s0.none && s0.ultra);
   await menu.locator('.mi', { hasText: 'Haiku 4.5' }).hover(); await settle(p, 200);
   const s1 = await state();
   assert.ok(s1.none, 'the effort row stays, dimmed: Haiku 4.5 has no effort levels'); assert.ok(!s1.ultra, 'no Ultracode on Haiku 4.5'); assert.equal(s1.h, s0.h, 'the open menu keeps its height, so no row moves under the pointer');
   await menu.locator('.mi', { hasText: 'GPT-6.2 Sol' }).hover(); await settle(p, 200);
   const s2 = await state();
-  assert.ok(!s2.none, 'Sol has levels'); assert.ok(!s2.ultra, 'no Ultracode row for a Codex model'); assert.equal(s2.pins, 1); assert.equal(s2.h, s0.h);
+  assert.ok(!s2.none, 'Sol has levels'); assert.ok(!s2.ultra, 'no Ultracode row for a Codex model'); assert.equal(s2.pins, 2, 'effort and Codex\'s Fast'); assert.equal(s2.h, s0.h);
   await menu.locator('.mi', { hasText: 'Opus 5.5' }).hover(); await settle(p, 200);
   const s3 = await state();
   assert.ok(!s3.none && s3.ultra, 'back on a Claude model: both rows');
