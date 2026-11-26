@@ -20,7 +20,7 @@ import { onText, Reader, SEL_BLOCK, selectable } from './reader';
 import { Ticks } from './Ticks';
 import { fixError, Transcript, type TranscriptCtx } from './Transcript';
 import { DENSITY, DENSITY_NAME } from './options';
-import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, startChat, tabChat, tokenOf, ultraFor, useChat, type Draft } from './state';
+import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, sessionFor, startChat, tabChat, tokenOf, useChat, type Draft } from './state';
 import { QueueTray, type QueueTrayHandle } from './QueueTray';
 import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, quoteToTab, registerChatTab, subList } from './threads';
 import { registerHooks } from '../tools/hooks';
@@ -224,11 +224,11 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
   // while a turn runs, enter queues (or steers, by the setting) and mod-enter does the other; subagents only steer
   const send = (alt?: boolean) => {
     const d = tc.draft, text = outgoing(d);
-    if (!text && !d.images.length) { if (canContinue) { stick.current = true; void api.chat.send(th.id, { text: '', resume: true, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) }); } return; }
+    if (!text && !d.images.length) { if (canContinue) { stick.current = true; void api.chat.send(th.id, { text: '', resume: true, model: th.model, effort: th.effort, perm: th.perm, ...sessionFor(th) }); } return; }
     stick.current = true;
     const queue = running && t.kind !== 'sub' && ((S.settings.followUp ?? 'queue') === 'queue') !== !!alt;
     const sent = t.kind === 'sub' ? api.chat.send(th.id, { text, images: d.images, sub: t.sub })
-      : api.chat.send(th.id, { text, images: d.images, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th), ...(queue ? { queue } : {}) });
+      : api.chat.send(th.id, { text, images: d.images, model: th.model, effort: th.effort, perm: th.perm, ...sessionFor(th), ...(queue ? { queue } : {}) });
     // refused (the terminal is mid-turn, another process has the thread): the message comes back to the composer
     void sent.catch(e => {
       if (!outgoing(tc.draft) && !tc.draft.images.length) { tc.draft = d; bump(); }
@@ -359,7 +359,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     const ed = tc.edit; if (!ed) return;
     const text = outgoing(ed.draft); if (!text && !ed.draft.images.length) return;
     rewindTo(th.id, ed.event);
-    void api.chat.send(th.id, { text, images: ed.draft.images, rewind: ed.event, model: th.model, effort: th.effort, perm: th.perm, ...ultraFor(th) });
+    void api.chat.send(th.id, { text, images: ed.draft.images, rewind: ed.event, model: th.model, effort: th.effort, perm: th.perm, ...sessionFor(th) });
     tc.edit = undefined; bump(); stick.current = true; composer.current?.focus(true);
   };
   const laterSides = useMemo(() => {

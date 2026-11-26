@@ -117,6 +117,18 @@ describe('Codex driver', () => {
     expect(srv.got.find(g => g.method === 'turn/start')?.params).toMatchObject({ effort: 'ultra' });
   });
 
+  it('sends the speed as the turn\'s service tier, and nothing when none was set', async () => {
+    const { srv, d } = setup();
+    await d.send({ text: 'one' });
+    expect(srv.got.find(g => g.method === 'turn/start')?.params).not.toHaveProperty('serviceTier');
+  });
+
+  it('sends a set speed as the turn\'s service tier', async () => {
+    const { srv, d } = setup();
+    await d.send({ text: 'fast please', speed: 'priority' });
+    expect(srv.got.find(g => g.method === 'turn/start')?.params).toMatchObject({ serviceTier: 'priority' });
+  });
+
   it('starts a thread, links its id, and runs a turn', async () => {
     const { srv, h, d } = setup();
     await d.send({ text: 'hello', model: 'GPT-6.2 Sol', effort: 'High', perm: 'Auto' });

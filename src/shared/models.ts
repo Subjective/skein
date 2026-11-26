@@ -18,6 +18,11 @@ export interface ModelDef {
   effort?: string;
   /** Offers the Ultracode switch in the model picker. */
   ultra?: boolean;
+  /** The faster speed tiers the model offers (Claude Code's fast mode; Codex's service tiers), each a switch in the
+   *  model picker. The id is what the harness takes. */
+  speeds?: Choice[];
+  /** The tier the harness runs when none is set (Codex's catalog default); absent: standard speed. */
+  speed?: string;
   /** The harness's default model. */
   isDefault?: boolean;
   /** The full model id an alias resolves to (Claude 'opus' -> 'claude-opus-5-5'), so a thread pinned to that
@@ -44,6 +49,10 @@ export interface HarnessOptions {
 }
 
 const E = (...ids: string[]) => ids;
+/** The speed a chat send asks for to run at standard speed (Codex's word for it; Claude Code turns fast mode off). */
+export const STANDARD_SPEED = 'default';
+/** Claude Code's one faster speed: fast mode (the SDK's `fastMode` setting). */
+export const CLAUDE_FAST: Choice = { id: 'fast', label: 'Fast mode' };
 const CLAUDE_EFFORTS = E('low', 'medium', 'high', 'xhigh', 'max');
 
 /** The fallback model lists. Claude: what Claude Code 2.1.329 (Agent SDK 0.3.329) lists first for a

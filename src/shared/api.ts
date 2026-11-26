@@ -45,6 +45,9 @@ export interface ChatSend {
   /** Claude Code's Ultracode switch (standing dynamic-workflow orchestration, at any effort). Session-scoped like the
    *  SDK's setting: absent keeps what the thread's driver has. */
   ultra?: boolean;
+  /** The speed tier to run at (a ModelDef `speeds` id, or STANDARD_SPEED). Session-scoped too: absent keeps what the
+   *  thread's driver has. */
+  speed?: string;
   /** Edit and resend (G8): the id of the user event this message replaces. The thread rewinds to just before it. */
   rewind?: string;
   /** Send to this subagent (the id of its `sub` event) instead of the thread. */

@@ -15,7 +15,7 @@ describe.skipIf(!on)('real Claude Code options', () => {
     const query = (await import('@anthropic-ai/claude-agent-sdk')).query as QueryFn;
     const local: Machine = { id: 'local', name: 'here', os: 'Linux', link: 'up', has: ['claude'] };
     const o = await askClaude(local, query);
-    console.log(o.models.map(m => `${m.id} | ${m.label} | ${m.efforts.join(',')}${m.ultra ? ' | ultra' : ''}`).join('\n'));
+    console.log(o.models.map(m => `${m.id} | ${m.label} | ${m.efforts.join(',')}${m.ultra ? ' | ultra' : ''}${m.speeds ? ' | ' + m.speeds.map(s => s.id).join(',') : ''}`).join('\n'));
     console.log(o.perms.map(p => p.id).join(', '));
     expect(o.source).toBe('harness');
     expect(o.models.find(m => m.isDefault)).toBeTruthy();

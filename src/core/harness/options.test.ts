@@ -10,7 +10,7 @@ const ALL = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 // as Claude Code 2.1.329 lists them (trimmed)
 const CLAUDE: ClaudeModelInfo[] = [
-  { value: 'default', resolvedModel: 'claude-opus-5-5', displayName: 'Default (recommended)', description: 'Opus 5.5 · Best for everyday, complex tasks', supportsEffort: true, supportedEffortLevels: ALL, supportsAdaptiveThinking: true, supportsAutoMode: true },
+  { value: 'default', resolvedModel: 'claude-opus-5-5', displayName: 'Default (recommended)', description: 'Opus 5.5 · Best for everyday, complex tasks', supportsEffort: true, supportedEffortLevels: ALL, supportsAdaptiveThinking: true, supportsAutoMode: true, supportsFastMode: true },
   { value: 'opus', resolvedModel: 'claude-opus-5-5', displayName: 'Opus 5.5', description: 'For complex work and everyday tasks', supportsEffort: true, supportedEffortLevels: ALL, supportsAdaptiveThinking: true, supportsAutoMode: true },
   { value: 'claude-haiku-4-5-20251001', resolvedModel: 'claude-haiku-4-5-20251001', displayName: 'Haiku 4.5', description: 'Fastest for quick answers' },
 ];
@@ -30,6 +30,9 @@ describe('harness options', () => {
     expect(o.models[0]).toMatchObject({ label: 'Default (recommended)', isDefault: true, efforts: ALL, ultra: true, resolved: 'claude-opus-5-5' });
     expect(o.models[2]).toMatchObject({ label: 'Haiku 4.5', efforts: [] });
     expect(o.models[2].ultra).toBeUndefined();
+    // fast mode where Claude Code says the model has it
+    expect(o.models[0].speeds).toEqual([{ id: 'fast', label: 'Fast mode' }]);
+    expect(o.models[1].speeds).toBeUndefined();
     expect(o.perms.map(p => p.id)).toEqual(['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions']);
     // no model with auto mode: Auto mode isn't offered
     expect(claudeOptions([CLAUDE[2]]).perms.map(p => p.id)).not.toContain('auto');
@@ -41,6 +44,15 @@ describe('harness options', () => {
     expect(o.models[0]).toMatchObject({ label: 'GPT A', hint: 'Smart', efforts: ['minimal', 'high', 'ultra-deep'], effort: 'high', isDefault: true });
     expect(o.efforts.find(e => e.id === 'ultra-deep')?.label).toBe('Ultra-deep');
     expect(o.perms.map(p => p.id)).toEqual(['read-only', 'auto', 'auto-review', 'full-access']);
+    expect(o.models[0].speeds).toBeUndefined();
+  });
+
+  it('lists a Codex model\'s faster service tiers, in its words, with its default tier', () => {
+    const tiers = [{ id: 'default', name: 'Standard' }, { id: 'priority', name: 'Fast', description: '2x speed, increased usage' }];
+    const [a, b] = codexOptions([{ ...CODEX[1], serviceTiers: tiers, defaultServiceTier: 'priority' }, { ...CODEX[0], serviceTiers: tiers, defaultServiceTier: null }]).models;
+    expect(a).toMatchObject({ speeds: [{ id: 'priority', label: 'Fast', hint: '2x speed, increased usage' }], speed: 'priority' });
+    expect(b.speeds).toHaveLength(1);
+    expect(b.speed).toBeUndefined();
   });
 
   it('puts Codex\'s ultra effort at the top of the track, above max, whatever order model/list gives', () => {

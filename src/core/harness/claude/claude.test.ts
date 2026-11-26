@@ -117,13 +117,30 @@ describe('Claude driver', () => {
     expect(sdk.calls[0].effort).toBeUndefined();
     await d.send({ text: 'two', effort: 'high', ultra: true });
     await until(() => sdk.flags.length === 1);
-    expect(sdk.flags[0]).toEqual({ effortLevel: 'high', ultracode: true });
+    expect(sdk.flags[0]).toEqual({ effortLevel: 'high', ultracode: true, fastMode: false });
     await d.send({ text: 'three', ultra: false });
     await until(() => sdk.flags.length === 2);
-    expect(sdk.flags[1]).toEqual({ ultracode: false });
+    expect(sdk.flags[1]).toEqual({ ultracode: false, fastMode: false });
     await d.send({ text: 'four' });   // no ultra key: what the driver has stays, nothing to send
     await tick(30);
     expect(sdk.flags).toHaveLength(2);
+    await d.release();
+  });
+
+  it('sends fast mode: at start as the SDK opt-in setting, then live, and says once why it did not run', async () => {
+    let n = 0;
+    const sdk = fakeSdk(async function* () { n++; yield n === 2 ? ({ ...result(), fast_mode_state: 'cooldown' } as never) : result(); });
+    const h = fakeHost([{ id: 't1', sessionId: '11111111-1111-1111-1111-111111111111' }]);
+    const d = new ClaudeDriver('t1', h.host, async () => sdk.query);
+    await d.send({ text: 'one', speed: 'fast' });
+    await until(() => h.thread('t1').status === 'idle');
+    expect(sdk.calls[0].settings).toEqual({ fastMode: true });
+    await d.send({ text: 'two', speed: 'fast' });   // no change: nothing to apply
+    await until(() => h.view().some(e => e.t === 'notice' && /paused after a rate limit/.test(e.text)));
+    expect(sdk.flags).toHaveLength(0);
+    await d.send({ text: 'three', speed: 'default' });
+    await until(() => sdk.flags.length === 1);
+    expect(sdk.flags[0]).toEqual({ ultracode: false, fastMode: false });
     await d.release();
   });
 

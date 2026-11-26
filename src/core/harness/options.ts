@@ -11,7 +11,7 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { Options, PermissionMode, Query, SDKControlInitializeResponse, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
-import { bundledOptions, EFFORTS, PERMS, type Choice, type HarnessOptions, type ModelDef } from '../../shared/models';
+import { bundledOptions, CLAUDE_FAST, EFFORTS, PERMS, type Choice, type HarnessOptions, type ModelDef } from '../../shared/models';
 import type { Harness, Machine } from '../../shared/types';
 import { log } from '../log';
 import { localExecutable, sshSpawner, type QueryFn } from './claude/driver';
@@ -29,7 +29,7 @@ const OK_TTL = 10 * 60_000, FAIL_TTL = 30_000, TIMEOUT = 25_000;
 /** The SDK's ModelInfo, as much of it as we read. */
 export interface ClaudeModelInfo {
   value: string; displayName: string; description?: string; resolvedModel?: string;
-  supportsEffort?: boolean; supportedEffortLevels?: string[]; supportsAdaptiveThinking?: boolean; supportsAutoMode?: boolean;
+  supportsEffort?: boolean; supportedEffortLevels?: string[]; supportsAdaptiveThinking?: boolean; supportsAutoMode?: boolean; supportsFastMode?: boolean;
 }
 
 /** Claude's models as picker rows. 'default' is Claude Code's own default (it resolves per account). */
@@ -40,6 +40,7 @@ export function claudeOptions(models: ClaudeModelInfo[]): HarnessOptions {
     // Ultracode needs a model that supports it; the SDK's ModelInfo has no flag for that (0.3.329), so: models with
     // effort levels and adaptive thinking (every current model, none of the older ones).
     ...(m.supportsEffort && m.supportsAdaptiveThinking ? { ultra: true } : {}),
+    ...(m.supportsFastMode ? { speeds: [CLAUDE_FAST] } : {}),
     ...(m.value === 'default' ? { isDefault: true } : {}),
     ...(m.resolvedModel && m.resolvedModel !== m.value ? { resolved: m.resolvedModel } : {}),
   }));
@@ -51,6 +52,7 @@ export function claudeOptions(models: ClaudeModelInfo[]): HarnessOptions {
 export interface CodexModel {
   id: string; model: string; displayName: string; description?: string; hidden?: boolean; isDefault?: boolean;
   supportedReasoningEfforts?: { reasoningEffort: string; description?: string }[]; defaultReasoningEffort?: string;
+  serviceTiers?: { id: string; name: string; description?: string }[]; defaultServiceTier?: string | null;
 }
 /** What managed policy allows (protocol/v2/ConfigRequirements.ts), as much as we read. */
 export interface CodexRequirements { allowedApprovalPolicies?: unknown[] | null; allowedApprovalsReviewers?: string[] | null; allowedSandboxModes?: string[] | null }
@@ -72,9 +74,12 @@ export function codexOptions(models: CodexModel[], req?: CodexRequirements | nul
     // lowest first, as EFFORTS orders them (ultra above max is the top stop); a name we don't know keeps its place last
     const rank = (e: string) => { const i = EFFORTS.findIndex(x => x.id === e); return i < 0 ? EFFORTS.length : i; };
     es.sort((a, b) => rank(a) - rank(b));
+    // the faster tiers (today one, Fast), in Codex's own words; 'default' is standard speed, not a tier to switch on
+    const speeds: Choice[] = (m.serviceTiers ?? []).filter(x => x.id !== 'default').map(x => ({ id: x.id, label: x.name || x.id, ...(x.description ? { hint: x.description } : {}) }));
     return {
       id: m.model || m.id, label: m.displayName || m.model || m.id, ...(m.description ? { hint: m.description } : {}),
       efforts: es, ...(m.defaultReasoningEffort ? { effort: m.defaultReasoningEffort } : {}), ...(m.isDefault ? { isDefault: true } : {}),
+      ...(speeds.length ? { speeds } : {}), ...(m.defaultServiceTier && speeds.some(x => x.id === m.defaultServiceTier) ? { speed: m.defaultServiceTier } : {}),
     };
   });
   rows.sort((a, b) => Number(!!b.isDefault) - Number(!!a.isDefault));

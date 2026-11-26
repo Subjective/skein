@@ -658,7 +658,7 @@ await test('Codex pickers: its approval presets and its models with their own ef
   await p.locator('.pane.focus .cf .chip[title="Model and effort"]').click();
   const mm = p.locator('.menu.model');
   await mm.waitFor();
-  assert.deepEqual(await mm.locator('.mi .ml').allInnerTexts(), ['GPT-6.2 Sol', 'GPT-6.2 Astra']);
+  assert.deepEqual(await mm.locator('.mi .ml').allInnerTexts(), ['GPT-6.2 Sol', 'GPT-6.2 Astra', 'Fast']);
   assert.deepEqual(await mm.locator('.eff .et span').allInnerTexts(), ['Low', 'Medium', 'High', 'X-High']);
   await mm.locator('.mi', { hasText: 'GPT-6.2 Astra' }).click();
   await p.locator('.pane.focus .cf .chip[title="Model and effort"]', { hasText: 'GPT-6.2 Astra' }).waitFor();
@@ -1052,6 +1052,63 @@ await test('model picker: search, harness marks, effort track, Ultracode', async
   await p.keyboard.press('Escape');
 });
 
+await test('model picker: fast mode is a switch for the models that have it, keys and pointer, shown on the chip', async p => {
+  await openChat(p, 'Fix session-restore race');   // Claude, Opus 5.5: Claude Code lists fast mode for it
+  const chip = p.locator('.pane.focus .cf .chip[title="Model and effort"]');
+  const text = async () => (await chip.innerText()).replace(/\s+/g, ' ').trim();
+  await chip.click();
+  const menu = p.locator('.menu.model');
+  await menu.waitFor();
+  const fast = menu.locator('.mi', { hasText: 'Fast mode' });
+  await fast.waitFor();   // once the harness's list is in
+  assert.equal(await fast.locator('.sw.on').count(), 0, 'off to begin with');
+  await p.keyboard.press('Escape');                     // NORMAL
+  const sel = () => menu.evaluate(m => m.querySelector('.mi.sel .ml')?.textContent);
+  assert.equal(await sel(), 'Opus 5.5');
+  await keys(p, 'k k');                                 // past the top: the effort row
+  await keys(p, 'j j');
+  assert.equal(await sel(), 'Fast mode', 'j from the effort row: Ultracode, then Fast mode');
+  await p.keyboard.press('Enter');                      // toggles, and the picker stays open
+  await fast.locator('.sw.on').waitFor();
+  assert.equal(await menu.count(), 1, 'the picker stays open');
+  await p.locator('.pane.focus .cf .chip[title="Model and effort"]', { hasText: 'Medium · Fast' }).waitFor();
+  // a model without it: no row while the cursor is on it
+  await keys(p, 'g g');
+  for (let i = 0; i < 4; i++) await keys(p, 'j');
+  assert.equal(await sel(), 'Haiku 5.5');
+  assert.equal(await fast.count(), 0, 'no Fast mode row for Haiku 5.5');
+  await p.keyboard.press('Enter');                      // picking it turns fast mode off
+  await menu.waitFor({ state: 'detached' });
+  assert.equal(await text(), 'Haiku 5.5 Medium');
+  await chip.click();
+  await menu.waitFor();
+  await menu.locator('.mi', { hasText: 'Opus 5.5' }).click();
+  await menu.waitFor({ state: 'detached' });
+  assert.equal(await text(), 'Opus 5.5 Medium', 'back on Opus: still off');
+  await chip.click();
+  await fast.click();                                   // the pointer toggles it too
+  await fast.locator('.sw.on').waitFor();
+  await fast.click();
+  await fast.locator('.sw:not(.on)').waitFor();
+  assert.equal(await text(), 'Opus 5.5 Medium');
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+});
+
+await test('model picker: Codex\'s Fast tier, in its words, with its description', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  const chip = p.locator('.pane.focus .cf .chip[title="Model and effort"]');
+  await chip.click();
+  const menu = p.locator('.menu.model');
+  await menu.waitFor();
+  const fast = menu.locator('.mi', { hasText: 'Fast' });
+  await fast.waitFor();   // once the harness's list is in
+  assert.match(await fast.innerText(), /2x speed, increased usage/);
+  await fast.click();
+  await fast.locator('.sw.on').waitFor();
+  assert.match((await chip.innerText()).replace(/\s+/g, ' '), / · Fast$/);
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');
+});
+
 await test('model picker: a search with no model match selects nothing, says so, and enter does nothing', async p => {
   await openChat(p, 'Fix session-restore race');   // Claude: the picker has Ultracode
   const chip = p.locator('.pane.focus .cf .chip[title="Model and effort"]');
@@ -1088,6 +1145,7 @@ await test('model picker: the effort track is a row j / k reach (wrapping), h / 
   assert.ok(await menu.locator('.mx.sel').evaluate(e => getComputedStyle(e).backgroundColor !== 'rgba(0, 0, 0, 0)'), 'it shows a highlight');
   await keys(p, 'l'); assert.equal(await eff(), 'High');
   await keys(p, 'h'); assert.equal(await eff(), 'Medium');
+  await keys(p, 'j'); assert.equal(await sel(), 'Fast', 'below the effort row: the model\'s speed switch');
   await keys(p, 'j'); assert.equal(await sel(), 'GPT-6.2 Sol', 'j off the last row wraps to the top');
   await keys(p, 'k'); assert.equal(await sel(), 'effort', 'k from the top wraps to the effort row');
   await keys(p, 'l'); assert.equal(await eff(), 'High');
@@ -1873,13 +1931,13 @@ await test('model picker: hovering a model previews every control that depends o
   const menu = p.locator('.menu.model'); await menu.waitFor();
   const state = () => menu.evaluate(m => ({ h: Math.round(m.getBoundingClientRect().height), pins: m.querySelectorAll('.m-pin > *').length, none: !!m.querySelector('.eff.none'), ultra: [...m.querySelectorAll('.mi')].some(x => x.textContent.includes('Ultracode')) }));
   const s0 = await state();
-  assert.equal(s0.pins, 2, 'effort and Ultracode'); assert.ok(!s0.none && s0.ultra);
+  assert.equal(s0.pins, 3, 'effort, Ultracode and Fast mode'); assert.ok(!s0.none && s0.ultra);
   await menu.locator('.mi', { hasText: 'Haiku 4.5' }).hover(); await settle(p, 200);
   const s1 = await state();
   assert.ok(s1.none, 'the effort row stays, dimmed: Haiku 4.5 has no effort levels'); assert.ok(!s1.ultra, 'no Ultracode on Haiku 4.5'); assert.equal(s1.h, s0.h, 'the open menu keeps its height, so no row moves under the pointer');
   await menu.locator('.mi', { hasText: 'GPT-6.2 Sol' }).hover(); await settle(p, 200);
   const s2 = await state();
-  assert.ok(!s2.none, 'Sol has levels'); assert.ok(!s2.ultra, 'no Ultracode row for a Codex model'); assert.equal(s2.pins, 1); assert.equal(s2.h, s0.h);
+  assert.ok(!s2.none, 'Sol has levels'); assert.ok(!s2.ultra, 'no Ultracode row for a Codex model'); assert.equal(s2.pins, 2, 'effort and Codex\'s Fast'); assert.equal(s2.h, s0.h);
   await menu.locator('.mi', { hasText: 'Opus 5.5' }).hover(); await settle(p, 200);
   const s3 = await state();
   assert.ok(!s3.none && s3.ultra, 'back on a Claude model: both rows');

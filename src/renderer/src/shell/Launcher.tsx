@@ -16,7 +16,7 @@ import { openBranches } from './branches';
 import { Composer, type ComposerHandle } from '../views/chat/Composer';
 import { forgetField } from '../ui/VimField';
 import { forgetCodeField } from '../ui/editor/CodeField';
-import { blank, outgoing, setUltra, ultraOf, type Draft } from '../views/chat/state';
+import { blank, outgoing, sessionFor, setSpeed, setUltra, speedOf, ultraOf, type Draft } from '../views/chat/state';
 import { defaultModel } from '../views/chat/options';
 
 export const harnessOf = (t: Tab): Harness => (t.model?.startsWith('codex') ? 'codex' : t.model?.startsWith('claude') ? 'claude' : (S.settings as unknown as { lastHarness?: Harness }).lastHarness || 'claude');
@@ -58,7 +58,7 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
     const prompt = outgoing(draft), images = draft.images;
     const view = s.settings.defaultView;
     const model = t.model?.split(':')[1] || undefined;
-    const ultra = ultraOf(t.id);
+    const ultra = ultraOf(t.id), speed = speedOf(t.id);
     if (!t.dir) t.dir = dir;
     forgetField(t.id); forgetCodeField(t.id);   // a brand-new thread's composer opens in INSERT, whatever the launcher's mode was
     let th: ThreadMeta;
@@ -66,9 +66,10 @@ export function Launcher({ t, focused }: { t: Tab; focused: boolean }) {
     catch (e) { toast(`Couldn't start: ${String((e as Error)?.message || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`, { icon: 'alert' }, 6000); return; }
     setDraft(blank());
     if (ultra) setUltra(th.id, true);
+    if (speed) setSpeed(th.id, speed);
     if (prompt) void api.threads.update(th.id, { title: prompt.replace(/\s+/g, ' ').slice(0, 60) });
     if (view === 'chat') {
-      if (prompt || images.length) void api.chat.send(th.id, { text: prompt, images, model, effort: t.effort, perm: t.perm, ...(h === 'claude' ? { ultra } : {}) }).catch(e => toast(`Couldn't start: ${(e as Error).message}`, { icon: 'alert' }, 6000));
+      if (prompt || images.length) void api.chat.send(th.id, { text: prompt, images, model, effort: t.effort, perm: t.perm, ...sessionFor(th) }).catch(e => toast(`Couldn't start: ${(e as Error).message}`, { icon: 'alert' }, 6000));
     } else {
       // the first prompt rides on the command line, so the TUI starts working on it straight away; images go to the
       // machine's inbox first and their paths into the prompt (G14)

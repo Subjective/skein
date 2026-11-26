@@ -6,7 +6,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Harness, ThreadMeta } from '@shared/types';
-import { snapEffort } from '@shared/models';
+import { snapEffort, STANDARD_SPEED, type ModelDef } from '@shared/models';
 import type { Mode, Surface } from '../../input/dispatcher';
 import { registerTab } from '../../input/surfaces';
 import { api } from '../../api';
@@ -23,7 +23,7 @@ import { CodeField, type CodeFieldHandle } from '../../ui/editor/CodeField';
 import { openLightbox } from '../../ui/Lightbox';
 import { useDialogSurface } from '../../ui/Dialog';
 import { effortId, effortLabel, harnessOptions, INSTALL, modelDef, modelId, modelLabel, OURS, permChoices, permLabel, permOf, permRow, slashHit, THREAD_SLASH, useHarnessCommands, type Slash } from './options';
-import { hoverQuote, paintQuotes, QI, revealQuote, saveDraft, setUltra, syncQuotes, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
+import { hoverQuote, paintQuotes, QI, revealQuote, saveDraft, setSpeed, setUltra, speedOf, syncQuotes, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
 
 export interface ComposerHandle { focus(insert?: boolean): void; caret(): number; field(): CodeFieldHandle | null }
 
@@ -166,9 +166,9 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       groups: props.current.fresh ? ['claude', 'codex'] : [th.harness], machine: th.machine,
       value: () => {
         const t = props.current.thread, d = modelDef(t.harness, t.model, t.machine);
-        return { h: t.harness, model: modelId(t.harness, t.model, t.machine) || d.id, effort: effortId(t.effort) || d.effort || 'medium', ultra: ultraOf(t.id) };
+        return { h: t.harness, model: modelId(t.harness, t.model, t.machine) || d.id, effort: effortId(t.effort) || d.effort || 'medium', ultra: ultraOf(t.id), speed: speedOf(t.id) };
       },
-      set: v => { choose({ ...(v.h !== props.current.thread.harness ? { harness: v.h } : {}), model: v.model, effort: v.effort }); setUltra(th.id, v.ultra); },
+      set: v => { choose({ ...(v.h !== props.current.thread.harness ? { harness: v.h } : {}), model: v.model, effort: v.effort }); setUltra(th.id, v.ultra); setSpeed(th.id, v.speed); },
     });
   };
   // like Codex desktop's: each mode's icon, name and one line on what it allows, a check on the current one; the mode
@@ -362,7 +362,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         <IconButton icon="plus" label="Attach image · or paste one" onMouseDown={e => e.preventDefault()} onClick={() => file.current?.click()} />
         {!p.bare && <Chip icon={permRow(h, th.perm)?.icon ?? 'shield'} className={cx(permRow(h, th.perm)?.warn && 'warn')} lbl="lbl" label={permLabel(h, th.perm)} title="Permissions" onClick={e => pickPerm(e.currentTarget.getBoundingClientRect())} />}
         <span className="sp" />
-        {!p.bare && <Chip icon={h} caret raw title="Model and effort" label={<><span>{modelLabel(h, th.model)}</span><span className="lbl dim">{effortLabel(th.effort)}{ultraOf(th.id) && modelDef(h, th.model).ultra ? ' · Ultracode' : ''}</span></>}
+        {!p.bare && <Chip icon={h} caret raw title="Model and effort" label={<><span>{modelLabel(h, th.model)}</span><span className="lbl dim">{effortLabel(th.effort)}{ultraOf(th.id) && modelDef(h, th.model).ultra ? ' · Ultracode' : ''}{speedTag(modelDef(h, th.model), speedOf(th.id))}</span></>}
           onClick={e => pickModel(e.currentTarget.getBoundingClientRect())} />}
         {p.showContext && ctx != null && (
           <button type="button" className="ib" aria-label={`Context usage: ${ctx}% used`} title={`Context usage: ${ctx}% used, ${100 - ctx}% available`}
@@ -421,9 +421,17 @@ function ContextUsage({ button, ctx, tokens: tk, onClose }: { button: HTMLElemen
 // left / right in either mode; a row of its own: j past the last model or k from the top lands on it, enter there
 // keeps the current model), and Ultracode where the model has it. A machine without the harness dims its
 // models and offers to copy the install command.
-export interface ModelChoice { h: Harness; model: string; effort: string; ultra: boolean }
+export interface ModelChoice { h: Harness; model: string; effort: string; ultra: boolean; /** ChatSend.speed; unset: the model's default */ speed?: string }
 export interface ModelTarget { groups: Harness[]; machine?: string; value(): ModelChoice; set(v: ModelChoice): void }
-type Row = { k: 'model'; h: Harness; id: string } | { k: 'install'; h: Harness } | { k: 'ultra' } | { k: 'effort' };
+type Row = { k: 'model'; h: Harness; id: string } | { k: 'install'; h: Harness } | { k: 'ultra' } | { k: 'speed'; id: string } | { k: 'effort' };
+
+/** The speed tier a model runs at: the one set, else the model's default; undefined at standard speed. */
+const speedIn = (d: ModelDef, speed?: string) => { const s = speed ?? d.speed; return d.speeds?.find(x => x.id === s); };
+/** The chip's note for a faster tier: ' · Fast' (Claude Code's "Fast mode" shortened, as Ultracode is). */
+const speedTag = (d: ModelDef, speed?: string) => { const x = speedIn(d, speed); return x ? ' · ' + x.label.replace(/ mode$/, '') : ''; };
+/** The speed to keep on a model change: the same tier if the new model has it; a faster tier it lacks drops to
+ *  standard (so the harness doesn't keep running one the model can't); otherwise the new model's default. */
+const speedFor = (d: ModelDef, speed?: string) => (!speed || d.speeds?.some(x => x.id === speed) ? speed : speed === STANDARD_SPEED ? undefined : STANDARD_SPEED);
 
 export function openModelPicker(anchor: DOMRect, target: ModelTarget) {
   openLayer(close => <ModelPicker anchor={anchor} target={target} close={close} />);
@@ -476,6 +484,9 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
     if (es.length) out.push({ label: 'Effort', block: <EffortTrack stops={es.map(e => effortLabel(e))} i={ei} onTo={effortTo} preview={!!pv} />, data: { k: 'effort' }, pin: true });
     else if (anyEfforts.length) out.push({ label: 'Effort', block: <EffortTrack stops={anyEfforts.map(e => effortLabel(e))} i={-1} onTo={() => {}} none={`${shown.label} has no effort levels`} />, data: { k: 'effort' }, pin: true, dis: true });
     if (shown.ultra) out.push({ label: 'Ultracode', right: <span className={cx('sw', v.ultra && 'on')} />, data: { k: 'ultra' }, pin: true });
+    // the model's faster tiers, a switch each (one at most is on); like Ultracode, the picked model's state
+    const on = speedIn(shown, pv ? speedFor(shown, v.speed) : v.speed)?.id;
+    for (const x of shown.speeds ?? []) out.push({ label: x.label, hint: x.hint, right: <span className={cx('sw', on === x.id && 'on')} />, data: { k: 'speed', id: x.id }, pin: true });
     return out;
   }, [v, pv, ...opts]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
@@ -486,9 +497,10 @@ function ModelPicker({ anchor, target, close }: { anchor: DOMRect; target: Model
         const r = it.data; if (!r) return;
         if (r.k === 'install') { void navigator.clipboard?.writeText(INSTALL[r.h]).catch(() => {}); toast(`Copied ${INSTALL[r.h]}`, { icon: 'copy' }); return; }
         if (r.k === 'ultra') { if (def.ultra) put({ ...cur.current, ultra: !cur.current.ultra }); return; }
+        if (r.k === 'speed') { if (def.speeds?.some(x => x.id === r.id)) put({ ...cur.current, speed: speedIn(def, cur.current.speed)?.id === r.id ? STANDARD_SPEED : r.id }); return; }
         if (r.k === 'effort') return;   // enter on the effort row: the current model and effort stand (h / l already set it)
         const d = modelDef(r.h, r.id, target.machine), p = pvRef.current;
-        put({ h: r.h, model: r.id, effort: p && p.h === r.h && p.id === r.id ? p.effort : snapEffort(cur.current.effort, d), ultra: d.ultra ? cur.current.ultra : false });
+        put({ h: r.h, model: r.id, effort: p && p.h === r.h && p.id === r.id ? p.effort : snapEffort(cur.current.effort, d), ultra: d.ultra ? cur.current.ultra : false, speed: speedFor(d, cur.current.speed) });
         setPv(null);
       }} />
   );
