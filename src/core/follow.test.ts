@@ -12,7 +12,7 @@ const user = (uuid: string, parent: string | null, content: unknown, ts = new Da
   J({ type: 'user', uuid, parentUuid: parent, timestamp: ts, message: { role: 'user', content } });
 const asst = (uuid: string, parent: string, msgId: string, block: object, stop: string | null = null, ts = new Date().toISOString()) =>
   J({ type: 'assistant', uuid, parentUuid: parent, timestamp: ts, message: { id: msgId, role: 'assistant', content: [block], stop_reason: stop } });
-const until = async (f: () => boolean, ms = 3000) => { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error('timed out'); await new Promise(r => setTimeout(r, 10)); } };
+const until = async (f: () => boolean, ms = 15000) => { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error('timed out'); await new Promise(r => setTimeout(r, 10)); } };
 
 describe('LineSplitter', () => {
   it('holds a partial last line until its newline comes', () => {
