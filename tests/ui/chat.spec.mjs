@@ -1588,6 +1588,14 @@ await test('reader: j lands on a reply\'s action row; l moves between its button
   assert.match(await cursorRow(p), /m-acts/, 'j reached the action row');
   assert.equal(await p.locator('.pane.focus .m-acts').evaluate(el => getComputedStyle(el).opacity), '1', 'the row shows while the cursor is on it');
   assert.equal(await ringed(p), 'Copy');
+  // a reply skips paint off screen (content-visibility), which clips at its edge: the ring must fit inside the clip margin
+  const fit = await p.evaluate(() => {
+    const b = document.querySelector('.pane.focus .m-acts .kcur'), r = b.closest('.reply');
+    const bs = getComputedStyle(b), rs = getComputedStyle(r);
+    const ring = parseFloat(bs.outlineWidth) + parseFloat(bs.outlineOffset);
+    return rs.contentVisibility !== 'auto' || parseFloat(rs.overflowClipMargin || '0') >= ring;
+  });
+  assert.ok(fit, 'the ring is not clipped by the reply');
   await keys(p, 'l');
   assert.equal(await ringed(p), 'Fork into a new thread');
   await keys(p, 'h');
