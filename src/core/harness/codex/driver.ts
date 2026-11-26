@@ -9,21 +9,22 @@ import { createServer } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ChatSend } from '../../../shared/api';
-import { effortId, modelId, permId } from '../../../shared/models';
+import { effortId, modelId, modelLabel, PERMS, permId } from '../../../shared/models';
 import type { ApprovalRequest, Machine, Queued, ThreadEvent, ThreadMeta } from '../../../shared/types';
 import type { ChatDriver, ChatHost } from '../../chat';
 import { spawnOn } from '../../exec';
 import { log } from '../../log';
 import { which } from '../../shell';
-import { errorKind, throttle, tidy } from '../common';
+import { contextLine, errorKind, statusText, throttle, tidy } from '../common';
 import { codexHistory, continuedId } from './history';
-import { agentStates, commandStep, itemEvents, turnError } from './items';
+import { agentStates, commandStep, INIT_PROMPT, itemEvents, ReviewItems, turnError } from './items';
 import type { QueuedSubmission } from './protocol/v2/QueuedSubmission';
 import type { ThreadItem } from './protocol/v2/ThreadItem';
 import type { UserInput } from './protocol/v2/UserInput';
 import { Rpc } from './rpc';
 
 type Params = Record<string, unknown> & { threadId?: string; conversationId?: string };
+type Window = { usedPercent: number; windowDurationMins: number | null; resetsAt: number | null };
 
 export interface ThreadListener {
   notify(method: string, p: Params): void;
@@ -240,6 +241,9 @@ export class CodexDriver implements ChatDriver {
 
     if (!(await this.ensure())) return;
     const rpc = this.rpc!, threadId = this.t.sessionId!;
+    // the app-server has no slash commands (Codex's TUI acts on them): these call what it has instead
+    const cmd = !msg.retry && !msg.rewind && !msg.resume && !images?.length ? /^\/(compact|review|status)(?:\s+([\s\S]+))?$/.exec(text.trim()) : null;
+    if (cmd) return this.command(cmd[1] as 'compact' | 'review' | 'status', cmd[2]?.trim());
 
     if (msg.retry) {
       const last = this.lastUser ?? (await codexHistory(rpc, threadId)).events.filter((e): e is Extract<ThreadEvent, { t: 'user' }> => e.t === 'user').pop();
@@ -251,7 +255,7 @@ export class CodexDriver implements ChatDriver {
     }
 
     const clientId = randomUUID();
-    const input = msg.resume ? [] : await this.inputOf(text, images);
+    const input = msg.resume ? [] : await this.inputOf(/^\/init$/.test(text.trim()) ? INIT_PROMPT : text, images);
     // queued: Codex keeps it (thread/queue/*) and starts it as a turn of its own when this one ends; its message
     // shows in the transcript when that turn starts (item/started), so it isn't one of ours to show now
     if (msg.queue && this.turn) {
@@ -289,6 +293,48 @@ export class CodexDriver implements ChatDriver {
     } catch (e) {
       this.error((e as Error).message);
     }
+  }
+
+  /** /compact (thread/compact/start), /review [what to look at] (review/start: the uncommitted changes, or your
+   *  instructions), /status (the thread's settings, account/read and account/rateLimits/read). */
+  private async command(name: 'compact' | 'review' | 'status', args?: string) {
+    const rpc = this.rpc!, threadId = this.t.sessionId!, id = 'cmd-' + randomUUID();
+    this.ev({ t: 'user', id, text: '/' + name + (args ? ' ' + args : ''), at: Date.now() });
+    if (name === 'status') { this.ev({ t: 'text', id: 'st-' + id, text: await this.statusText(rpc) }); return; }
+    if (this.turn) { this.ev({ t: 'notice', id: 'n-' + id, text: `/${name} can run when this turn ends` }); return; }
+    this.status('running');
+    try {
+      const r = name === 'compact'
+        ? await rpc.request<{ turn?: { id: string } }>('thread/compact/start', { threadId })
+        : await rpc.request<{ turn?: { id: string } }>('review/start', { threadId, target: args ? { type: 'custom', instructions: args } : { type: 'uncommittedChanges' }, delivery: 'inline' });
+      if (r?.turn?.id) this.beginTurn(r.turn.id);
+    } catch (e) {
+      this.error((e as Error).message);
+    }
+  }
+
+  private async statusText(rpc: Rpc): Promise<string> {
+    const t = this.t;
+    const ask = <T>(method: string, params: object) => Promise.race([rpc.request<T>(method, params), new Promise<undefined>(r => setTimeout(() => r(undefined), 10_000))]).catch(() => undefined);
+    const [acct, lim] = await Promise.all([
+      ask<{ account: { type: string; email?: string | null; planType?: string } | null }>('account/read', {}),
+      ask<{ rateLimits?: { primary: Window | null; secondary: Window | null } }>('account/rateLimits/read', { excludeResetCreditDetails: true }),
+    ]);
+    const a = acct?.account;
+    const perm = PERMS.codex.find(p => p.id === (permId('codex', t.perm) ?? 'auto'))?.label;
+    const win = (w: Window | null | undefined) => {
+      if (!w) return undefined;
+      const span = w.windowDurationMins ? (w.windowDurationMins >= 1440 ? `${Math.round(w.windowDurationMins / 1440)}-day` : `${Math.round(w.windowDurationMins / 60)}-hour`) + ' limit' : 'Limit';
+      const at = w.resetsAt ? new Date(w.resetsAt * 1000).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+      return `${span}: ${Math.round(w.usedPercent)}% used${at ? `, resets ${at}` : ''}`;
+    };
+    return statusText([
+      ['Model', t.model ? modelLabel('codex', t.model) : 'Default'], ['Effort', effortId(t.effort)], ['Permissions', perm],
+      ['Folder', t.dir], ['Thread', t.sessionId],
+      ['Account', a && (a.type === 'chatgpt' ? [a.email, a.planType].filter(Boolean).join(' · ') : a.type === 'apiKey' ? 'API key' : a.type)],
+      ['Context', contextLine(t.ctxTokens)],
+      ['Usage', [win(lim?.rateLimits?.primary), win(lim?.rateLimits?.secondary)].filter(Boolean).join('; ')],
+    ]);
   }
 
   // ---- the queue: Codex's own (thread/queue/*), mirrored into ThreadMeta.queue on every thread/queue/changed ----
@@ -524,6 +570,8 @@ export class CodexDriver implements ChatDriver {
     catch (e) { this.error(`Could not rewind: ${(e as Error).message}`, 'other'); return false; }
   }
   private turnOfLive = new Map<string, string>();
+  /** The running turn's review items (a /review turn shows only the review). */
+  private review = new ReviewItems();
 
   private beginTurn(id: string) {
     if (this.turn === id) return;
@@ -555,7 +603,7 @@ export class CodexDriver implements ChatDriver {
         if (turn.status === 'interrupted') this.ev({ t: 'interrupted', id: 'i-' + turn.id });
         if (ms >= 1000) this.ev({ t: 'worked', id: 'w-' + turn.id, ms });
         for (const [rid, p2] of this.approvals) this.settle(rid, p2, decline(p2.method, true), 'Cancelled');
-        this.turn = null; this.items.clear(); this.text.clear();
+        this.turn = null; this.items.clear(); this.text.clear(); this.review = new ReviewItems();
         this.host.update(this.id, { status: turn.status === 'failed' ? 'error' : 'idle', updatedAt: Date.now() });
         if (turn.status === 'interrupted') this.pause(true);
         return;
@@ -564,6 +612,7 @@ export class CodexDriver implements ChatDriver {
         const item = p.item as ThreadItem;
         if (p.turnId && item.type === 'userMessage') this.turnOfLive.set(item.clientId ?? item.id, String(p.turnId));
         if (item.type === 'userMessage' && item.clientId && this.sent.has(item.clientId)) return; // shown when sent
+        if (!this.review.shows(item)) return;
         if (method === 'item/completed') { this.items.delete(item.id); this.text.delete(item.id); this.flush.flush(); } else this.items.set(item.id, item);
         for (const e of itemEvents(item)) this.ev(e, true);
         // a wait or a close says how a sub-agent ended
@@ -601,6 +650,7 @@ export class CodexDriver implements ChatDriver {
   }
 
   private delta(itemId: string, kind: 'text' | 'thinking' | 'out', d: string) {
+    if (this.review.hides(itemId)) return;
     const cur = this.text.get(itemId) ?? { kind, s: '' };
     cur.s += d;
     this.text.set(itemId, cur);

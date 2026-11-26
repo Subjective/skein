@@ -226,6 +226,14 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   `/`, not only at the start. Picking one replaces just that word. `/model` and `/sidechats` mid-message take
   their word out, keep the rest of the draft, and open their picker. A word like `/usr/bin` that matches no
   command opens nothing. A terminal prompt keeps / at the start only, because the TUI owns its line.
+- **Harness commands in chat** (owner, 2026-11-26): every command the / menu lists does something in the chat.
+  The harness answers what it can (Claude Code: /compact, /context, /usage, /init, skills). Skein acts on the
+  ones a harness only answers in its terminal UI: /model, /effort, /permissions, /approvals and /plan set the
+  thread or open its picker; /clear (Claude) and /new (Codex) start a new thread with the same harness, folder
+  and settings in the same tab; /diff opens Changes; /mention starts an @; /resume opens the thread search.
+  The drivers call the harness's API for the rest: Codex /compact (`thread/compact/start`), /review
+  (`review/start`, the uncommitted changes or the words after it), /init (a prompt to write AGENTS.md, shown as
+  /init); /status for both and Claude's /mcp are answered in the chat from the SDK and app-server.
 
 - **Status bar branch and place** (owner, 2026-11-25): the branch opens the branch picker (the same one as
   Changes' branch chip: filter, switch, create; an amber dot on the current branch when the tree is dirty),

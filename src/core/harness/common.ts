@@ -112,3 +112,13 @@ export function deferred<T = void>() {
   const promise = new Promise<T>((a, b) => { resolve = a; reject = b; });
   return { promise, resolve, reject };
 }
+
+/** What /status shows in the chat (neither harness answers it outside its terminal UI): the thread's settings
+ *  as Skein runs them, and what the harness says about the account. Rows without a value are left out. */
+export function statusText(rows: [string, string | undefined | null | false][]): string {
+  return rows.filter(([, v]) => v).map(([k, v]) => `- **${k}:** ${v}`).join('\n');
+}
+const kTokens = (n: number) => (n >= 1e6 ? `${Math.round(n / 1e5) / 10}M` : n >= 1000 ? `${Math.round(n / 100) / 10}k` : String(n));
+/** "32.1k / 200k tokens (16%)" */
+export const contextLine = (c?: { used: number; max: number }) =>
+  c && c.max ? `${kTokens(c.used)} / ${kTokens(c.max)} tokens (${Math.round((c.used / c.max) * 100)}%)` : undefined;

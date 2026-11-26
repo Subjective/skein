@@ -14,7 +14,7 @@ import * as A from '../../state/actions';
 import { Button, cx, Dot, Icon, Spinner } from '../../ui/primitives';
 import { harnessName, setSubNames } from '../../shell/meta';
 import { dispatchKey } from '../../shell/keyboard';
-import { openMenu, setSetting } from '../../shell/overlays';
+import { openMenu, openPalette, setSetting } from '../../shell/overlays';
 import { clipImages, Composer, LockedComposer, type ComposerHandle } from './Composer';
 import { onText, Reader, SEL_BLOCK, selectable } from './reader';
 import { Ticks } from './Ticks';
@@ -27,7 +27,7 @@ import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
 import { rawAt } from './markdown';
 import { chatLink, OS_OPENS } from './links';
-import { openFile as openFileAt, splitClick } from '../tools/open';
+import { openFile as openFileAt, openTool, splitClick } from '../tools/open';
 import { recentMouse } from '../../ui/VimField';
 import './chat.css';
 
@@ -390,6 +390,9 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     if (cmd === '/subagents') return subList(th, lg.events, anchor);
     if (cmd === '/side') return void sideFromDraft();
     if (cmd === '/sidechats') return chooseSide(th, anchor, lastText(), openSide);
+    if (cmd === '/clear' || cmd === '/new') return void A.freshThread(th);
+    if (cmd === '/diff') return openTool('changes', t);
+    if (cmd === '/resume') return openPalette();
   };
 
   // ---- reader entry from the composer: k on its first line, gg ----

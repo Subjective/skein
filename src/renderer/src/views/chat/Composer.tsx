@@ -6,7 +6,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Harness, ThreadMeta } from '@shared/types';
-import { snapEffort, STANDARD_SPEED, type ModelDef } from '@shared/models';
+import { findModel, snapEffort, STANDARD_SPEED, type ModelDef } from '@shared/models';
 import type { Mode, Surface } from '../../input/dispatcher';
 import { registerTab } from '../../input/surfaces';
 import { api } from '../../api';
@@ -22,7 +22,7 @@ import { FileIcon } from '../../ui/FileIcon';
 import { CodeField, type CodeFieldHandle } from '../../ui/editor/CodeField';
 import { openLightbox } from '../../ui/Lightbox';
 import { useDialogSurface } from '../../ui/Dialog';
-import { effortId, effortLabel, harnessOptions, INSTALL, modelDef, modelId, modelLabel, OURS, permChoices, permLabel, permOf, permRow, slashHit, THREAD_SLASH, useHarnessCommands, type Slash } from './options';
+import { effortId, effortLabel, efforts, harnessOptions, INSTALL, modelDef, modelId, modelLabel, isOurs, permChoices, permLabel, permOf, permRow, SLASH_ARGS, slashHidden, slashHit, THREAD_SLASH, useHarnessCommands, type Slash } from './options';
 import { hoverQuote, paintQuotes, QI, revealQuote, saveDraft, setSpeed, setUltra, speedOf, syncQuotes, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
 
 export interface ComposerHandle {
@@ -117,7 +117,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       // nothing typed: sections, as Codex's menu: the harness's everyday commands, Skein's own (side chats, subagents),
       // the skills, then the harness's other built-ins under More. Typing: one list of what matches, each row tagged
       // with where it comes from (Josh, 2026-11-20)
-      const hit = (c: Slash) => slashHit(c, pop.q) && !(p.bare && c.cmd === '/model');
+      const where = { bare: p.bare, side: !!p.thread.side, fresh: !!p.fresh };
+      const hit = (c: Slash) => slashHit(c, pop.q) && !slashHidden(c.cmd, h, where);
       const typed = pop.q.replace(/^[/$]/, '') !== '';
       const row = (tag?: string) => (c: Slash): MenuItem<string> => ({ label: c.cmd, display: c.display, hint: c.hint, icon: <Icon name={c.icon} />, data: c.cmd, ...(typed && tag ? { right: <span className="src">{tag}</span> } : {}) });
       const cmds = slashes.commands.filter(hit), ours = (!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : []).filter(hit), skills = slashes.skills.filter(hit), more = slashes.more.filter(hit);
@@ -136,11 +137,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const pick = (it: MenuItem<string>) => {
     const d = props.current.draft, f = pop; if (!f || !it.data) return;
     const pos = field.current?.state().pos ?? d.text.length;
-    if (f.kind === 'slash' && OURS.includes(it.data)) {   // ours: take the word out, keep the rest, act
+    if (f.kind === 'slash' && isOurs(it.data, h, whereNow())) {   // ours: take the word out, keep the rest, act
       const text = (d.text.slice(0, f.from) + d.text.slice(pos)).replace(/ {2,}/g, ' ');
-      set({ text }); field.current?.set(text); setPop(null);
-      const anchor = box.current!.getBoundingClientRect();
-      if (it.data === '/model') pickModel(anchor); else props.current.onCommand?.(it.data, anchor);
+      set({ text }); field.current?.set(text, f.from); setPop(null);
+      runOurs(it.data, '', f.from, text);
       return;
     }
     const ins = f.kind === 'slash' ? it.data + ' ' : '@' + it.data + (it.data.endsWith('/') ? '' : ' ');
@@ -149,14 +149,41 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     setPop(it.data.endsWith('/') && f.kind === 'at' ? { kind: 'at', from: f.from, q: it.data } : null);
   };
 
-  // one of our commands typed alone (the menu dismissed): enter runs it rather than sending it to the harness
+  // one of our commands typed (the menu dismissed): enter runs it rather than sending it to the harness. Alone, or
+  // with what /model, /effort and /plan take ('/model opus'); anything else with words after it goes as typed
+  const whereNow = () => ({ bare: props.current.bare, side: !!props.current.thread.side, fresh: !!props.current.fresh });
   const ourCommand = () => {
-    const c = props.current.draft.text.trim();
-    if (!OURS.includes(c) || (c !== '/model' && (props.current.bare || props.current.thread.side || props.current.fresh)) || (c === '/model' && props.current.bare)) return false;
-    set({ text: '' }); field.current?.set('');
-    const anchor = box.current!.getBoundingClientRect();
-    if (c === '/model') pickModel(anchor); else props.current.onCommand?.(c, anchor);
+    const m = /^(\/[\w-]+)(?:\s+([\s\S]*))?$/.exec(props.current.draft.text.trim());
+    if (!m || !isOurs(m[1], h, whereNow()) || (m[2] && !SLASH_ARGS.includes(m[1]))) return false;
+    // /plan <what>: Plan mode, with the request left to send in it
+    const rest = m[1] === '/plan' ? m[2] ?? '' : '';
+    set({ text: rest }); field.current?.set(rest);
+    runOurs(m[1], m[1] === '/plan' ? '' : m[2]?.trim() ?? '', 0, rest);
     return true;
+  };
+  /** Act on one of ours; `text` is the draft without it, `at` where it was (/mention starts an @ there). */
+  const runOurs = (cmd: string, arg: string, at: number, text: string) => {
+    const anchor = box.current!.getBoundingClientRect(), t = props.current.thread;
+    switch (cmd) {
+      case '/model': {
+        const d = arg ? findModel(h, arg, harnessOptions(h, t.machine).models) ?? findModel(h, arg) : undefined;
+        if (d) choose({ model: d.id }); else pickModel(anchor);
+        return;
+      }
+      case '/effort': {
+        const e = arg && efforts(h, t.model, t.machine).find(x => x.id === effortId(arg));
+        if (e) choose({ effort: e.id }); else pickModel(anchor);
+        return;
+      }
+      case '/permissions': case '/approvals': return pickPerm(anchor);
+      case '/plan': return choose({ perm: 'plan' });
+      case '/mention': {
+        const withAt = text.slice(0, at) + '@' + text.slice(at);
+        set({ text: withAt }); field.current?.set(withAt, at + 1); setPop({ kind: 'at', from: at, q: '' });
+        return;
+      }
+      default: props.current.onCommand?.(cmd, anchor);
+    }
   };
 
   // ---- pickers ----

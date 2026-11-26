@@ -186,6 +186,8 @@ export class ClaudeFold {
   }
 
   notice(id: string, text: string) { this.put({ t: 'notice', id, text }); }
+  /** A reply that isn't the model's (a local command's output). */
+  say(id: string, text: string) { this.put({ t: 'text', id, text }); }
   worked(id: string, ms: number) { this.put({ t: 'worked', id, ms }); }
   error(id: string, kind: ErrorKindArg, text: string) { this.put({ t: 'error', id, kind, text }); }
 
