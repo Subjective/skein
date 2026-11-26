@@ -58,7 +58,7 @@ const addThread = (t: ThreadMeta) => update(s => { if (!s.threads.some(x => x.id
 /** A side chat about the reply `at`: a real fork, kept with its thread (G8). */
 export async function newSide(th: ThreadMeta, at?: string, title?: string): Promise<string> {
   const sc = await api.threads.create({ harness: th.harness, machine: th.machine, dir: th.dir, model: th.model, effort: th.effort, perm: th.perm, view: 'chat', side: true, parent: { id: th.id, at } });
-  const named = title ? await api.threads.update(sc.id, { title }) : sc;
+  const named = title ? await api.threads.update(sc.id, { title, named: true }) : sc;
   addThread({ ...named, side: true, parent: named.parent || { id: th.id, at } });
   return sc.id;
 }
@@ -85,7 +85,7 @@ export function chooseSide(th: ThreadMeta, anchor: DOMRect, at: string | undefin
     const sc = thread(id); if (!sc) return;
     openMenu<string>({ ...placement, className: 'composer-menu', search: { prefix: 'Rename', placeholder: 'Side chat name', value: sc.title },
       items: q => [{ label: q.trim() || sc.title, icon: createElement(Icon, { name: 'chat' }), data: q.trim() }],
-      onPick: (_, q) => { if (q.trim()) void api.threads.update(sc.id, { title: q.trim() }); } });
+      onPick: (_, q) => { if (q.trim()) void api.threads.update(sc.id, { title: q.trim(), named: true }); } });
     // the old name selected, so typing replaces it
     requestAnimationFrame(() => { const i = document.querySelector<HTMLInputElement>('.menu:last-of-type .m-s input'); i?.select(); });
   };

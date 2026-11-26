@@ -52,6 +52,8 @@ export interface ThreadMeta {
   machine: string;
   dir: string;
   title: string;
+  /** You named the thread in Skein: the harness's own title (core/discover) no longer replaces it. */
+  named?: boolean;
   branch?: string;
   model?: string;
   effort?: string;

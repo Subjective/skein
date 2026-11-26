@@ -5,6 +5,8 @@ import { ClaudeDriver, type QueryFn } from './claude/driver';
 import { claudeHistory, claudeSubHistory } from './claude/history';
 import { CodexDriver, CodexServers, type Launch } from './codex/driver';
 import { codexHistory } from './codex/history';
+import { claudeLocal, claudeRemote, codexThreads } from '../discover';
+import { log } from '../log';
 import { harnessCommands } from './commands';
 import { harnessOptions } from './options';
 import { homedir } from 'node:os';
@@ -67,6 +69,15 @@ export function createHarnesses(deps: HarnessDeps = {}): Harnesses {
     },
     options: (m, h) => options.get(m, h),
     commands: (m, h, dir) => commands.get(m, h, dir),
+    async sessions(m, limit) {
+      const quiet = (h: string) => (e: Error) => { log('discover', m.id, h, e.message); return []; };
+      const [claude, codex] = await Promise.all([
+        // an SSH machine that can't be reached throws, so the caller hears of it
+        m.ssh ? claudeRemote(m, limit) : claudeLocal(limit).catch(quiet('claude')),
+        servers.get(m).then(rpc => codexThreads(rpc, limit)).catch(quiet('codex')),
+      ]);
+      return [...claude, ...codex].sort((a, b) => b.updatedAt - a.updatedAt);
+    },
     dispose() { servers.dispose(); },
   };
 }
