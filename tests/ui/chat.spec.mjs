@@ -683,6 +683,51 @@ await test('composer controls: j from the text walks the row, enter presses', as
   await p.keyboard.press('Escape');
 });
 
+await test('edit box controls: enter on permissions or model opens its menu and the edit stays open', async p => {
+  await openChat(p, 'Tidy PowerShell profile');
+  const edit = p.locator('.pane.focus .m-edit');
+  await composer(p).press('Escape');
+  await p.keyboard.press('g'); await p.keyboard.press('g'); await settle(p);
+  await p.keyboard.press('0');
+  await p.keyboard.press('i');
+  await edit.locator('.cm-content').waitFor();
+  await p.waitForFunction(() => document.querySelector('#status .vim')?.textContent === 'INSERT' && document.activeElement?.closest('.m-edit'), null, { timeout: 2000 }).catch(() => {});
+  await p.keyboard.press('Escape');
+  await p.keyboard.press('j');
+  await settle(p);
+  const mark = edit.locator('.cf > .kcur');
+  await p.keyboard.press('l');
+  assert.equal(await mark.getAttribute('title'), 'Permissions');
+  await p.keyboard.press('Enter');
+  const perms = p.locator('.menu.perms');
+  await perms.waitFor();
+  assert.equal(await edit.count(), 1, 'the edit box stays open under its menu');
+  await p.keyboard.press('Escape');
+  await perms.waitFor({ state: 'detached' });
+  assert.equal(await edit.count(), 1, 'esc closes only the menu');
+  assert.equal(await mark.getAttribute('title'), 'Permissions', 'the keys are back on the chip');
+  // a pick redraws the chip: the mark stays on it
+  await p.keyboard.press('Enter');
+  await perms.waitFor();
+  await p.keyboard.press('G');
+  const last = await perms.locator('.mi .ml').last().innerText();
+  await p.keyboard.press('Enter');
+  await perms.waitFor({ state: 'detached' });
+  await edit.locator('.cf .chip[title="Permissions"]', { hasText: last }).waitFor();
+  assert.equal(await edit.count(), 1, 'a pick keeps the edit box open');
+  assert.equal(await mark.getAttribute('title'), 'Permissions');
+  await p.keyboard.press('l');
+  assert.equal(await mark.getAttribute('title'), 'Model and effort');
+  await p.keyboard.press('Enter');
+  await p.locator('.menu.model').waitFor();
+  assert.equal(await edit.count(), 1, 'the model picker leaves the edit box open too');
+  await p.keyboard.press('Escape'); await p.keyboard.press('Escape');   // out of its search field, then the menu
+  await p.locator('.menu.model').waitFor({ state: 'detached' });
+  assert.equal(await mark.getAttribute('title'), 'Model and effort');
+  await p.keyboard.press('Escape');
+  await p.waitForFunction(() => !document.querySelector('.pane.focus .m-edit'));
+});
+
 await test('images: attach shows a thumbnail, x removes it, it is sent', async p => {
   await openChat(p, 'Add timestamps to chat rows');
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');

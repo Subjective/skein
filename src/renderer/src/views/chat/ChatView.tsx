@@ -204,7 +204,8 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
     // never changes the mode: the composer takes the keys in NORMAL
     const by = recentMouse(), listed = !!by?.closest?.('.sc-anchor');
     const u = readingUnder.current, back = u === 'layer' || (u === 'away' && !by && A.steppedInsert() === undefined && !A.justOpened()); if (focused) readingUnder.current = false;
-    if (focused && !wasFocused.current && !reader.on && qref.current == null && !(back && !S.layers.length && read.current && reader.enter(read.current, 'back'))) { if (composer.current) composer.current.focus(listed ? false : A.steppedInsert()); else idle(); }
+    const onRow = !!(composer.current?.onControls() || editor.current?.onControls());   // its menu closed: the row keeps the keys
+    if (focused && !wasFocused.current && !reader.on && qref.current == null && !onRow && !(back && !S.layers.length && read.current && reader.enter(read.current, 'back'))) { if (composer.current) composer.current.focus(listed ? false : A.steppedInsert()); else idle(); }
     if (!focused && wasFocused.current) {
       readingUnder.current = reader.on && (S.layers.length ? 'layer' : 'away');
       const el = document.activeElement as HTMLElement | null;
