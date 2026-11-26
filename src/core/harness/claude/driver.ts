@@ -6,9 +6,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { extname, join } from 'node:path';
-import type { CanUseTool, Options, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
+import type { CanUseTool, FastModeDisabledReason, FastModeState, Options, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatSend } from '../../../shared/api';
-import { effortId, modelId, permId } from '../../../shared/models';
+import { CLAUDE_FAST, effortId, modelId, permId } from '../../../shared/models';
 import type { ApprovalRequest, Machine, Queued, ThreadEvent, ThreadMeta } from '../../../shared/types';
 import type { ChatDriver, ChatHost } from '../../chat';
 import { spawnOn } from '../../exec';
@@ -85,6 +85,15 @@ export function sshSpawner(m: Machine, dir: string, onStderr: (s: string) => voi
 
 /** An effort Claude Code takes (its EffortLevel); anything else (Codex's 'ultra', 'minimal') is left to its default. */
 const CLAUDE_EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
+/** Claude Code's reasons fast mode didn't run, in its own words where it has them. */
+const FAST_OFF: Partial<Record<FastModeDisabledReason | 'cooldown', string>> = {
+  cooldown: 'Fast mode is paused after a rate limit',
+  not_first_party: 'Fast mode is not available on this provider',
+  model_not_allowed: "Fast mode isn't available for this model",
+  preference: 'Fast mode is turned off by your settings or organization',
+  extra_usage_disabled: 'Fast mode needs extra usage turned on',
+  disabled_by_env: 'Fast mode is not available',
+};
 const claudeEffort = (v?: string) => { const e = effortId(v); return e && CLAUDE_EFFORTS.has(e) ? e : undefined; };
 
 export class ClaudeDriver implements ChatDriver {
@@ -98,9 +107,13 @@ export class ClaudeDriver implements ChatDriver {
   private turnId = '';
   private approvals = new Map<string, Pending>();
   private stderr = '';
-  private live: { model?: string; effort?: string; perm?: string; ultra?: boolean } = {};
+  private live: { model?: string; effort?: string; perm?: string; ultra?: boolean; fast?: boolean } = {};
   /** The Ultracode switch as the chat last sent it (session-scoped, as the SDK's setting is). */
   private ultra = false;
+  /** Fast mode as the chat last sent it (ChatSend.speed 'fast'; session-scoped like Ultracode). */
+  private fast = false;
+  /** Why fast mode didn't run, as last told in the chat, so a reason is said once and not after every turn. */
+  private fastSaid: string | undefined;
   private stream = new Map<number, { kind: 'text' | 'thinking'; text: string }>();
   private streamMsg = '';
   private partial = throttle<() => void>(60, f => f());
@@ -133,6 +146,7 @@ export class ClaudeDriver implements ChatDriver {
     if (msg.effort && msg.effort !== t.effort) patch.effort = msg.effort;
     if (msg.perm && msg.perm !== t.perm) patch.perm = msg.perm;
     if (msg.ultra !== undefined) this.ultra = msg.ultra;
+    if (msg.speed !== undefined) this.fast = msg.speed === CLAUDE_FAST.id;
     if ((!t.title || t.title === 'New thread') && text.trim()) patch.title = tidy(text, 60);
     if (Object.keys(patch).length) this.host.update(this.id, patch);
 
@@ -240,8 +254,9 @@ export class ClaudeDriver implements ChatDriver {
     if (model) opts.model = model;
     if (effort) opts.effort = effort as Options['effort'];
     if (perm) { opts.permissionMode = perm; if (perm === 'bypassPermissions') opts.allowDangerouslySkipPermissions = true; }
-    if (this.ultra) opts.settings = { ultracode: true };
-    this.live = { model, effort, perm, ultra: this.ultra };
+    // the SDK runs fast mode only when the app opts in through flag settings (else 'sdk_opt_in_required')
+    if (this.ultra || this.fast) opts.settings = { ...(this.ultra ? { ultracode: true } : {}), ...(this.fast ? { fastMode: true } : {}) };
+    this.live = { model, effort, perm, ultra: this.ultra, fast: this.fast };
 
     if (!m.ssh && !existsSync(expand(t.dir))) throw this.fail('other', `The folder ${t.dir} does not exist on this computer.`);
     if (m.ssh) opts.spawnClaudeCodeProcess = sshSpawner(m, t.dir, d => this.tail(d));
@@ -321,6 +336,7 @@ export class ClaudeDriver implements ChatDriver {
           if (!this.interrupted && !/interrupt|aborted/i.test(text)) this.ev({ t: 'error', id: 'e-' + randomUUID(), kind: errorKind(text), text: tidy(text, 600) });
         } else if (r.is_error && r.result) this.ev({ t: 'error', id: 'e-' + randomUUID(), kind: errorKind(r.result), text: tidy(r.result, 600) });
         if (r.duration_ms >= 1000) this.fold.worked('w-' + this.turnId, r.duration_ms);
+        this.fastNotice(m as { fast_mode_state?: FastModeState; fast_mode_disabled_reason?: FastModeDisabledReason });
         const window = Math.max(0, ...Object.values((r as { modelUsage?: Record<string, { contextWindow?: number }> }).modelUsage ?? {}).map(x => x.contextWindow ?? 0));
         const ctx = window && this.contextUsed ? { ctx: Math.min(100, Math.round((this.contextUsed / window) * 100)), ctxTokens: { used: this.contextUsed, max: window } } : {};
         this.host.update(this.id, { status: r.is_error ? 'error' : 'idle', updatedAt: Date.now(), ...ctx });
@@ -396,14 +412,24 @@ export class ClaudeDriver implements ChatDriver {
     const model = modelId('claude', t.model), effort = claudeEffort(t.effort), perm = permId('claude', t.perm) as PermissionMode | undefined;
     if (model && model !== this.live.model) { await q.setModel(model).catch(e => log('claude', 'model', e)); this.live.model = model; this.ev({ t: 'notice', id: 'n-' + randomUUID(), text: `Model: ${t.model}` }); }
     if (perm && perm !== this.live.perm) { await q.setPermissionMode(perm).catch(e => log('claude', 'perm', e)); this.live.perm = perm; }
-    // an effortLevel sent without an ultracode key turns Ultracode off (SDK applyFlagSettings), so a change of either
-    // sends both; Ultracode works at any effort
-    const effortMoved = !!effort && effort !== this.live.effort, ultraMoved = this.ultra !== !!this.live.ultra;
-    if (effortMoved || ultraMoved) {
-      await q.applyFlagSettings({ ...(effortMoved ? { effortLevel: effort as never } : {}), ultracode: this.ultra }).catch(e => log('claude', 'effort / ultracode', e));
+    // an effortLevel sent without an ultracode key turns Ultracode off (SDK applyFlagSettings), so a change of any
+    // of them sends Ultracode and fast mode too; Ultracode works at any effort
+    const effortMoved = !!effort && effort !== this.live.effort, ultraMoved = this.ultra !== !!this.live.ultra, fastMoved = this.fast !== !!this.live.fast;
+    if (effortMoved || ultraMoved || fastMoved) {
+      await q.applyFlagSettings({ ...(effortMoved ? { effortLevel: effort as never } : {}), ultracode: this.ultra, fastMode: this.fast }).catch(e => log('claude', 'effort / ultracode / fast', e));
       if (effortMoved) this.live.effort = effort;
-      this.live.ultra = this.ultra;
+      this.live.ultra = this.ultra; this.live.fast = this.fast;
+      if (fastMoved) this.fastSaid = undefined;
     }
+  }
+
+  /** Fast mode was asked for and Claude Code says it didn't run: say why, once (the chip still shows it as on). */
+  private fastNotice(r: { fast_mode_state?: FastModeState; fast_mode_disabled_reason?: FastModeDisabledReason }) {
+    if (!this.fast || !r.fast_mode_state || r.fast_mode_state === 'on') { this.fastSaid = undefined; return; }
+    const why = r.fast_mode_state === 'cooldown' ? 'cooldown' : r.fast_mode_disabled_reason;
+    if (!why || why === 'pending' || why === this.fastSaid) return;
+    this.fastSaid = why;
+    this.ev({ t: 'notice', id: 'n-' + randomUUID(), text: FAST_OFF[why] ?? "Fast mode isn't available right now" });
   }
 
   // ---- rewind (edit and resend, retry) ----

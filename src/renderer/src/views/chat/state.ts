@@ -200,5 +200,16 @@ export function revealQuote(q: Quote): boolean {
 const ultras = new Map<string, boolean>();
 export const ultraOf = (id: string) => !!ultras.get(id);
 export function setUltra(id: string, on: boolean) { if (on) ultras.set(id, true); else ultras.delete(id); bump(); }
-/** What a chat send carries for Ultracode: Claude Code takes it (session settings), Codex has no such switch. */
-export const ultraFor = (t: { id: string; harness: string }) => (t.harness === 'claude' ? { ultra: ultraOf(t.id) } : {});
+
+// ---------- Speed (Claude Code's fast mode, Codex's service tier) ----------
+// Kept the same way, per thread for the session: a ModelDef `speeds` id, or STANDARD_SPEED; unset, the harness's
+// default for the model (Codex's catalog default; Claude Code: standard).
+const speeds = new Map<string, string>();
+export const speedOf = (id: string) => speeds.get(id);
+export function setSpeed(id: string, speed: string | undefined) { if (speed) speeds.set(id, speed); else speeds.delete(id); bump(); }
+
+/** What a chat send carries for the session-scoped switches: Ultracode (Claude Code only) and the speed. */
+export const sessionFor = (t: { id: string; harness: string }) => {
+  const speed = speedOf(t.id);
+  return { ...(t.harness === 'claude' ? { ultra: ultraOf(t.id) } : {}), ...(speed ? { speed } : {}) };
+};

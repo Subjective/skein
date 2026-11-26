@@ -200,6 +200,8 @@ export class CodexDriver implements ChatDriver {
   private unlisten: (() => void) | null = null;
   private flush = throttle<() => void>(60, f => f());
   private lastUser: { id: string; text: string; images?: string[] } | null = null;
+  /** The service tier the chat last asked for (ChatSend.speed); unset: the thread's own (Codex keeps it). */
+  private speed: string | undefined;
   /** The sub-agents this thread spawned, by sub event id. Each is a Codex thread of its own (its `agent`), listened
    *  to so its turns stream into its popup and its approvals reach this thread's chat. */
   private subs = new Map<string, SubEv>();
@@ -232,6 +234,7 @@ export class CodexDriver implements ChatDriver {
     if (msg.model && msg.model !== t0.model) patch.model = msg.model;
     if (msg.effort && msg.effort !== t0.effort) patch.effort = msg.effort;
     if (msg.perm && msg.perm !== t0.perm) patch.perm = msg.perm;
+    if (msg.speed !== undefined) this.speed = msg.speed;
     if ((!t0.title || t0.title === 'New thread') && text.trim()) patch.title = tidy(text, 60);
     if (Object.keys(patch).length) this.host.update(this.id, patch);
 
@@ -275,6 +278,8 @@ export class CodexDriver implements ChatDriver {
           cwd: expand(this.m, t.dir),
           ...(modelId('codex', t.model) ? { model: modelId('codex', t.model) } : {}),
           ...(effortId(t.effort) ? { effort: effortId(t.effort) } : {}),
+          // this turn and the ones after it ('default' is standard speed)
+          ...(this.speed ? { serviceTier: this.speed } : {}),
           ...(perm ? { approvalPolicy: perm.approvalPolicy, approvalsReviewer: perm.approvalsReviewer, sandboxPolicy: perm.sandboxPolicy } : {}),
         });
         this.beginTurn(r.turn.id);

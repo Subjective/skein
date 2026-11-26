@@ -1,34 +1,36 @@
 // What the harnesses answer in the dev backend, shaped as core/harness/options.ts turns their answers into rows.
-// Claude: the list Claude Code 2.1.329 (Agent SDK 0.3.329) gave for a first-party account. Codex: model/list
+// Claude: the list Claude Code 2.1.329 (Agent SDK 0.3.329) gave for a first-party account (fast mode: supportsFastMode). Codex: model/list
 // shaped rows (efforts and default effort per model).
 import { CODEX_COMMANDS, type HarnessCommand, type HarnessCommands } from '@shared/commands';
-import { EFFORTS, PERMS, type HarnessOptions, type ModelDef } from '@shared/models';
+import { CLAUDE_FAST, EFFORTS, PERMS, type HarnessOptions, type ModelDef } from '@shared/models';
 import type { Harness } from '@shared/types';
 
 const ALL = ['low', 'medium', 'high', 'xhigh', 'max'];
 const c = (id: string, label: string, hint: string, x: Partial<ModelDef> = {}): ModelDef =>
   ({ id, label, hint, efforts: ALL, ultra: true, ...x });
 
+const F = { speeds: [CLAUDE_FAST] };
 const CLAUDE: ModelDef[] = [
-  c('default', 'Default (recommended)', 'Opus 5.5 · Best for everyday, complex tasks', { isDefault: true, resolved: 'claude-opus-5-5' }),
-  c('opus', 'Opus 5.5', 'For complex work and everyday tasks', { resolved: 'claude-opus-5-5' }),
-  c('fable', 'Fable 5.2', 'For your toughest challenges', { resolved: 'claude-fable-5-2' }),
+  c('default', 'Default (recommended)', 'Opus 5.5 · Best for everyday, complex tasks', { isDefault: true, resolved: 'claude-opus-5-5', ...F }),
+  c('opus', 'Opus 5.5', 'For complex work and everyday tasks', { resolved: 'claude-opus-5-5', ...F }),
+  c('fable', 'Fable 5.2', 'For your toughest challenges', { resolved: 'claude-fable-5-2', ...F }),
   c('sonnet', 'Sonnet 5.5', 'Most efficient for simpler tasks', { resolved: 'claude-sonnet-5-5' }),
   c('haiku', 'Haiku 5.5', 'Fastest for quick answers', { resolved: 'claude-haiku-5-5' }),
   c('claude-fable-5-1', 'Fable 5.1', 'Most capable for your hardest and longest-running tasks'),
   { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', hint: 'Fastest for quick answers', efforts: [] },
   c('claude-sonnet-5', 'Sonnet 5', 'Efficient for routine tasks'),
-  c('claude-opus-5', 'Opus 5', 'Best for everyday, complex tasks'),
+  c('claude-opus-5', 'Opus 5', 'Best for everyday, complex tasks', F),
   c('claude-fable-5', 'Fable 5', 'Most capable for your hardest and longest-running tasks'),
-  c('claude-opus-4-8', 'Opus 4.8', 'Best for everyday, complex tasks'),
+  c('claude-opus-4-8', 'Opus 4.8', 'Best for everyday, complex tasks', F),
   c('claude-opus-4-7', 'Opus 4.7', 'Best for everyday, complex tasks'),
   c('claude-opus-4-6', 'Opus 4.6', 'Best for everyday, complex tasks'),
   c('claude-sonnet-4-6', 'Sonnet 4.6', 'Efficient for routine tasks'),
 ];
 
+const FAST = { speeds: [{ id: 'priority', label: 'Fast', hint: '2x speed, increased usage' }] };
 const CODEX: ModelDef[] = [
-  { id: 'gpt-6.2-sol', label: 'GPT-6.2 Sol', hint: 'Frontier agentic coding model', efforts: ['low', 'medium', 'high', 'xhigh'], effort: 'medium', isDefault: true },
-  { id: 'gpt-6.2-astra', label: 'GPT-6.2 Astra', hint: 'Faster and cheaper for everyday tasks', efforts: ['low', 'medium', 'high'], effort: 'medium' },
+  { id: 'gpt-6.2-sol', label: 'GPT-6.2 Sol', hint: 'Frontier agentic coding model', efforts: ['low', 'medium', 'high', 'xhigh'], effort: 'medium', isDefault: true, ...FAST },
+  { id: 'gpt-6.2-astra', label: 'GPT-6.2 Astra', hint: 'Faster and cheaper for everyday tasks', efforts: ['low', 'medium', 'high'], effort: 'medium', ...FAST },
 ];
 
 export const fakeOptions = (h: Harness): HarnessOptions =>

@@ -177,6 +177,11 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   row. In a terminal the TUI prints its own error; a crashed process shows its exit line and Restart.
 - **Missing harness** (G6): the model picker dims models a machine can't run and offers the install command;
   choosing such a machine for a new thread switches to a model it has, and says so.
+- **Fast mode**: a switch in the model picker under Ultracode, only for models the harness says have it (Claude
+  Code: ModelInfo `supportsFastMode`, sent with `applyFlagSettings({ fastMode })`, which is also the SDK's opt-in;
+  Codex: `model/list` `serviceTiers`, sent as `turn/start` `serviceTier`, `default` for standard speed). Kept per
+  thread for the session, like Ultracode; the chip adds "· Fast". If Claude Code says fast mode didn't run, the
+  thread gets one notice with the reason.
 - **Focused pane** (G11): its active tab is solid with a short underline; other panes' tabs are outlined.
 - **Narrow windows** (G10): below 900 px the sidebar hides itself and floats over the panes when opened;
   tabs that don't fit scroll inside the bar with a fade at the edge (B8).

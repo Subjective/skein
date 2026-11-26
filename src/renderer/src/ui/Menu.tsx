@@ -111,14 +111,19 @@ export function Menu<D>(p: MenuProps<D>) {
   const [i, setI] = useState(() => p.select ?? first());
   // a refilter starts on the first row; a menu that stays open (keep) keeps the row it was on, by label
   const prevLabel = useRef<string | undefined>(undefined);
+  // set while the cursor is about to move to its new row: until it lands, `i` still points into the old list, so
+  // the owner isn't told about that row (a model picker previewing it would change the list again, and so on)
+  const moving = useRef(false);
   useEffect(() => {
     const was = p.keep && prevLabel.current != null ? items.findIndex(it => !it.head && !it.dis && it.label === prevLabel.current) : -1;
-    setI(p.select ?? (was >= 0 ? was : first()));
+    const n = p.select ?? (was >= 0 ? was : first());
+    moving.current = n !== i;
+    setI(n);
   }, [items.length, q]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { prevLabel.current = items[i]?.label; }); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (p.select != null) setI(p.select); }, [p.select]);
   useEffect(() => { p.onSelect?.(i); }, [i]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { p.onCursor?.(items[i]); }, [i, items]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (moving.current) { moving.current = false; return; } p.onCursor?.(items[i]); }, [i, items]); // eslint-disable-line react-hooks/exhaustive-deps
   const ref = useRef<HTMLDivElement>(null);
   const inp = useRef<HTMLInputElement>(null);
   const st = useRef({ i, items, q, ins }); st.current = { i, items, q, ins };
