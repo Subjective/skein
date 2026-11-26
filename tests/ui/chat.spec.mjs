@@ -191,12 +191,14 @@ await test('reader: j and k near the edge of the screen go one line at a time, n
 });
 await test('reader: a cursor on a running turn\'s Working line stays drawn when the turn\'s work replaces it', async p => {
   await openChat(p, 'Profile slow orders query');
-  await composer(p).fill('hello there'); await composer(p).press('Enter');
+  // "slowly" holds the Working line for 4s, not 500ms: on a loaded runner the esc and k below can take over a second
+  await composer(p).fill('hello there, slowly'); await composer(p).press('Enter');
   // the Working line draws a frame or two after the send: a k before it lands on the last reply instead
   await p.locator('.pane.focus .live').waitFor();
   await composer(p).press('Escape'); await keys(p, 'k'); await settle(p, 50);
   assert.equal(await p.evaluate(() => [...CSS.highlights.get('vcur')][0].startContainer.parentElement.closest('.live') != null), true, 'on the Working line');
-  await p.waitForTimeout(1500);   // the work (a Read row, the streamed reply) takes the Working line's place
+  // the work (a Read row, then the streamed reply) takes the Working line's place
+  await p.locator('.pane.focus .live').waitFor({ state: 'detached', timeout: 15000 }); await settle(p, 200);
   const c = await cursorAt(p);
   assert.ok(c?.on, `the cursor is still drawn on screen (${JSON.stringify(c)})`);
   await keys(p, 'k'); assert.ok((await cursorAt(p))?.on, 'and it moves from there');
