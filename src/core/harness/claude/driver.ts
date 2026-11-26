@@ -8,13 +8,13 @@ import { homedir } from 'node:os';
 import { extname, join } from 'node:path';
 import type { CanUseTool, FastModeDisabledReason, FastModeState, Options, PermissionMode, PermissionResult, Query, SDKMessage, SDKUserMessage, SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatSend } from '../../../shared/api';
-import { CLAUDE_FAST, effortId, modelId, permId } from '../../../shared/models';
+import { CLAUDE_FAST, effortId, modelId, modelLabel, PERMS, permId } from '../../../shared/models';
 import type { ApprovalRequest, Machine, Queued, ThreadEvent, ThreadMeta } from '../../../shared/types';
 import type { ChatDriver, ChatHost } from '../../chat';
 import { spawnOn } from '../../exec';
 import { log } from '../../log';
 import { sqPath, which } from '../../shell';
-import { deferred, errorKind, replaceDiff, throttle, tidy, type ErrorKind } from '../common';
+import { contextLine, deferred, errorKind, replaceDiff, statusText, throttle, tidy, type ErrorKind } from '../common';
 import { ClaudeFold, toolArg, toolName } from './fold';
 import { parseClaudeTranscript, readClaudeTranscript } from './history';
 
@@ -153,6 +153,9 @@ export class ClaudeDriver implements ChatDriver {
     if (rewind) await this.rewindTo(rewind);
     try { await this.ensure(); } catch (e) { log('claude', 'start', e); return; }
     await this.applySettings();
+    // commands Claude Code answers only in its terminal UI: answered here from what the SDK reports
+    const local = !rewind && !images?.length ? /^\/(status|mcp)$/.exec(text.trim()) : null;
+    if (local) return this.localCommand(local[1] as 'status' | 'mcp');
 
     const uuid = randomUUID();
     this.lastSend = { text, images };
@@ -163,6 +166,30 @@ export class ClaudeDriver implements ChatDriver {
     if (this.t.queuePaused) this.setQueue(this.queue, false);
     if (!this.running) this.startTurn(uuid);
     this.inbox!.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, uuid: uuid as SDKUserMessage['uuid'] } as SDKUserMessage);
+  }
+
+  /** /status and /mcp: shown in the chat, not sent (Claude Code says they "aren't available" outside its TUI). */
+  private async localCommand(name: 'status' | 'mcp') {
+    const uuid = randomUUID(), q = this.q!;
+    this.ev({ t: 'user', id: uuid, text: '/' + name, at: Date.now() });
+    const ask = <T>(p: Promise<T>) => Promise.race([p, new Promise<undefined>(r => setTimeout(() => r(undefined), 10_000))]).catch(() => undefined);
+    let text: string;
+    if (name === 'mcp') {
+      const list = (await ask(q.mcpServerStatus())) ?? [];
+      text = list.length
+        ? list.map(x => `- **${x.name}:** ${x.status.replace('-', ' ')}${x.tools?.length ? ` · ${x.tools.length} tools` : ''}${x.error ? ` · ${tidy(x.error, 120)}` : ''}`).join('\n')
+        : 'No MCP servers are set up for this folder.';
+    } else {
+      const t = this.t, a = await ask(q.accountInfo());
+      const perm = PERMS.claude.find(p => p.id === (permId('claude', t.perm) ?? 'default'))?.label;
+      text = statusText([
+        ['Model', t.model ? modelLabel('claude', t.model) : 'Default'], ['Effort', effortId(t.effort)], ['Permissions', perm],
+        ['Folder', t.dir], ['Session', t.sessionId],
+        ['Account', a && [a.email ?? a.organization, a.subscriptionType].filter(Boolean).join(' · ') || a?.apiKeySource && `API key (${a.apiKeySource})`],
+        ['Context', contextLine(t.ctxTokens)],
+      ]);
+    }
+    this.ev({ t: 'text', id: 'lc-' + uuid, text });
   }
 
   // ---- the queue (ThreadMeta.queue) ----

@@ -150,7 +150,26 @@ export const slashHit = (c: Slash, q: string) => c.cmd.slice(1).startsWith(q.rep
 
 /** A thread's own (not side chats or subagents): after the harness's commands. */
 export const THREAD_SLASH: Slash[] = ([['/side', 'New side chat about the quote or the last reply'], ['/sidechats', 'Open or start a side chat'], ['/subagents', "List this thread's subagents"]] as [string, string][]).map(slash);
-/** Commands the app acts on itself (open a picker) instead of sending them. */
-export const OURS = ['/model', '/side', '/sidechats', '/subagents'];
+/** Commands Skein acts on itself instead of sending them, where the harness only answers them in its terminal UI
+ *  (or not at all): the composer's pickers, and the view's actions (a new thread, Changes, the thread search,
+ *  side chats). The harness answers the rest: Claude Code's /compact, /context, /usage, /init, its skills; the
+ *  drivers turn Codex's /compact, /review, /init and both harnesses' /status (and Claude's /mcp) into calls. */
+const PICKERS = ['/model', '/effort', '/permissions', '/approvals', '/plan', '/mention'];
+const VIEWS = ['/clear', '/new', '/diff', '/resume', ...THREAD_SLASH.map(x => x.cmd)];
+/** The ones that take what follows them: '/model opus', '/effort high', '/plan <what to plan>'. */
+export const SLASH_ARGS = ['/model', '/effort', '/plan'];
+export interface SlashWhere { bare?: boolean; side?: boolean; fresh?: boolean }
+/** Whether the command is one of ours where the composer is: a subagent's has no pickers or actions; a launcher has
+ *  no thread to act on yet; a side chat has no side chats of its own. Claude Code's Plan mode is Claude's. */
+export function isOurs(cmd: string, h: Harness, o: SlashWhere): boolean {
+  if (o.bare) return false;
+  if (cmd === '/plan') return h === 'claude';
+  if (PICKERS.includes(cmd)) return true;
+  if (!VIEWS.includes(cmd) || o.fresh) return false;
+  return !(o.side && THREAD_SLASH.some(x => x.cmd === cmd));
+}
+/** A row the / menu leaves out there: ours where they can't act. */
+export const slashHidden = (cmd: string, h: Harness, o: SlashWhere) =>
+  (PICKERS.includes(cmd) || VIEWS.includes(cmd)) && !isOurs(cmd, h, o);
 
 export const INSTALL: Record<Harness, string> = { claude: 'npm install -g @anthropic-ai/claude-code', codex: 'npm install -g @openai/codex' };

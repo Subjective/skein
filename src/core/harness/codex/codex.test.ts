@@ -3,7 +3,7 @@ import { which } from '../../shell';
 import { fakeHost, until } from '../test/fakes';
 import { CodexDriver, CodexServers, launchAppServer, type Launch } from './driver';
 import { codexHistory, turnEvents } from './history';
-import { commandStep, itemEvents, unwrap } from './items';
+import { commandStep, INIT_PROMPT, itemEvents, unwrap } from './items';
 import { Rpc } from './rpc';
 
 const J = (o: object) => JSON.stringify(o);
@@ -320,5 +320,79 @@ describe('Codex sub-agents', () => {
     await d.send({ text: 'hi', sub: 'sp1' });
     expect(srv.got.at(-1)).toMatchObject({ method: 'turn/start', params: { threadId: 'cx-child', input: [{ type: 'text', text: 'hi' }] } });
     await expect(d.send({ text: 'hi', sub: 'nope' })).rejects.toThrow(/Follow-ups aren't available/);
+  });
+});
+
+describe('Codex slash commands', () => {
+  const setup = () => {
+    const srv = fakeServer(method => {
+      if (method === 'turn/start') return { turn: { id: 'turn-1' } };
+      if (method === 'review/start') return { turn: { id: 'rv-1' }, reviewThreadId: 'cx-1' };
+      if (method === 'account/read') return { account: { type: 'chatgpt', email: 'a@b.c', planType: 'pro' }, userId: null, requiresOpenaiAuth: true };
+      if (method === 'account/rateLimits/read') return { rateLimits: { primary: { usedPercent: 23, windowDurationMins: 300, resetsAt: null }, secondary: null } };
+      return {};
+    });
+    const h = fakeHost([{ id: 't1', harness: 'codex', sessionId: 'cx-1', perm: 'auto' }]);
+    return { srv, h, d: new CodexDriver('t1', h.host, new CodexServers(srv.launch)) };
+  };
+  const calls = (srv: ReturnType<typeof fakeServer>) => srv.got.map(g => g.method).filter(m => !/^(initialize|initialized|thread\/resume|thread\/queue\/list)$/.test(m));
+
+  it('compacts with thread/compact/start rather than sending /compact to the model', async () => {
+    const { srv, h, d } = setup();
+    await d.send({ text: '/compact' });
+    expect(calls(srv)).toEqual(['thread/compact/start']);
+    expect(h.view()).toMatchObject([{ t: 'user', text: '/compact' }]);
+    srv.notify('turn/started', { threadId: 'cx-1', turn: { id: 'c-1' } });
+    srv.notify('item/completed', { threadId: 'cx-1', turnId: 'c-1', item: { type: 'contextCompaction', id: 'cc' } });
+    srv.notify('turn/completed', { threadId: 'cx-1', turn: { id: 'c-1', status: 'completed', error: null, durationMs: 10 } });
+    await until(() => h.thread('t1').status === 'idle');
+    expect(h.view().map(e => e.t)).toEqual(['user', 'notice']);
+  });
+
+  it('reviews the uncommitted changes, or what /review is told, showing only the review', async () => {
+    const { srv, h, d } = setup();
+    await d.send({ text: '/review' });
+    expect(srv.got.at(-1)).toMatchObject({ method: 'review/start', params: { threadId: 'cx-1', target: { type: 'uncommittedChanges' }, delivery: 'inline' } });
+    const item = (method: string, it: object) => srv.notify(method, { threadId: 'cx-1', turnId: 'rv-1', item: it });
+    item('item/completed', { type: 'enteredReviewMode', id: 'en', review: 'current changes' });
+    item('item/completed', { type: 'userMessage', id: 'prompt', clientId: null, content: [{ type: 'text', text: 'Review the current code changes', text_elements: [] }] });
+    item('item/started', { type: 'agentMessage', id: 'raw', text: '' });
+    srv.notify('item/agentMessage/delta', { threadId: 'cx-1', turnId: 'rv-1', itemId: 'raw', delta: '{"findings":[]}' });
+    item('item/completed', { type: 'agentMessage', id: 'raw', text: '{"findings":[]}' });
+    item('item/completed', { type: 'exitedReviewMode', id: 'ex', review: 'Looks fine.' });
+    item('item/started', { type: 'agentMessage', id: 'again', text: '' });
+    item('item/completed', { type: 'agentMessage', id: 'again', text: 'Looks fine.' });
+    srv.notify('turn/completed', { threadId: 'cx-1', turn: { id: 'rv-1', status: 'completed', error: null, durationMs: 10 } });
+    await until(() => h.thread('t1').status === 'idle');
+    expect(h.view().map(e => [e.t, 'text' in e ? e.text : ''])).toEqual([['user', '/review'], ['notice', 'Reviewing'], ['text', 'Looks fine.']]);
+    await d.send({ text: '/review only the parser' });
+    expect(srv.got.at(-1)).toMatchObject({ method: 'review/start', params: { target: { type: 'custom', instructions: 'only the parser' } } });
+  });
+
+  it('reads a review back as /review and the review', () => {
+    const user = (text: string) => ({ type: 'userMessage', id: 'u', clientId: null, content: [{ type: 'text', text, text_elements: [] }] });
+    const turns = [
+      { id: 'a', status: 'interrupted', error: null, durationMs: null, items: [user('only the parser')] },
+      { id: 'b', status: 'completed', error: null, durationMs: 10, items: [{ type: 'enteredReviewMode', id: 'en', review: 'only the parser' }, { type: 'exitedReviewMode', id: 'ex', review: 'Fine.' }, { type: 'agentMessage', id: 'm', text: 'Fine.' }] },
+      { id: 'c', status: 'completed', error: null, durationMs: 10, items: [user(INIT_PROMPT)] },
+    ];
+    expect(turnEvents(turns as never).events.map(e => [e.t, 'text' in e ? e.text : ''])).toEqual([['user', '/review only the parser'], ['notice', 'Reviewing'], ['text', 'Fine.'], ['user', '/init']]);
+  });
+
+  it('sends /init as a prompt to write AGENTS.md, and answers /status itself', async () => {
+    const { srv, h, d } = setup();
+    await d.send({ text: '/init' });
+    expect(srv.got.at(-1)).toMatchObject({ method: 'turn/start', params: { input: [{ type: 'text', text: INIT_PROMPT }] } });
+    expect(h.view().at(-1)).toMatchObject({ t: 'user', text: '/init' });
+    srv.notify('turn/completed', { threadId: 'cx-1', turn: { id: 'turn-1', status: 'completed', error: null, durationMs: 10 } });
+    await until(() => h.thread('t1').status === 'idle');
+    await d.send({ text: '/status' });
+    expect(calls(srv).slice(-2).sort()).toEqual(['account/rateLimits/read', 'account/read']);
+    const st = h.view().at(-1) as { t: string; text: string };
+    expect(st.t).toBe('text');
+    expect(st.text).toContain('**Permissions:** ');
+    expect(st.text).toContain('a@b.c · pro');
+    expect(st.text).toContain('5-hour limit: 23% used');
+    expect(h.thread('t1').status).toBe('idle');
   });
 });

@@ -189,6 +189,14 @@ export async function startThread(t: Tab, harness: 'claude' | 'codex', view: Vie
   return th;
 }
 
+/** /clear (Claude Code) and /new (Codex): a fresh conversation as a new thread with this one's harness, folder and
+ *  settings, in this one's tab. The old thread stays in the sidebar. */
+export async function freshThread(from: ThreadMeta): Promise<void> {
+  const th = await api.threads.create({ harness: from.harness, machine: from.machine, dir: from.dir, model: from.model, effort: from.effort, perm: from.perm, view: 'chat' });
+  update(s => { if (!s.threads.some(x => x.id === th.id)) s.threads = [th, ...s.threads]; });
+  openThread(th.id, { view: 'chat' });
+}
+
 export function zoom() { update(s => { const w = ws(); if (leaves(w.tree).length > 1) w.zoom = !w.zoom; s.tick++; }); }
 export function only() { update(s => { const w = ws(); const p = focusedPane(w); w.tree = p; w.focus = p.id; w.zoom = false; s.tick++; }); save(); }
 export function movePane(d: 'h' | 'j' | 'k' | 'l') {

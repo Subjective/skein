@@ -2407,3 +2407,67 @@ await test('links in a reply: enter and g x follow the link under the cursor', a
   await keys(p, 'g x');
   assert.equal(await p.evaluate(() => window.__external.length), 2, 'g x follows it too');
 });
+
+// ---- harness commands that only work in the harness's terminal UI: Skein acts on them instead ----
+const threadOf = (p, title) => p.evaluate(t => window.__skein.S.threads.find(x => x.title === t), title);
+
+await test('/approvals (Codex) and /permissions (Claude) open the permissions menu; nothing is sent', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).pressSequentially('/approvals');
+  await composer(p).press('Enter');
+  await p.locator('.layer .menu.perms').waitFor();
+  await p.keyboard.press('Escape');
+  assert.equal((await composer(p).inputValue()).trim(), '');
+  await openChat(p, 'Fix session-restore race');
+  await composer(p).fill('/permissions');
+  await settle(p); await p.keyboard.press('Escape');   // the menu closed: enter runs what is typed
+  await keys(p, 'i'); await composer(p).press('Enter');
+  await p.locator('.layer .menu.perms').waitFor();
+  await p.keyboard.press('Escape');
+});
+
+await test('/effort high, /model <name> and /plan (Claude) set the thread at once; /effort alone opens the picker', async p => {
+  await openChat(p, 'Fix session-restore race');
+  const send = async text => { await composer(p).fill(text); await settle(p); if (await p.locator('.composer-menu').count()) { await p.keyboard.press('Escape'); await keys(p, 'i'); } await composer(p).press('Enter'); await settle(p); };
+  await send('/effort high');
+  await p.waitForFunction(() => window.__skein.S.threads.find(x => x.title === 'Fix session-restore race')?.effort === 'high');
+  await send('/model sonnet');
+  await p.waitForFunction(() => /sonnet/i.test(window.__skein.S.threads.find(x => x.title === 'Fix session-restore race')?.model ?? ''));
+  await send('/plan sketch the fix first');
+  await p.waitForFunction(() => window.__skein.S.threads.find(x => x.title === 'Fix session-restore race')?.perm === 'plan');
+  assert.equal(await composer(p).inputValue(), 'sketch the fix first', 'the request stays, to send in Plan mode');
+  await composer(p).fill('/effort'); await settle(p);
+  await composer(p).press('Enter');   // picks the menu's row
+  await p.locator('.menu.model .eff').waitFor();
+  await p.keyboard.press('Escape');
+});
+
+await test('/mention (Codex) starts an @ file mention where it was', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).pressSequentially('see /menti');
+  await composer(p).press('Enter');
+  await p.locator('.composer-menu .mi', { hasText: 'README.md' }).waitFor();
+  assert.equal(await composer(p).inputValue(), 'see @');
+});
+
+await test('/diff (Codex) opens Changes beside the thread', async p => {
+  await openChat(p, 'Add timestamps to chat rows');
+  await composer(p).pressSequentially('/diff');
+  await composer(p).press('Enter');
+  await p.waitForFunction(() => [...document.querySelectorAll('.tb .tab')].some(t => /Changes/.test(t.textContent)));
+});
+
+await test('/new (Codex) and /clear (Claude) start a fresh thread with the same harness, folder and settings in this tab', async p => {
+  for (const [title, cmd] of [['Add timestamps to chat rows', '/new'], ['Fix session-restore race', '/clear']]) {
+    await openChat(p, title);
+    const from = await threadOf(p, title);
+    const before = await p.evaluate(() => window.__skein.S.threads.length);
+    await composer(p).pressSequentially(cmd);
+    await composer(p).press('Enter');
+    await p.waitForFunction(n => window.__skein.S.threads.length === n + 1, before);
+    const made = await p.evaluate(() => window.__skein.S.threads[0]);
+    assert.equal(made.harness, from.harness); assert.equal(made.dir, from.dir); assert.equal(made.machine, from.machine);
+    assert.equal(made.perm, from.perm);
+    await p.waitForFunction(() => document.querySelector('.pane.focus .chat') && !document.querySelector('.pane.focus .m-user'));
+  }
+});

@@ -97,6 +97,8 @@ function fakeSdk(turn: (msg: SDKUserMessage, opts: Options, n: number) => AsyncG
       interrupt: async () => { interrupted = true; },
       setModel: async () => {}, setPermissionMode: async () => {}, applyFlagSettings: async (f: Record<string, unknown>) => { flags.push(f); },
       getContextUsage: async () => ({ totalTokens: 24_000, maxTokens: 180_000, rawMaxTokens: 200_000, percentage: 12, isAutoCompactEnabled: true, autoCompactThreshold: 167_000 }),
+      accountInfo: async () => ({ email: 'a@b.c', subscriptionType: 'max' }),
+      mcpServerStatus: async () => [{ name: 'linear', status: 'connected', tools: [{ name: 'a' }, { name: 'b' }] }, { name: 'figma', status: 'needs-auth' }],
       close: () => {},
     });
     return gen;
@@ -107,6 +109,22 @@ function fakeSdk(turn: (msg: SDKUserMessage, opts: Options, n: number) => AsyncG
 const result = (ms = 1500): SDKMessage => ({ type: 'result', subtype: 'success', duration_ms: ms, is_error: false, result: 'ok' } as never);
 
 describe('Claude driver', () => {
+  it('answers /status and /mcp itself (Claude Code only answers them in its terminal UI), sending nothing', async () => {
+    let turns = 0;
+    const sdk = fakeSdk(async function* () { turns++; yield result(); });
+    const h = fakeHost([{ id: 't1', sessionId: '11111111-1111-1111-1111-111111111111', model: 'opus', perm: 'acceptEdits' }]);
+    const d = new ClaudeDriver('t1', h.host, async () => sdk.query);
+    await d.send({ text: '/status' });
+    await d.send({ text: ' /mcp ' });
+    await tick(30);
+    expect(turns).toBe(0);
+    const v = h.view().map(e => [e.t, 'text' in e ? e.text : '']);
+    expect(v.map(x => x[1].split('\n')[0])).toEqual(['/status', '- **Model:** Opus 5.5', '/mcp', '- **linear:** connected · 2 tools']);
+    expect(v[1][1]).toContain('**Account:** a@b.c · max');
+    expect(v[3][1]).toContain('- **figma:** needs auth');
+    await d.release();
+  });
+
   it('sends Ultracode: at start as a session setting, then with the effort, since an effort alone turns it off', async () => {
     const sdk = fakeSdk(async function* () { yield result(); });
     const h = fakeHost([{ id: 't1', sessionId: '11111111-1111-1111-1111-111111111111' }]);
@@ -326,6 +344,14 @@ describe('Claude subagents', () => {
     expect(events.filter(e => e.t === 'user').map(e => (e as { text: string }).text)).toEqual(['Count the files with a subagent']);
     const running = parseClaudeTranscript(session.split('\n').slice(0, 4).join('\n')).events.find(e => e.t === 'sub');
     expect(running).toMatchObject({ status: 'running', agent: 'a08' });
+  });
+
+  it("history: a local command (/context, /usage) reads back as the command and its output", () => {
+    const rows = [
+      { type: 'user', uuid: 'c1', parentUuid: null, message: { role: 'user', content: '<command-name>/context</command-name>\n<command-message>context</command-message>\n<command-args></command-args>' } },
+      { type: 'system', subtype: 'local_command', uuid: 'c2', parentUuid: 'c1', content: '<local-command-stdout>## Context Usage\n32k / 200k</local-command-stdout>' },
+    ];
+    expect(parseClaudeTranscript(rows).events).toEqual([{ t: 'user', id: 'c1', text: '/context' }, { t: 'text', id: 'lc-c2', text: '## Context Usage\n32k / 200k' }]);
   });
 
   it("history: a subagent's own transcript folds into its turns, its prompt under the id the live stream gives it", () => {

@@ -31,7 +31,7 @@ const c = (cmd: string, hint: string, source = 'built-in'): HarnessCommand => ({
  *  shows these, with its skills from `skills/list`. */
 export const CODEX_COMMANDS: HarnessCommand[] = [
   c('/new', 'Start a new thread'), c('/compact', 'Summarise to free up context'), c('/model', 'Switch model and effort'),
-  c('/approvals', 'Choose what needs approval'), c('/review', 'Review the current diff'), c('/diff', 'Show the working diff'),
+  c('/approvals', 'Choose what needs approval'), c('/review', 'Review the current diff'), c('/diff', 'Open Changes'),
   c('/mention', 'Attach a file'), c('/init', 'Create AGENTS.md'), c('/status', 'Thread and account status'),
 ];
 
@@ -54,6 +54,7 @@ export const COMMANDS: Record<Harness, { commands: HarnessCommand[]; skills: Har
   claude: {
     commands: [
       c('/clear', 'Start a fresh conversation'), c('/compact', 'Summarise to free up context'), c('/model', 'Switch model'),
+      c('/effort', 'Set the effort level'), c('/context', 'Show context usage'), c('/usage', 'Cost and plan limits'),
       c('/plan', 'Plan before editing'), c('/resume', 'Resume a past thread'),
       c('/init', 'Create CLAUDE.md'), c('/mcp', 'Manage MCP servers'), c('/permissions', 'Edit tool permissions'), c('/status', 'Thread and account status'),
     ],
