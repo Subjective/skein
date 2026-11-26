@@ -119,12 +119,12 @@ export function fakeChat(emit: (e: SkeinEvent) => void, threads: ThreadMeta[]) {
   };
   const timers = new Map<string, ReturnType<typeof setTimeout>[]>();
   const later = (thread: string, ms: number, f: () => void) => { const t = setTimeout(f, ms); timers.set(thread, [...(timers.get(thread) || []), t]); };
-  const reply = (thread: string, words: string) => {
+  const reply = (thread: string, words: string, x = 1) => {
     status(thread, 'running');
     const rid = id(), parts = words.split(' ');
-    later(thread, 500, () => push(thread, tool('Read', 'README.md', { meta: '120 lines' })));
-    parts.forEach((_, i) => later(thread, 900 + i * 40, () => push(thread, { t: 'text', id: rid, text: parts.slice(0, i + 1).join(' '), streaming: i < parts.length - 1 }, true)));
-    later(thread, 950 + parts.length * 40, () => { push(thread, { t: 'worked', id: id(), ms: 2_000 }); status(thread, 'idle'); next(thread); });
+    later(thread, 500 * x, () => push(thread, tool('Read', 'README.md', { meta: '120 lines' })));
+    parts.forEach((_, i) => later(thread, (900 + i * 40) * x, () => push(thread, { t: 'text', id: rid, text: parts.slice(0, i + 1).join(' '), streaming: i < parts.length - 1 }, true)));
+    later(thread, (950 + parts.length * 40) * x, () => { push(thread, { t: 'worked', id: id(), ms: 2_000 }); status(thread, 'idle'); next(thread); });
   };
   // the queue (ThreadMeta.queue): each waits for the turn before it to end, then starts a turn of its own
   const th = (thread: string) => threads.find(x => x.id === thread)!;
@@ -167,9 +167,10 @@ export function fakeChat(emit: (e: SkeinEvent) => void, threads: ThreadMeta[]) {
       else if (m.resume) push(thread, { t: 'notice', id: id(), text: 'Continued' });
       else push(thread, user(m.text, m.images));
       if (th(thread).queuePaused) setQueue(thread, th(thread).queue ?? [], false);   // a turn you start resumes the queue
-      // ask for "links" and the reply holds every kind a reply links to (tests/ui chat "links in a reply")
+      // ask for "links" and the reply holds every kind a reply links to (tests/ui chat "links in a reply");
+      // say "slowly" and the turn takes 8 times as long (tests/ui chat "a running turn's Working line")
       reply(thread, /\blinks\b/i.test(m.text) ? `See [the README](README.md#L3), [the types](${th(thread).dir}/sessions/types.ts:2), [Open the mockup HTML](mockups/index.html), [the docs](https://example.com/skein) and [an odd one](ftp://example.com/x).`
-        : 'This is the browser preview, so no agent is attached. In the app the reply streams in here, and the same turn shows in the thread\'s terminal view.');
+        : 'This is the browser preview, so no agent is attached. In the app the reply streams in here, and the same turn shows in the thread\'s terminal view.', /\bslowly\b/i.test(m.text) ? 8 : 1);
     },
     interrupt: async (thread: string) => {
       for (const t of timers.get(thread) || []) clearTimeout(t);
