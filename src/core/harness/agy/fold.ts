@@ -1,7 +1,7 @@
 // agy's session/update stream as chat events. The live driver and the history read (session/load, which replays a
 // session as the same updates) both go through AgyFold, so a tool step has the same id (agy's toolCallId) either
 // way. Messages carry no id of their own in ACP: a message is the run of chunks of one kind, named by the fold.
-import { relative, isAbsolute } from 'node:path';
+import { posix, win32 } from 'node:path';
 import type { StepKind, ThreadEvent } from '../../../shared/types';
 import { clip, countDiff, replaceDiff, tidy } from '../common';
 import type { ContentBlock, ToolCall, Update } from './acp';
@@ -11,10 +11,11 @@ const st = (s?: string): Status => (s === 'completed' ? 'done' : s === 'failed' 
 
 /** A path as the thread shows it: relative to its folder when inside it (agy reports a macOS /tmp path both ways). */
 export function shortPath(p: string, cwd?: string): string {
-  if (!cwd || !isAbsolute(p)) return p;
+  const path = cwd?.startsWith('/') ? posix : win32;   // the machine agy runs on, not the one Skein runs on
+  if (!cwd || !path.isAbsolute(p)) return p;
   const strip = (x: string) => x.replace(/^\/private(?=\/(tmp|var)\/)/, '');
-  const r = relative(strip(cwd), strip(p));
-  return r && !r.startsWith('..') && !isAbsolute(r) ? r : p;
+  const r = path.relative(strip(cwd), strip(p));
+  return r && !r.startsWith('..') && !path.isAbsolute(r) ? r : p;
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
