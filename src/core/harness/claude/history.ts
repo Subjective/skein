@@ -57,6 +57,11 @@ export function parseClaudeTranscript(text: string | Record<string, unknown>[], 
       if (!Number.isNaN(at)) turnEnd = at;
     } else if (e.type === 'system') {
       if (e.subtype === 'compact_boundary') fold.notice('c-' + e.uuid, 'Context compacted');
+      // a local command's output (/context, /usage), shown live as a reply
+      else if (!sub && e.subtype === 'local_command') {
+        const out = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/.exec(String((e as { content?: unknown }).content ?? ''))?.[1]?.trim();
+        if (out) fold.say('lc-' + e.uuid, out);
+      }
       else if (!sub && e.subtype === 'turn_duration' && typeof e.durationMs === 'number' && turnStart != null) { fold.worked('w-' + turnId, e.durationMs); turnStart = null; }
     }
   }

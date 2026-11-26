@@ -32,6 +32,32 @@ export const unwrap = (c: string) => {
   return !m ? c : m[1] != null ? m[1].replace(/'\\''/g, "'") : m[2].replace(/\\(["\\$`])/g, '$1');
 };
 
+/** What /init sends (Codex's TUI sends its own prompt; the app-server has no /init). Shown as "/init". */
+export const INIT_PROMPT = `Create an AGENTS.md file in the current folder: a short contributor guide titled "Repository Guidelines" for coding agents working here. Read the project first and keep to what is true of it.
+
+Cover, with a ## heading each and only where they apply: project structure and module organization; build, test and development commands; coding style and naming conventions; testing guidelines; commit and pull request guidelines. Keep it concise (about 200 to 400 words), specific to this repository, with example commands and paths. If an AGENTS.md already exists, improve it instead of replacing what is still accurate.`;
+
+/** A review turn (review/start) carries Codex's own review prompt and the reviewer's raw output before the review,
+ *  and the review again as a reply after it: only the review shows. One per turn, fed every item in order (live:
+ *  as each starts and completes). */
+export class ReviewItems {
+  private on = false;
+  private after = false;
+  private hidden = new Set<string>();
+  shows(item: ThreadItem): boolean {
+    if (this.hidden.has(item.id)) return false;
+    if (item.type === 'enteredReviewMode') { this.on = true; this.after = false; }
+    else if (item.type === 'exitedReviewMode') { this.on = false; this.after = true; }
+    else if (item.type === 'userMessage' || item.type === 'agentMessage') {
+      const hide = this.on || (this.after && item.type === 'agentMessage');
+      this.after = false;
+      if (hide) { this.hidden.add(item.id); return false; }
+    }
+    return true;
+  }
+  hides(id: string) { return this.hidden.has(id); }
+}
+
 export function itemEvents(item: ThreadItem): ThreadEvent[] {
   switch (item.type) {
     case 'userMessage': {
@@ -40,7 +66,7 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
       const images = item.content.flatMap(c => (c.type === 'image' && 'url' in c ? [c.url] : c.type === 'localImage' ? [c.path] : []));
       const mentions = item.content.flatMap(c => (c.type === 'mention' || c.type === 'skill' ? [`@${c.name}`] : []));
       // the client's id when it sent one: Skein shows its own message under that id as it sends it
-      return [{ t: 'user', id: item.clientId ?? item.id, text: [text, ...mentions].filter(Boolean).join(' '), ...(images.length ? { images } : {}) }];
+      return [{ t: 'user', id: item.clientId ?? item.id, text: text === INIT_PROMPT ? '/init' : [text, ...mentions].filter(Boolean).join(' '), ...(images.length ? { images } : {}) }];
     }
     case 'agentMessage': return item.text.trim() ? [{ t: 'text', id: item.id, text: item.text }] : [];
     case 'plan': return item.text.trim() ? [{ t: 'text', id: item.id, text: item.text }] : [];
