@@ -25,7 +25,11 @@ import { useDialogSurface } from '../../ui/Dialog';
 import { effortId, effortLabel, harnessOptions, INSTALL, modelDef, modelId, modelLabel, OURS, permChoices, permLabel, permOf, permRow, slashHit, THREAD_SLASH, useHarnessCommands, type Slash } from './options';
 import { hoverQuote, paintQuotes, QI, revealQuote, saveDraft, setSpeed, setUltra, speedOf, syncQuotes, TOK, ultraOf, useChat, type Draft, type Quote } from './state';
 
-export interface ComposerHandle { focus(insert?: boolean): void; caret(): number; field(): CodeFieldHandle | null }
+export interface ComposerHandle {
+  focus(insert?: boolean): void; caret(): number; field(): CodeFieldHandle | null
+  /** The row under the text (permissions, model, send) has the keys: a menu it opened keeps them there when it closes. */
+  onControls(): boolean;
+}
 
 export interface ComposerProps {
   tabId: string;
@@ -80,7 +84,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const menu = useRef<Surface | undefined>(undefined);
   const h: Harness = p.thread.harness;
 
-  useImperativeHandle(handle, () => ({ focus: i => field.current?.focus(i), caret: () => field.current?.state().pos ?? 0, field: () => field.current }));
+  useImperativeHandle(handle, () => ({ focus: i => field.current?.focus(i), caret: () => field.current?.state().pos ?? 0, field: () => field.current, onControls: () => !!ctl.current.un }));
 
   const set = (d: Partial<Draft>) => {
     const next = { ...props.current.draft, ...d };
@@ -231,7 +235,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       else if (k === 'k' || k === 'up') { if (ctl.current.r > 0) ctlMark(i, ctl.current.r - 1); else ctlEnd('normal'); }
       else if (k === 'i' || k === 'a') { const f = field.current; if (f) f.set(f.state().text); ctlEnd('insert'); }   // back at the END of the text (mockup keys.js)
       else if (k === 'esc') ctlEnd();
-      else if (k === 'enter' || k === 'space') { const b = buttons()[i]; ctlEnd(); b?.click(); }
+      // send leaves the row for the text (a resend closes an edit box itself); any other button opens its popup or
+      // file picker with the row kept under it, so the keys come back to this chip when that closes. Leaving first
+      // ran onLeave, which closed an edit box under its own permission or model menu.
+      else if (k === 'enter' || k === 'space') { const b = buttons()[i]; if (b?.classList.contains('send')) ctlEnd('normal'); b?.click(); }
       else return false;   // the app's NORMAL layer gets the rest (: H L | \ ?); the dispatcher drops what nobody takes
       return true;
     },
@@ -247,6 +254,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
     ctlMark(0, 0); update(s => { s.tick++; });
   };
   useEffect(() => () => ctl.current.un?.(), []);
+  // a pick redraws the chip (a new label or tone) and React drops the class it did not set: mark it again
+  useLayoutEffect(() => { if (ctl.current.un) buttons()[ctl.current.i]?.classList.add('kcur'); });
 
   // ---- esc esc stops a running turn ----
   // While the turn runs, the first esc in NORMAL arms the stop button for 1.5 s and stays; a second esc in that time
