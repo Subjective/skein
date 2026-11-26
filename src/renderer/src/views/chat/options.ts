@@ -20,7 +20,7 @@ const asking = new Set<string>();
 /** The last answer from the harness on any machine: labels for threads whose machine hasn't answered yet. */
 const latest: Partial<Record<Harness, HarnessOptions>> = {};
 /** One object per harness, so a picker's memo sees the same lists until the answer comes. */
-const BUNDLED: Record<Harness, HarnessOptions> = { claude: bundledOptions('claude'), codex: bundledOptions('codex') };
+const BUNDLED: Record<Harness, HarnessOptions> = { claude: bundledOptions('claude'), codex: bundledOptions('codex'), agy: bundledOptions('agy') };
 
 /** What the harness offers on the machine. Asks it the first time (and again after a while); the change
  *  arrives as a chat bump (useChat re-renders). */
@@ -60,8 +60,8 @@ export const modelLabel = (h: Harness, v?: string, machine?: string) => {
   return known(h, machine).models.find(m => !m.isDefault && (m.resolved ?? m.id) === d.resolved)?.label ?? d.label;
 };
 export const effortLabel = (v?: string) => { const id = effortId(v); return EFFORTS.find(e => e.id === id)?.label ?? (id ? id[0].toUpperCase() + id.slice(1) : 'Medium'); };
-/** The mode a thread with none set runs in: Claude Code's default mode; Codex's Default preset. */
-const unsetPerm = (h: Harness) => (h === 'claude' ? 'default' : 'auto');
+/** The mode a thread with none set runs in: Claude Code's default mode; Codex's Default preset; Antigravity's Default. */
+const unsetPerm = (h: Harness) => (h === 'codex' ? 'auto' : 'default');
 export const permLabel = (h: Harness, v?: string) => PERMS[h].find(p => p.id === (permId(h, v) ?? unsetPerm(h)))?.label ?? v ?? '';
 /** The current permission id (the harness's default when the thread sets none). */
 export const permOf = (h: Harness, v?: string) => permId(h, v) ?? unsetPerm(h);
@@ -112,7 +112,7 @@ const slashOf = (h: Harness, c: HarnessCommands): SlashLists => {
   }
   return r;
 };
-const BUNDLED_CMDS: Record<Harness, HarnessCommands> = { claude: bundledCommands('claude'), codex: bundledCommands('codex') };
+const BUNDLED_CMDS: Record<Harness, HarnessCommands> = { claude: bundledCommands('claude'), codex: bundledCommands('codex'), agy: bundledCommands('agy') };
 const keptCmds = new Map<string, { at: number; c: HarnessCommands }>();
 const askingCmds = new Map<string, Promise<void>>();
 
@@ -153,4 +153,8 @@ export const THREAD_SLASH: Slash[] = ([['/side', 'New side chat about the quote 
 /** Commands the app acts on itself (open a picker) instead of sending them. */
 export const OURS = ['/model', '/side', '/sidechats', '/subagents'];
 
-export const INSTALL: Record<Harness, string> = { claude: 'npm install -g @anthropic-ai/claude-code', codex: 'npm install -g @openai/codex' };
+export const INSTALL: Record<Harness, string> = {
+  claude: 'npm install -g @anthropic-ai/claude-code', codex: 'npm install -g @openai/codex',
+  // Google's installer (Windows: irm https://antigravity.google/cli/install.ps1 | iex)
+  agy: navigator.userAgent.includes('Windows') ? 'irm https://antigravity.google/cli/install.ps1 | iex' : 'curl -fsSL https://antigravity.google/cli/install.sh | bash',
+};

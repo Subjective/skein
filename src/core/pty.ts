@@ -33,6 +33,7 @@ const TERM_ENV = { TERM: 'xterm-256color', COLORTERM: 'truecolor', TERM_PROGRAM:
 export function harnessArgv(run: PtySpec['run'], exists = false): string[] {
   if (run.kind === 'claude') return ['claude', ...(run.session ? [exists ? '--resume' : '--session-id', run.session] : []), ...(run.args || [])];
   if (run.kind === 'codex') return ['codex', ...(run.remote ? ['--remote', run.remote] : []), ...(run.resume ? ['resume', run.resume] : []), ...(run.args || [])];
+  if (run.kind === 'agy') return ['agy', ...(run.conversation ? ['--conversation', run.conversation] : []), ...(run.args || [])];
   return [];
 }
 

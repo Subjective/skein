@@ -28,7 +28,9 @@ export interface PtySpec {
     | { kind: 'shell' }
     /** Resumes `session` if its transcript exists on the machine, else starts a new session with that id. */
     | { kind: 'claude'; session?: string; args?: string[] }
-    | { kind: 'codex'; resume?: string; remote?: string; args?: string[] };
+    | { kind: 'codex'; resume?: string; remote?: string; args?: string[] }
+    /** Antigravity's TUI, on the conversation `conversation` when set. */
+    | { kind: 'agy'; conversation?: string; args?: string[] };
   cols: number;
   rows: number;
   /** Ties the pty to a thread, for handoff and detection. */
@@ -160,7 +162,7 @@ export interface SkeinApi {
   };
   threads: {
     list(): Promise<ThreadMeta[]>;
-    /** Scan ~/.claude and ~/.codex on a machine for sessions Skein has not seen. */
+    /** Ask each harness on a machine for sessions Skein has not seen. */
     discover(machine: string): Promise<ThreadMeta[]>;
     create(spec: NewThread): Promise<ThreadMeta>;
     update(id: string, patch: Partial<ThreadMeta>): Promise<ThreadMeta>;

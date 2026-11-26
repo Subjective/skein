@@ -166,6 +166,14 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
   (`/exit`) gives the thread back to chat. A small orange dot on the
   chat | terminal toggle marks the view that drives. **Codex** needs none of this: both views attach to one
   app-server (`codex --remote`), so both are live.
+- **Antigravity** (`agy`, Google's CLI for Gemini and other models): chat drives `agy acp`, the Agent Client
+  Protocol, one process per machine (`core/harness/agy/`). The terminal opens the same conversation with
+  `agy --conversation <id>`, in a process of its own. History is `session/load` in a second agy process, so a
+  replay never reaches a live chat; discovery is `session/list`. Models, thinking levels and modes come from the
+  answers to session calls (ACP can't list them otherwise), so pickers show the bundled list until a thread opens.
+  agy resets a resumed session's model, so the driver sets the thread's own again before the next prompt. agy can't
+  steer, fork or rewind: a message sent mid-turn waits in Skein's queue, and side chats, Fork and editing an earlier
+  message aren't offered. A thread moves between folders on its machine only.
 - **Images** (G14): chat, side chats and subagents send a structured attachment, nothing is copied. A terminal
   gets a file path: saved to `~/.skein/inbox/` locally, or uploaded to the remote's `~/.skein/inbox/` first over
   SSH (progress shows over the terminal, in the app's font), then the path is pasted and the TUI shows

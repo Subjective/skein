@@ -1,6 +1,6 @@
 # Working on Skein
 
-Skein is a desktop app for Claude Code and Codex threads, on local and remote machines. The app is in `src/`; how to build and run it is in [README.md](README.md).
+Skein is a desktop app for Claude Code, Codex and Antigravity threads, on local and remote machines. The app is in `src/`; how to build and run it is in [README.md](README.md).
 
 ## Product model
 

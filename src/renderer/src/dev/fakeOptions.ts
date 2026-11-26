@@ -1,8 +1,8 @@
 // What the harnesses answer in the dev backend, shaped as core/harness/options.ts turns their answers into rows.
 // Claude: the list Claude Code 2.1.329 (Agent SDK 0.3.329) gave for a first-party account (fast mode: supportsFastMode). Codex: model/list
 // shaped rows (efforts and default effort per model).
-import { CODEX_COMMANDS, type HarnessCommand, type HarnessCommands } from '@shared/commands';
-import { CLAUDE_FAST, EFFORTS, PERMS, type HarnessOptions, type ModelDef } from '@shared/models';
+import { bundledCommands, CODEX_COMMANDS, type HarnessCommand, type HarnessCommands } from '@shared/commands';
+import { CLAUDE_FAST, EFFORTS, MODELS, PERMS, type HarnessOptions, type ModelDef } from '@shared/models';
 import type { Harness } from '@shared/types';
 
 const ALL = ['low', 'medium', 'high', 'xhigh', 'max'];
@@ -34,7 +34,7 @@ const CODEX: ModelDef[] = [
 ];
 
 export const fakeOptions = (h: Harness): HarnessOptions =>
-  ({ models: h === 'claude' ? CLAUDE : CODEX, perms: PERMS[h], efforts: EFFORTS, source: 'harness' });
+  ({ models: h === 'claude' ? CLAUDE : h === 'agy' ? MODELS.agy : CODEX, perms: PERMS[h], efforts: EFFORTS, source: 'harness' });
 
 // The / menu. Claude: Claude Code 2.1.330's list, split as core/harness/commands.ts splits it (its skills, by
 // reloadSkills, under Skills), and custom skills (a project skill in skein). Codex: its built-in commands and
@@ -94,6 +94,6 @@ const CLAUDE_SKILLS: HarnessCommand[] = [
 ];
 const custom = (name: string, hint: string): HarnessCommand => ({ cmd: '/' + name, name, hint, source: 'custom' });
 
-export const fakeCommands = (h: Harness, dir: string): HarnessCommands => h === 'claude'
+export const fakeCommands = (h: Harness, dir: string): HarnessCommands => h === 'agy' ? bundledCommands('agy') : h === 'claude'
   ? { commands: CLAUDE_CMDS, skills: [...CLAUDE_SKILLS, custom('changelog', 'Write the changelog entry for this branch'), ...(/skein/.test(dir) ? [custom('mockup-parity', 'Check a change against the mockup')] : [])], source: 'harness' }
   : { commands: CODEX_COMMANDS, skills: [{ cmd: '$pdf', name: 'pdf', hint: 'Read and make PDF files', source: 'system' }, { cmd: '$release-notes', name: 'release-notes', hint: 'Draft release notes from merged PRs', source: 'repo' }], source: 'harness' };

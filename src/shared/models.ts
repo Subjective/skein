@@ -1,7 +1,8 @@
 // What each harness can run: models, effort levels and permission modes, with the labels the UI shows.
 // The live lists come from the harness itself (core/harness/options.ts: Claude's initialize response,
-// Codex's model/list); the lists here are the fallback when that query fails, and the source of the
-// permission modes (Claude: the Agent SDK's PermissionMode; Codex: its built-in approval presets).
+// Codex's model/list, Antigravity's session answers); the lists here are the fallback when that query fails, and the
+// source of the permission modes (Claude: the Agent SDK's PermissionMode; Codex: its built-in approval presets;
+// Antigravity: its modes).
 // The chat backend accepts either a label ('Opus 5.5', 'Accept edits') or an id ('opus', 'acceptEdits'),
 // so pickers can pass whatever they show. No Node or DOM imports.
 import type { Harness } from './types';
@@ -69,6 +70,20 @@ export const MODELS: Record<Harness, ModelDef[]> = {
     { id: 'gpt-6.2-sol', label: 'GPT-6.2 Sol', efforts: E('low', 'medium', 'high', 'xhigh'), effort: 'medium', isDefault: true },
     { id: 'gpt-6.2-astra', label: 'GPT-6.2 Astra', efforts: E('low', 'medium', 'high'), effort: 'medium' },
   ],
+  // what agy 1.5.18 offered on a Google AI Pro plan (2026-11-26): model families, each with its thinking levels
+  agy: [
+    { id: 'gemini-4-neon', label: 'Gemini 4 Neon', efforts: E('low', 'medium', 'high', 'xhigh'), effort: 'high', isDefault: true },
+    { id: 'gemini-4-carbon', label: 'Gemini 4 Carbon', efforts: E('low', 'medium', 'high'), effort: 'high' },
+    { id: 'gemini-4-argon', label: 'Gemini 4 Argon', efforts: E('low', 'medium', 'high'), effort: 'high' },
+    { id: 'gemini-4-hydrogen', label: 'Gemini 4 Hydrogen', efforts: E('low', 'medium', 'high', 'xhigh'), effort: 'high' },
+    { id: 'gemini-pro-orchestrator-neon', label: 'Orchestrator (Neon)', efforts: [] },
+    { id: 'gemini-pro-orchestrator', label: 'Orchestrator (Carbon)', efforts: [] },
+    { id: 'gemini-pro-orchestrator-argon', label: 'Orchestrator (Argon)', efforts: [] },
+    { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', efforts: E('low', 'medium', 'high'), effort: 'high' },
+    { id: 'claude-opus-5-5', label: 'Claude Opus 5.5', efforts: E('low', 'medium', 'high'), effort: 'high' },
+    { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5', efforts: E('low', 'medium', 'high'), effort: 'high' },
+    { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', efforts: [] },
+  ],
 };
 
 /** Every effort level either harness names, lowest first (Codex ReasoningEffort, Claude EffortLevel). A track
@@ -98,7 +113,7 @@ export function snapEffort(effort: string, def: Pick<ModelDef, 'efforts' | 'effo
  *  SDK's PermissionMode (core/harness/options.ts checks the list against the type), in Claude Code's shift-tab order
  *  and with its names (Manual, Accept edits, Plan, Auto; Bypass permissions joins only when allowed; Don't ask is never
  *  in the cycle). Codex: the approval presets Codex desktop offers, with its descriptions (they set the approval policy
- *  and sandbox: core/harness/codex/driver.ts codexPerm), plus the TUI's Read only. */
+ *  and sandbox: core/harness/codex/driver.ts codexPerm), plus the TUI's Read only. Antigravity: its session modes. */
 export const PERMS: Record<Harness, Choice[]> = {
   claude: [
     { id: 'default', label: 'Manual mode', hint: 'Ask before edits and commands', icon: 'hand', aka: ['Manual', 'Default', 'Ask before edits', 'Ask permissions'] },
@@ -114,6 +129,13 @@ export const PERMS: Record<Harness, Choice[]> = {
     { id: 'auto', label: 'Ask for approval', hint: 'Always ask to edit external files and use the internet', icon: 'hand', aka: ['Default', 'Auto', 'Agent'] },
     { id: 'auto-review', label: 'Approve for me', hint: 'Only ask for actions detected as potentially unsafe', icon: 'shieldRun', aka: ['auto_review', 'guardian'] },
     { id: 'full-access', label: 'Full access', hint: 'Unrestricted access to the internet and any file on your computer', icon: 'shieldAlert', warn: true, aka: ['full'] },
+  ],
+  // Antigravity's modes (ACP session modes), in its order and words
+  agy: [
+    { id: 'default', label: 'Default', hint: 'Ask before edits and commands, per your permission settings.', icon: 'hand' },
+    { id: 'accept-edits', label: 'Accept edits', hint: 'Approve file edits in the workspace without asking.', icon: 'pencil' },
+    { id: 'auto', label: 'Auto', hint: 'Approve edits and safe commands; ask before irreversible actions.', icon: 'shieldRun' },
+    { id: 'plan', label: 'Plan', hint: 'Plan carefully before executing a task.', icon: 'plan' },
   ],
 };
 

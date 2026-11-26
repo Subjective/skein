@@ -1,15 +1,16 @@
 // Finding sessions the harnesses already have, so the sidebar shows existing work, under the harness's own titles.
 // Each harness is asked where it can answer: Claude Code through the Agent SDK's listSessions() (its title: the one
 // set with /rename, else the one it generates, else a prompt), Codex through its app-server's thread/list (the name
-// set on the thread, else its preview, the first prompt). The SDK can't reach an SSH machine, so there Claude Code's
-// transcripts are read: their head (folder, branch, first prompt) and their tail, where the titles are appended.
-import type { Machine } from '../shared/types';
+// set on the thread, else its preview, the first prompt), Antigravity through agy's session/list
+// (harness/agy/history.ts). The SDK can't reach an SSH machine, so there Claude Code's transcripts are read: their
+// head (folder, branch, first prompt) and their tail, where the titles are appended.
+import type { Harness, Machine } from '../shared/types';
 import type { Thread, ThreadListResponse } from './harness/codex/protocol/v2';
 import type { Rpc } from './harness/codex/rpc';
 import { runScript } from './exec';
 
 /** A session found on a machine. No title: the harness has none yet (no prompt written). */
-export interface Found { harness: 'claude' | 'codex'; sessionId: string; dir: string; title?: string; branch?: string; updatedAt: number; createdAt: number }
+export interface Found { harness: Harness; sessionId: string; dir: string; title?: string; branch?: string; updatedAt: number; createdAt: number }
 
 const tidy = (s: string | null | undefined) => (s || '').replace(/\s+/g, ' ').trim().slice(0, 80) || undefined;
 

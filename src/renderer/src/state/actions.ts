@@ -1,6 +1,6 @@
 // What commands do. Every key binding, menu item and button ends up here, so the mouse and the keys
 // reach the same result (VIM-MODEL rule 10).
-import type { ThreadMeta, ViewKind } from '@shared/types';
+import type { Harness, ThreadMeta, ViewKind } from '@shared/types';
 import { api } from '../api';
 import { editorTyping } from '../ui/editor/vim';
 import { openFile as openFileTab } from '../views/tools/open';
@@ -178,7 +178,7 @@ export function openThread(id: string, o: { split?: boolean; view?: ViewKind } =
 export function openFile(machine: string, dir: string, path: string, o: { split?: boolean } = {}) { openFileTab({ machine, dir }, path, o); }
 
 /** Start a thread from a launcher tab: the tab becomes the thread. */
-export async function startThread(t: Tab, harness: 'claude' | 'codex', view: ViewKind): Promise<ThreadMeta> {
+export async function startThread(t: Tab, harness: Harness, view: ViewKind): Promise<ThreadMeta> {
   const th = await api.threads.create({ harness, machine: t.machine || 'local', dir: t.dir || '~', model: t.model?.includes(':') ? t.model.split(':')[1] || undefined : t.model, effort: t.effort, perm: t.perm, worktree: t.worktree, view });
   update(s => {
     if (!s.threads.some(x => x.id === th.id)) s.threads = [th, ...s.threads];

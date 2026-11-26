@@ -7,11 +7,14 @@
 //     Rows Claude Code marks "(removed)" are left out.
 //   Codex: `skills/list` for the folder (picked as `$name`, which the driver sends as a skill input). The
 //     app-server lists no commands, so its built-in commands are shared/commands.ts's.
+//   Antigravity: the available_commands_update its newest session sent (agy/options.ts).
 // Cached like the pickers' options, keyed by machine, harness and folder.
 import { bundledCommands, CODEX_COMMANDS, type HarnessCommand, type HarnessCommands } from '../../shared/commands';
 import type { Harness, Machine } from '../../shared/types';
 import type { QueryFn } from './claude/driver';
 import type { CodexServers } from './codex/driver';
+import type { AgyServers } from './agy/acp';
+import { agyCommands } from './agy/options';
 import type { Rpc } from './codex/rpc';
 import { claudeInit, Kept, withTimeout } from './options';
 
@@ -57,7 +60,7 @@ export async function codexSkills(rpc: Rpc, cwd: string): Promise<CodexSkill[]> 
 }
 
 /** The / menu source createHarnesses uses. */
-export function harnessCommands(query: () => Promise<QueryFn>, servers: CodexServers, home: string) {
+export function harnessCommands(query: () => Promise<QueryFn>, servers: CodexServers, home: string, agy?: AgyServers) {
   const kept = new Kept<HarnessCommands>((k, why) => bundledCommands(k.split(':')[1] as Harness, why));
   return {
     get(m: Machine, h: Harness, dir: string): Promise<HarnessCommands> {
@@ -67,9 +70,14 @@ export function harnessCommands(query: () => Promise<QueryFn>, servers: CodexSer
           if (!init.commands?.length) throw new Error('Claude Code listed no commands');
           return claudeCommands(init.commands as ClaudeCommandInfo[], init.skills);
         }
+        if (h === 'agy') {
+          const list = agy?.offered.get(m.id)?.commands;
+          if (!list?.length) throw new Error('Antigravity lists its commands once a thread opens');
+          return agyCommands(list);
+        }
         return codexCommands(await codexSkills(await servers.get(m), absDir(m, dir, home)));
       });
     },
-    drop: (machine?: string) => kept.drop(machine),
+    drop: (machine?: string, h?: string) => kept.drop(machine, h),
   };
 }

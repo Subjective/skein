@@ -13,7 +13,7 @@ import { api } from '../../api';
 import { machine, openLayer, toast, update } from '../../state/store';
 import * as A from '../../state/actions';
 import { openMenu } from '../../shell/overlays';
-import { harnessName } from '../../shell/meta';
+import { canBranch, HARNESSES, harnessName } from '../../shell/meta';
 import { Menu, type MenuItem } from '../../ui/Menu';
 import { placeBy } from '../../ui/place';
 import { animate, MOTION } from '../../ui/motion';
@@ -120,7 +120,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
       const hit = (c: Slash) => slashHit(c, pop.q) && !(p.bare && c.cmd === '/model');
       const typed = pop.q.replace(/^[/$]/, '') !== '';
       const row = (tag?: string) => (c: Slash): MenuItem<string> => ({ label: c.cmd, display: c.display, hint: c.hint, icon: <Icon name={c.icon} />, data: c.cmd, ...(typed && tag ? { right: <span className="src">{tag}</span> } : {}) });
-      const cmds = slashes.commands.filter(hit), ours = (!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH : []).filter(hit), skills = slashes.skills.filter(hit), more = slashes.more.filter(hit);
+      const cmds = slashes.commands.filter(hit), ours = (!p.bare && !p.thread.side && !p.fresh ? THREAD_SLASH.filter(x => canBranch(p.thread.harness) || !x.cmd.startsWith('/side')) : []).filter(hit), skills = slashes.skills.filter(hit), more = slashes.more.filter(hit);
       const part = (label: string, xs: Slash[], tag?: string): MenuItem<string>[] => (xs.length ? [...(typed ? [] : [{ head: true, label }]), ...xs.map(row(tag))] : []);
       return typed ? [...part('', [...cmds, ...more]), ...part('', ours, 'Skein'), ...part('', skills, 'Skill')]
         : [...part(harnessName(h), cmds), ...part('Skein', ours), ...part('Skills', skills), ...part('More', more)];
@@ -167,7 +167,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   const pickModel = (anchor: DOMRect) => {
     const th = props.current.thread;
     openModelPicker(anchor, {
-      groups: props.current.fresh ? ['claude', 'codex'] : [th.harness], machine: th.machine,
+      groups: props.current.fresh ? HARNESSES : [th.harness], machine: th.machine,
       value: () => {
         const t = props.current.thread, d = modelDef(t.harness, t.model, t.machine);
         return { h: t.harness, model: modelId(t.harness, t.model, t.machine) || d.id, effort: effortId(t.effort) || d.effort || 'medium', ultra: ultraOf(t.id), speed: speedOf(t.id) };
