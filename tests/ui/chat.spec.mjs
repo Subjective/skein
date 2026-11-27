@@ -1634,15 +1634,19 @@ await test('reader: j lands on a reply\'s action row; l moves between its button
   assert.equal(await p.locator('.pane.focus .m-acts').evaluate(el => getComputedStyle(el).opacity), '1', 'the row shows while the cursor is on it');
   assert.equal(await ringed(p), 'Copy');
   // a reply skips paint off screen (content-visibility), which clips at its edge: the ring must fit inside the clip margin
-  const fit = await p.evaluate(() => {
+  const ringClip = () => p.evaluate(() => {
     const b = document.querySelector('.pane.focus .m-acts .kcur'), r = b.closest('.reply');
     const bs = getComputedStyle(b), rs = getComputedStyle(r);
-    const ring = parseFloat(bs.outlineWidth) + parseFloat(bs.outlineOffset);
-    return rs.contentVisibility !== 'auto' || parseFloat(rs.overflowClipMargin || '0') >= ring;
+    if (rs.contentVisibility !== 'auto') return null;
+    const ring = parseFloat(bs.outlineWidth) + parseFloat(bs.outlineOffset), m = parseFloat(rs.overflowClipMargin || '0');
+    const B = b.getBoundingClientRect(), R = r.getBoundingClientRect();
+    const cut = [R.left - m - (B.left - ring), (B.right + ring) - (R.right + m), R.top - m - (B.top - ring), (B.bottom + ring) - (R.bottom + m)];
+    return cut.some(c => c > 0) ? cut.join(' ') : null;
   });
-  assert.ok(fit, 'the ring is not clipped by the reply');
+  assert.equal(await ringClip(), null, 'the ring is not clipped by the reply (left right top bottom overshoot)');
   await keys(p, 'l');
   assert.equal(await ringed(p), 'Fork into a new thread');
+  assert.equal(await ringClip(), null, 'the fork ring is not clipped either');
   await keys(p, 'h');
   assert.equal(await ringed(p), 'Copy');
   await keys(p, 'Enter');

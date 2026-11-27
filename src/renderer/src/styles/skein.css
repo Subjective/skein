@@ -936,8 +936,9 @@ textarea.vn.op::selection { background: transparent; color: inherit; }
 /* Reveal reply actions in place. Touch users can tap them directly. */
 .reply { display: flex; flex-direction: column; gap: inherit; }
 /* a reply off screen is not laid out or painted: a long thread stays as quick to read and scroll as a short one */
-/* content-visibility clips paint at the reply's edge; the clip margin leaves room for the rings drawn outside the action buttons */
-.chat .col[data-read] > .reply { content-visibility: auto; contain-intrinsic-block-size: auto 400px; overflow-clip-margin: 6px; }
+/* content-visibility clips paint at the reply's edge. The action row sits 5px left of that edge and its ring
+   reaches 3px past a button, so the clip margin leaves room for both */
+.chat .col[data-read] > .reply { content-visibility: auto; contain-intrinsic-block-size: auto 400px; overflow-clip-margin: 12px; }
 .reply:not(:hover):not(:focus-within) > .m-acts:not(.rowcur) .dim { opacity: 0; }
 @media (hover: hover) {
   .reply:has(~ .reply > .m-acts):not(:hover):not(:focus-within) > .m-acts:not(.rowcur) { opacity: 0; }
