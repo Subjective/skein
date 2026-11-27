@@ -15,14 +15,14 @@ import { Button, cx, Dot, Icon, Spinner } from '../../ui/primitives';
 import { canBranch, harnessName, setSubNames } from '../../shell/meta';
 import { dispatchKey } from '../../shell/keyboard';
 import { openMenu, openPalette, setSetting } from '../../shell/overlays';
-import { clipImages, Composer, LockedComposer, type ComposerHandle } from './Composer';
+import { clipImages, Composer, type ComposerHandle } from './Composer';
 import { onText, Reader, SEL_BLOCK, selectable } from './reader';
 import { Ticks } from './Ticks';
 import { fixError, Transcript, transcriptDeps, type TranscriptCtx } from './Transcript';
 import { DENSITY, DENSITY_NAME } from './options';
 import { answer as answerReq, blank, bump, log, outgoing, pending, rewindTo, saveDraft, sessionFor, startChat, tabChat, tokenOf, useChat, type Draft } from './state';
 import { QueueTray, type QueueTrayHandle } from './QueueTray';
-import { chooseSide, forkAt, newSide, openSide, openSub, quoteInto, quoteToTab, registerChatTab, subList } from './threads';
+import { chooseSide, forkAt, newSide, openSide, openSub, quoteToTab, registerChatTab, subList } from './threads';
 import { registerHooks } from '../tools/hooks';
 import { SelBar } from './SelBar';
 import { rawAt } from './markdown';
@@ -545,7 +545,7 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
               : <><Button small onClick={() => A.setView(t, 'term')}>Show terminal</Button>
                 <Button small variant="primary" title="Continue here. The terminal picks up what you send when you open it again" onClick={() => { setTaking(true); void api.chat.drive(th.id, 'chat').finally(() => setTaking(false)); }}>Take back</Button></>}
           </div>
-        ) : locked ? <LockedComposer note="Follow-ups aren't available for this subagent" /> : (
+        ) : locked ? null : (
           <>
           <QueueTray ref={tray} tabId={t.id} items={queue} paused={th.queuePaused} running={!!running} cursor={focused ? qcur : null} onCursor={setQcur}
             onLeaveDown={() => { setQcur(null); composer.current?.focus(false); }}
@@ -558,14 +558,6 @@ function Chat({ t, th, focused }: { t: Tab; th: ThreadMeta; focused: boolean }) 
             onLeaveUp={() => { if (toQueue()) return; if (read.current && !reader.enter(read.current, 'view')) composer.current?.focus(false); }} onNormalKey={onNormalKey}
             onFocus={() => setQcur(null)} canContinue={canContinue} />
           </>
-        )}
-        {t.kind === 'sub' && sub && (
-          <div className="under"><span className="u" title="Subagent of this thread"><Icon name={th.harness} />{th.title}</span><span className="sp" />
-            <span className="u">{sub.status === 'running' ? <><Spinner />running{sub.dur ? ' ' + sub.dur : ''}</> : <><Icon name="check" />finished{sub.dur ? ' in ' + sub.dur : ''}</>}</span></div>
-        )}
-        {th.side && parent && (
-          <div className="under"><span className="u"><Icon name={th.harness} />{parent.title}</span><span className="sp" />
-            <Button small variant="ghost" icon="up" title="Quote the last answer into the thread's composer" onClick={() => sendToThread(th, lg.events)}>Send to thread</Button></div>
         )}
       </div></div>
       {sel && <SelBar tab={t} text={sel} onDone={() => { setSel(null); reader.clear(); }} />}
@@ -599,11 +591,3 @@ function mergeTurns(kept: ThreadEvent[], live: ThreadEvent[]): ThreadEvent[] {
   return out;
 }
 
-/** Side chat → thread: its last answer becomes a quote in the parent's composer. */
-function sendToThread(th: ThreadMeta, events: ThreadEvent[]) {
-  const last = [...events].reverse().find(e => e.t === 'text');
-  if (!last || last.t !== 'text' || !th.parent) return;
-  // the whole reply is the quote, so it points at all of that reply's text
-  const src = `ev:${th.id}:${last.id}`, el = document.querySelector(`[data-src="${src}"]`);
-  quoteInto(th.parent.id, { id: 'q' + Date.now(), text: last.text.replace(/[`*]/g, ''), src, ...(el ? { start: 0, len: (el.textContent || '').length } : {}) });
-}

@@ -171,16 +171,20 @@ export function quoteSelection(side: boolean): boolean {
   const threadId = lt?.thread || allTabs(ws()).find(x => x.tab.id === tabId)?.tab.thread || quoteTarget()?.thread;
   lt?.reader().clear(); s.removeAllRanges();
   const q: Quote = { id: 'q' + Date.now(), text, src: key, ...(src && src.contains(r.endContainer) ? offsetsIn(src, r) : {}) };
+  const th = thread(threadId), kind = allTabs(ws()).find(x => x.tab.id === tabId)?.tab.kind;
+  // Add to Chat goes to the thread itself: from a side chat or a subagent popup, the parent thread's composer
   if (!side) {
-    if (lt) quoteToTab(tabId, q);
+    if (th?.side && th.parent) quoteInto(th.parent.id, q);
+    else if (lt && kind !== 'sub') quoteToTab(tabId, q);
     else if (threadId) quoteInto(threadId, q);
     else { toast('Open a thread first'); return true; }
     return true;
   }
-  const th = thread(threadId); if (!th) { toast('Open a thread first'); return true; }
-  const main = th.side && th.parent ? thread(th.parent.id) || th : th;
+  if (!th) { toast('Open a thread first'); return true; }
+  // Add to Side Chat in a side chat is this side chat; elsewhere it picks one of the thread's (or a new one)
+  if (th.side) { if (lt) quoteToTab(tabId, q); return true; }
   const at = /^ev:[^:]+:(.+)$/.exec(key)?.[1];
   const rect = r.getBoundingClientRect();
-  chooseSide(main, rect, at, id => { openSide(id); requestAnimationFrame(() => { const t = allTabs(ws()).find(x => x.tab.thread === id); if (t) quoteToTab(t.tab.id, q); }); }, text.length > 28 ? text.slice(0, 27) + '…' : text, { fromSelection: true });
+  chooseSide(th, rect, at, id => { openSide(id); requestAnimationFrame(() => { const t = allTabs(ws()).find(x => x.tab.thread === id); if (t) quoteToTab(t.tab.id, q); }); }, text.length > 28 ? text.slice(0, 27) + '…' : text, { fromSelection: true });
   return true;
 }

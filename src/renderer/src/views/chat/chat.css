@@ -49,8 +49,6 @@
 .seltb .btn:hover { background: var(--hover); }
 .edit-note { display: flex; align-items: center; gap: 7px; padding: 6px 4px 0 14px; color: var(--fg-3); font-size: 12.5px; }
 .edit-note svg.i { width: 13px; height: 13px; }
-.under .btn.ghost { height: 22px; padding: 0 6px; font-size: 12.5px; color: var(--fg-3); }
-.under .btn.ghost:hover { color: var(--fg); }
 #context-usage { z-index: 60; }
 
 /* Timeline ticks, as in Cursor (Josh, 2026-11-20): a little thicker, and the pointer lengthens and darkens the ticks
