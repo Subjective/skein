@@ -39,8 +39,9 @@
 .tool.edited .ef + .ef::before { content: ','; margin: 0 2px 0 -6px; color: var(--fg-3); }
 /* a fold slides open and shut as its arrow turns */
 .thread { interpolate-size: allow-keywords; }
-.thread details.tool::details-content { block-size: 0; overflow: clip; transition: block-size 200ms ease, content-visibility 200ms allow-discrete; }
-.thread details.tool[open]::details-content { block-size: auto; }
+/* the slide clips only up and down, and an open fold lets the cursor's ring on its first and last rows show */
+.thread details.tool::details-content { block-size: 0; overflow: visible clip; transition: block-size 200ms ease, content-visibility 200ms allow-discrete; }
+.thread details.tool[open]::details-content { block-size: auto; overflow-clip-margin: 6px; }
 @media (prefers-reduced-motion: reduce) { .thread details.tool::details-content { transition: none; } }
 .appr .plan-body { max-height: 320px; overflow: auto; padding: 8px 12px; border-radius: 10px; background: var(--bg-2); }
 .appr, .err-row, .mirror, .link-note, .m-edit { animation: fadeUp .16s ease both; }

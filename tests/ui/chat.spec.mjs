@@ -1647,6 +1647,57 @@ await test('launcher: j walks from the controls to the chips and the cards', asy
 const cursorRow = p => p.evaluate(() => { const r = document.querySelector('.pane.focus .rowcur'); return r ? r.className : null; });
 const ringed = p => p.evaluate(() => document.querySelector('.pane.focus .m-acts .kcur')?.getAttribute('aria-label') ?? null);
 
+// Every reader cursor draws a ring or halo a few px outside its item. Each box that clips paint around it
+// (a reply's content-visibility, a fold's slide) must leave room for it: returns what is cut, or [] when nothing is.
+const cursorCut = p => p.evaluate(() => {
+  const out = [];
+  for (const el of document.querySelectorAll('.pane.focus .rowcur, .pane.focus .kcur')) {
+    const s = getComputedStyle(el);
+    let ext = 0;
+    if (!/inset/.test(s.boxShadow)) for (const m of s.boxShadow.matchAll(/(-?[\d.]+)px (-?[\d.]+)px (-?[\d.]+)px (-?[\d.]+)px/g)) ext = Math.max(ext, +m[4]);
+    if (s.outlineStyle !== 'none') ext = Math.max(ext, parseFloat(s.outlineWidth) + parseFloat(s.outlineOffset));
+    const R = el.getBoundingClientRect();
+    for (let a = el.parentElement; a && !a.classList.contains('thread'); a = a.parentElement) {
+      const as = getComputedStyle(a), A = a.getBoundingClientRect();
+      const clips = [];   // [name, clips x, clips y, margin]
+      if (as.overflowX !== 'visible' || as.overflowY !== 'visible') clips.push(['overflow', as.overflowX !== 'visible', as.overflowY !== 'visible', as.overflowX === 'clip' ? parseFloat(as.overflowClipMargin) || 0 : 0]);
+      if (as.contentVisibility === 'auto') clips.push(['content-visibility', true, true, parseFloat(as.overflowClipMargin) || 0]);
+      if (a.tagName === 'DETAILS' && a.open && el.closest('summary')?.parentElement !== a) {
+        const ps = getComputedStyle(a, '::details-content');
+        clips.push(['fold', ps.overflowX !== 'visible', ps.overflowY !== 'visible', parseFloat(ps.overflowClipMargin) || 0]);
+      }
+      for (const [why, x, y, m] of clips) {
+        let C = A;
+        if (why === 'fold') {   // the fold's content box: the details less its summary
+          const rs = [...a.children].filter(k => k.tagName !== 'SUMMARY').map(k => k.getBoundingClientRect());
+          if (!rs.length) continue;
+          C = { left: A.left, right: A.right, top: Math.min(...rs.map(r => r.top)), bottom: Math.max(...rs.map(r => r.bottom)) };
+        }
+        const cut = [x && C.left - m - (R.left - ext), x && (R.right + ext) - (C.right + m), y && C.top - m - (R.top - ext), y && (R.bottom + ext) - (C.bottom + m)];
+        if (cut.some(c => c > 0.5)) out.push(`${el.className} cut by ${why} (${a.className}): ${cut.map(c => Math.round(+c)).join(' ')}`);
+      }
+    }
+  }
+  return out;
+});
+
+await test('reader: no cursor ring is clipped, on any kind of item', async p => {
+  const seen = new Set();
+  for (const t of ['Plan image paste over SSH', 'Refactor queue worker', 'Fix session-restore race', 'Profile slow orders query', 'Bump lockfile to fix CI', 'Add timestamps to chat rows']) {
+    await openChat(p, t);
+    await composer(p).press('Escape');
+    await keys(p, 'g g');
+    for (let i = 0; i < 80; i++) {
+      if (await composer(p).evaluate(el => el === document.activeElement)) break;   // j left the transcript
+      const at = await p.evaluate(() => document.querySelector('.pane.focus .rowcur')?.className.replace('rowcur', '').trim() ?? null);
+      if (at !== null) seen.add(at);
+      assert.deepEqual(await cursorCut(p), [], `${t}: the cursor on ${at ?? 'a line of text'}`);
+      await keys(p, 'j');
+    }
+  }
+  for (const kind of ['sum', 'm-acts', 'af', 'err-row info']) assert.ok([...seen].some(c => c.split(' ').includes(kind.split(' ')[0]) && c.includes(kind)), `walked a ${kind} row (saw ${[...seen].join(', ')})`);
+});
+
 await test('reader: j lands on a reply\'s action row; l moves between its buttons; enter presses it', async p => {
   await p.context().grantPermissions(['clipboard-read', 'clipboard-write']);
   await openChat(p, 'Add timestamps to chat rows');
