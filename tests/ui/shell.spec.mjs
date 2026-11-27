@@ -770,6 +770,27 @@ test('stepping tabs keeps the mode: H / L land in NORMAL even on a composer left
   await keys(p, 'i'); assert.equal(await mode(p), 'INSERT', 'i types into the composer');
 });
 
+for (const [os, prev, next] of [['mac', 'Meta+Shift+BracketLeft', 'Meta+Shift+BracketRight'], ['win', 'Control+PageUp', 'Control+PageDown']]) test(`tab keys (${os}): ${prev} / ${next} step tabs like H / L, from NORMAL and while typing`, async p => {
+  const side = t => p.locator('#side').getByText(t, { exact: true }).first().click().then(() => settle(p, 600));
+  const plus = () => p.locator('.pane [aria-label="New tab"]').first().click().then(() => settle(p, 400));
+  await side('Fix session-restore race'); await plus(); await side('Tidy PowerShell profile');
+  const on = () => p.locator('.pane .tb .tab.on').innerText();
+  assert.equal(await on(), 'Tidy PowerShell profile');
+  await keys(p, 'Escape'); assert.equal(await mode(p), 'NORMAL');
+  await keys(p, prev); await settle(p, 500);
+  assert.equal(await on(), 'Fix session-restore race', `${prev} from NORMAL`);
+  await keys(p, next); await settle(p, 500);
+  assert.equal(await on(), 'Tidy PowerShell profile', `${next} from NORMAL`);
+  // while typing: the chord switches tabs and types nothing
+  await p.locator('.pane.focus .comp .cm-content:visible').first().click();
+  await p.keyboard.type('draft'); assert.equal(await mode(p), 'INSERT');
+  await keys(p, prev); await settle(p, 500);
+  assert.equal(await on(), 'Fix session-restore race', `${prev} from INSERT`);
+  await keys(p, next); await settle(p, 500);
+  assert.equal(await on(), 'Tidy PowerShell profile', `${next} from INSERT`);
+  assert.equal(await p.locator('.pane.focus .comp .cm-content:visible').first().innerText(), 'draft', 'nothing typed into the draft');
+}, { os });
+
 test('i on a new-thread tab reached by L from a file left in its editor: the composer takes the keys and i types', async p => {
   // the file's editor keeps the focus while its tab hides; the new tab must take it, or i reaches no field (Josh, 2026-11-23)
   await keys(p, 'Escape'); await keys(p, 'Control+p'); await settle(p, 300);
