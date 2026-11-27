@@ -6,7 +6,7 @@ import type { Machine, ThreadEvent } from '../../../shared/types';
 import type { Found } from '../../discover';
 import { log } from '../../log';
 import { agyHome, type AgyServers, type SessionInfo, type Update } from './acp';
-import { replay } from './fold';
+import { replay, subPromptId } from './fold';
 
 const loading = new Map<string, Promise<ThreadEvent[]>>();
 
@@ -31,6 +31,14 @@ export function agyHistory(readers: AgyServers, m: Machine, sessionId: string | 
     .finally(() => loading.delete(key));
   loading.set(key, p);
   return p;
+}
+
+/** A subagent's turns: its own session (sub.agent), led by a stand-in for its prompt, which agy's replay leaves out
+ *  and the thread's subagent row carries (the popup puts that one in its place). */
+export async function agySubHistory(readers: AgyServers, m: Machine, sub: { id: string; agent?: string }, cwd: string): Promise<ThreadEvent[]> {
+  if (!sub.agent) return [];
+  const evs = await agyHistory(readers, m, sub.agent, cwd);
+  return evs.length ? [{ t: 'user', id: subPromptId(sub.id), text: '' }, ...evs] : [];
 }
 
 const strip = (p: string) => p.replace(/^\/private(?=\/(tmp|var)\/)/, '').replace(/[\\/]+$/, '');

@@ -8,7 +8,7 @@ import { CodexDriver, CodexServers, type Launch } from './codex/driver';
 import { codexHistory } from './codex/history';
 import { AgyServers, type AgyLaunch } from './agy/acp';
 import { AgyDriver, expand as agyDir } from './agy/driver';
-import { agyHistory, agySessions } from './agy/history';
+import { agyHistory, agySessions, agySubHistory } from './agy/history';
 import { claudeLocal, claudeRemote, codexThreads } from '../discover';
 import { log } from '../log';
 import { harnessCommands } from './commands';
@@ -59,7 +59,7 @@ export function createHarnesses(deps: HarnessDeps = {}): Harnesses {
     },
     async subHistory(t: ThreadMeta, m: Machine, sub: { id: string; agent?: string }): Promise<ThreadEvent[]> {
       if (t.harness === 'claude') return claudeSubHistory(m, t.sessionId, sub.id, sub.agent);
-      if (t.harness === 'agy') return [];
+      if (t.harness === 'agy') return agySubHistory(agyReaders, m, sub, agyDir(m, t.dir));
       // a Codex sub-agent is a thread of its own on the same app-server
       const rpc = await servers.get(m).catch(() => null);
       if (!rpc) return [];

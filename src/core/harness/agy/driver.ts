@@ -102,10 +102,10 @@ export class AgyDriver implements ChatDriver {
 
   private finish(stop: string, err?: Error, kind?: Extract<ThreadEvent, { t: 'error' }>['kind']) {
     if (!this.running) return;   // once: agy exiting ends the turn before its prompt's call fails
-    this.fold.end();
-    this.fold.streaming = false;
     const cancelled = stop === 'cancelled' || (!!err && this.interrupted);
     if (cancelled || err) this.fold.abandon();
+    this.fold.end();
+    this.fold.streaming = false;
     for (const [rid, p] of this.approvals) this.settle(rid, p, { outcome: { outcome: 'cancelled' } }, 'Cancelled');
     if (err && !cancelled) this.ev({ t: 'error', id: 'e-' + this.turnId, kind: kind ?? errorKind(err.message, (err as { code?: number }).code), text: tidy(err.message, 600) });
     if (cancelled) this.ev({ t: 'interrupted', id: 'i-' + this.turnId });
