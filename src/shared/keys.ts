@@ -17,9 +17,12 @@ export function keyOf(e: KeyLike): string | null {
   let k = NAMED[e.key] ?? (/^F\d{1,2}$/.test(e.key) ? e.key.toLowerCase() : e.key);
   const letter = /^Key([A-Z])$/.exec(e.code)?.[1];
   const digit = /^Digit(\d)$/.exec(e.code)?.[1];
+  const bracket = e.code === 'BracketLeft' ? '[' : e.code === 'BracketRight' ? ']' : undefined;
   const named = k.length > 1;
   // with ctrl / alt / cmd, read letters and digits by physical key so layouts and option-glyphs don't matter
   if ((e.ctrlKey || e.altKey || e.metaKey) && (letter || digit)) k = letter ? (e.shiftKey ? letter : letter.toLowerCase()) : digit!;
+  // brackets too: shift-[ types { (and cmd-shift-[ is the Mac's previous tab key)
+  if ((e.ctrlKey || e.altKey || e.metaKey) && bracket) k = bracket;
   if (e.ctrlKey && e.code === 'Space') k = 'space';
   if (e.ctrlKey && e.code === 'Backslash') k = '\\';
   const mods = [e.ctrlKey && 'ctrl', e.altKey && 'alt', (e.shiftKey && (named || e.ctrlKey || e.altKey || e.metaKey)) && 'shift', e.metaKey && 'cmd'].filter(Boolean);

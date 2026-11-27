@@ -107,6 +107,12 @@ export const DEFAULTS: Binding[] = [
   { layer: 'global', keys: 'alt-j', command: 'focus j', term: true },
   { layer: 'global', keys: 'alt-k', command: 'focus k', term: true },
   { layer: 'global', keys: 'alt-l', command: 'focus l', term: true },
+  // the tab keys of Mac apps (Safari, Terminal, Cursor) and, elsewhere, of Chrome, VS Code and Windows Terminal; ctrl-tab
+  // is not used, since it is the workspace switcher
+  { layer: 'global', keys: 'mod-shift-[', command: 'tabprev', term: true, os: ['mac'] },
+  { layer: 'global', keys: 'mod-shift-]', command: 'tabnext', term: true, os: ['mac'] },
+  { layer: 'global', keys: 'ctrl-pageup', command: 'tabprev', term: true },
+  { layer: 'global', keys: 'ctrl-pagedown', command: 'tabnext', term: true },
   { layer: 'global', keys: 'ctrl-tab', command: 'wsnext', term: true },
   { layer: 'global', keys: 'ctrl-shift-tab', command: 'wsprev', term: true },
   { layer: 'global', keys: 'ctrl-o', command: 'back' },

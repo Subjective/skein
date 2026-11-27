@@ -191,6 +191,7 @@ One table, read by the input layer before anything else (`src/renderer/src/input
 | Vim's own ctrl keys: jump list, window prefix, list movement | `ctrl-o` `ctrl-i` `ctrl-w` `ctrl-n/p/j/k` | `⌃O` `⌃I` `⌃W` `⌃N/P/J/K` | they are Vim keys, not app shortcuts; cmd-w keeps its Mac meaning (close tab) |
 | Leader | `ctrl-space` | `⌃Space` | macOS can claim ⌃Space for input sources; Settings offers `ctrl-\` instead |
 | Pane focus | `alt-h/j/k/l` | `⌥H/J/K/L` | read by physical key (`e.code`), since ⌥H types ˙ |
+| Tabs (as well as `H` `L`, in every mode) | `ctrl-pageup` `ctrl-pagedown` | `⌘⇧[` `⌘⇧]` | each OS's usual tab keys; not `ctrl-tab` on Windows, which is the workspace switcher |
 | Workspaces | `ctrl-tab` | `⌃Tab` | |
 | Sidebar | leader `b` | leader `b`, `⌘B` | `⌘B` as in Codex and Cursor; not `ctrl-b` on Windows, which is Vim's page up |
 

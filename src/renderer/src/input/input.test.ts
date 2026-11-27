@@ -22,6 +22,11 @@ describe('keyOf', () => {
     expect(keyOf(ev('Tab', 'Tab', { shift: true }))).toBe('shift-tab');
     expect(keyOf(ev('Escape', 'Escape'))).toBe('esc');
     expect(keyOf(ev('Shift', 'ShiftLeft', { shift: true }))).toBeNull();
+    // shift-[ types {: with cmd, ctrl or alt held the bracket is read by its physical key
+    expect(keyOf(ev('{', 'BracketLeft', { meta: true, shift: true }))).toBe('shift-cmd-[');
+    expect(keyOf(ev('}', 'BracketRight', { meta: true, shift: true }))).toBe('shift-cmd-]');
+    expect(keyOf(ev('[', 'BracketLeft', { ctrl: true }))).toBe('ctrl-[');
+    expect(keyOf(ev('PageDown', 'PageDown', { ctrl: true }))).toBe('ctrl-pagedown');
   });
   it('writes keys per OS', () => {
     expect(kb('mod-shift-a', 'mac')).toBe('⌘⇧A');
@@ -56,6 +61,15 @@ describe('vimrc', () => {
     expect(win.global.get('ctrl-k')?.command).toBe('palette');
     expect(win.global.has('ctrl-w')).toBe(false);           // ctrl-w is Vim's window prefix on Windows
     expect(mac.global.get('cmd-w')?.command).toBe('tabclose');
+  });
+  it('steps tabs with each OS\'s usual keys, as well as H and L', () => {
+    const mac = Keymap.build('', 'mac'), win = Keymap.build('', 'win');
+    expect(mac.global.get('shift-cmd-[')?.command).toBe('tabprev');
+    expect(mac.global.get('shift-cmd-]')?.command).toBe('tabnext');
+    expect(win.global.get('ctrl-pageup')?.command).toBe('tabprev');
+    expect(win.global.get('ctrl-pagedown')?.command).toBe('tabnext');
+    expect(win.global.has('ctrl-shift-[')).toBe(false);
+    expect(win.global.get('ctrl-tab')?.command).toBe('wsnext');   // the workspace switcher keeps ctrl-tab
   });
 });
 
