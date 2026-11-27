@@ -313,6 +313,33 @@ describe('Codex sub-agents', () => {
     expect(sub.events.map(e => e.text)).toEqual(['Tests pass.', 'and lint?', 'one more']);
   });
 
+  // multi-agent v2 (spawn_agent in the collaboration namespace): shapes as codex 0.172's app-server sends them
+  const started = { type: 'subAgentActivity', model: 'gpt-6.2-sol', reasoningEffort: null, id: 'call_1', kind: 'started', agentThreadId: 'cx-child', agentPath: '/root/repo_survey', startedAtMs: 1, completedAtMs: 1 };
+  const ended = (kind: string) => ({ type: 'subAgentActivity', model: null, reasoningEffort: null, id: 'subagent-' + kind + '-ct1', kind, agentThreadId: 'cx-child', agentPath: '/root/repo_survey', startedAtMs: 2, completedAtMs: 2 });
+
+  it('v2 history: a started activity is the sub event, named by its task; a later activity says how it ended', () => {
+    const read = (...items: object[]) => turnEvents([{ id: 'turn1', status: 'completed', error: null, durationMs: 10, items: [started, { type: 'agentMessage', id: 'm1', text: 'Spawned.' }, ...items] }] as never).events;
+    expect(read(ended('completed'))[0]).toEqual({ t: 'sub', id: 'call_1', name: 'Agent (gpt-6.2-sol)', task: 'Repo survey', status: 'done', agent: 'cx-child', followUps: true });
+    expect(read(ended('interrupted'))[0]).toMatchObject({ status: 'failed' });
+    expect(read()[0]).toMatchObject({ status: 'running' });
+    expect(read(ended('completed')).map(e => e.t)).toEqual(['sub', 'text']);
+  });
+
+  it('v2 live: the sub shows as it starts and turns done when its completion arrives after the parent turn ended', async () => {
+    const srv = fakeServer(method => (method === 'turn/start' ? { turn: { id: 'turn-x' } } : {}));
+    const h = fakeHost([{ id: 't1', harness: 'codex', sessionId: 'cx-1' }]);
+    const d = new CodexDriver('t1', h.host, new CodexServers(srv.launch));
+    await d.send({ text: 'spawn one' });
+    srv.notify('item/started', { threadId: 'cx-1', turnId: 'turn-x', item: started });
+    await until(() => h.view().some(e => e.t === 'sub'));
+    expect(h.view().find(e => e.t === 'sub')).toMatchObject({ task: 'Repo survey', status: 'running', agent: 'cx-child' });
+    srv.notify('turn/completed', { threadId: 'cx-1', turn: { id: 'turn-x', status: 'completed', error: null, durationMs: 5 } });
+    srv.notify('item/completed', { threadId: 'cx-1', turnId: 'turn-x', item: ended('completed') });
+    await until(() => (h.view().find(e => e.t === 'sub') as { status: string }).status === 'done');
+    await d.send({ text: 'and lint?', sub: 'call_1' });
+    expect(srv.got.at(-1)).toMatchObject({ method: 'turn/start', params: { threadId: 'cx-child' } });
+  });
+
   it('a history-loaded sub-agent: its thread is found through the parent when the driver has not seen it', async () => {
     const srv = fakeServer(method => (method === 'thread/read' ? { thread: { turns: [{ id: 'turn1', status: 'completed', error: null, durationMs: 10, items: [spawn()] }] } } : method === 'turn/start' ? { turn: { id: 'tx' } } : {}));
     const h = fakeHost([{ id: 't1', harness: 'codex', sessionId: 'cx-1' }]);
