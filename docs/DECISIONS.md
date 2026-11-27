@@ -218,6 +218,10 @@ and run them through `shell/commands.ts`, so the keyboard sheet, the vimrc and t
 - **Pane menu** (the chevron at a tab bar's right): only the active tab's thread, within this workspace: its
   side chats and subagents, then its open tabs (plus Changes / Files / Browser / Shell when not open), then pane
   actions. Other threads' tabs are left to ctrl-k.
+- **Side chat and subagent popups** (owner, 2026-11-27): no footer. The duration is in the turn's "Worked for" fold,
+  and a subagent that takes no follow-ups (Claude Code) has no composer. In a side chat the selection bar's Add to
+  Chat (`mod-l`) quotes into the parent thread and Add to Side Chat (`mod-shift-s`) into this side chat; a subagent's
+  Add to Chat goes to its thread.
 - **Timeline preview**: a tick shows the message and the reply's first prose (or its first step, or Working…).
 - **The sidebar is a pane** (owner, 2026-11-20): leader h / alt-h from the leftmost pane focuses it; keys in
   VIM-MODEL section 4. A subagent popup opens in INSERT, like a side chat.

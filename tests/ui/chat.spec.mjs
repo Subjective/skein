@@ -9,6 +9,13 @@ async function openChat(p, title) {
   await p.waitForSelector('.pane.focus .chat .col[data-read] > *');
 }
 const composer = p => p.locator('.pane.focus .compw .cm-content');
+/** Drag across the start of a reply's first paragraph in the focused popup. */
+async function dragIn(p, scope) {
+  const b = await scope.locator('.m-asst p').first().boundingBox();
+  await p.mouse.move(b.x + 4, b.y + 8); await p.mouse.down(); await p.mouse.move(b.x + 120, b.y + 8, { steps: 6 }); await p.mouse.up();
+  await p.locator('.seltb').waitFor();
+}
+
 /** Into the reader (esc, k) and open every fold (zR), for tests about the whole transcript's text. */
 async function openAll(p) { await composer(p).press('Escape'); await keys(p, 'k z Shift+R'); await settle(p); }
 
@@ -529,18 +536,20 @@ await test('subagent: a row opens its popup in INSERT, ready to message it', asy
   await pop.locator('.m-asst', { hasText: 'Nothing else failed' }).waitFor();
 });
 
-await test('subagent without follow-ups: its turns show, the composer is grayed out and says why', async p => {
+await test('subagent without follow-ups: its turns show, with no composer and no footer', async p => {
   await openChat(p, 'Fix session-restore race');
   await p.locator('.pane.focus .ag', { hasText: 'Explore' }).click();
   const pop = p.locator('.peek.focus');
   await pop.locator('.m-asst', { hasText: 'Three callers' }).waitFor();
-  const box = pop.locator('.comp.locked');
-  await box.waitFor();
-  assert.equal(await box.locator('textarea').getAttribute('placeholder'), "Follow-ups aren't available for this subagent");
-  assert.ok(await box.locator('textarea').isDisabled(), 'nothing to type into');
-  assert.ok(await box.locator('.send').isDisabled(), 'nothing to send');
+  assert.equal(await pop.locator('.comp').count(), 0, 'no composer to type into');
+  assert.equal(await pop.locator('.under').count(), 0, 'no footer');
   await settle(p);
   assert.equal(await mode(p), 'NORMAL', 'the popup reads instead of typing');
+  // Add to Chat from the subagent quotes into its thread
+  await dragIn(p, pop);
+  await p.locator('.seltb').getByRole('button', { name: 'Add to Chat' }).click();
+  await settle(p);
+  assert.equal(await p.locator('.pane .compw .cm-content .tok').count(), 1, 'the quote is in the thread composer');
 });
 
 await test('/subagents lists them; picking opens the popup', async p => {
@@ -552,7 +561,7 @@ await test('/subagents lists them; picking opens the popup', async p => {
   await p.locator('.peek.focus .sub-h').waitFor();
 });
 
-await test('side chat: link opens it; Send to thread quotes the answer back', async p => {
+await test('side chat: no footer; Add to Chat quotes into the thread, Add to Side Chat into this side chat', async p => {
   await openChat(p, 'Fix session-restore race');
   await p.locator('.pane.focus .sc-link', { hasText: 'Why not a mutex here?' }).click();
   const pop = p.locator('.peek.focus');
@@ -560,11 +569,25 @@ await test('side chat: link opens it; Send to thread quotes the answer back', as
   assert.ok((await pop.locator('.sc-anchor').innerText()).includes('reads lastActive before'));
   await settle(p);
   assert.equal(await mode(p), 'INSERT');
-  await pop.getByRole('button', { name: 'Send to thread' }).click();
+  assert.equal(await pop.locator('.under').count(), 0, 'no footer');
+  const sides = () => p.evaluate(() => window.__skein.S.threads.filter(t => t.side).length), before = await sides();
+  // Add to Chat: the parent thread's composer
+  await dragIn(p, pop);
+  await p.locator('.seltb').getByRole('button', { name: 'Add to Chat' }).click();
   await settle(p);
-  const v = await p.locator('.pane .compw .cm-content').first().inputValue();
-  assert.ok(v.includes('A mutex only covers'), 'quote is in the thread composer');
+  const main = p.locator('.pane .compw .cm-content').first();
+  assert.ok((await main.inputValue()).includes('A mutex'), 'quote is in the thread composer');
   assert.equal(await p.locator('.pane .compw .cm-content .tok').count(), 1, 'drawn as a chip');
+  // Add to Side Chat, by its key: this side chat's composer, no new side chat
+  await p.locator('.sc-link', { hasText: 'Why not a mutex here?' }).first().click();
+  const pop2 = p.locator('.peek.focus');
+  await pop2.locator('.sc-anchor').waitFor();
+  await dragIn(p, pop2);
+  await p.keyboard.press(`${mod}+Shift+s`);
+  await settle(p);
+  assert.equal(await pop2.locator('.compw .cm-content .tok').count(), 1, 'the quote is in this side chat');
+  assert.equal(await p.locator('.menu').count(), 0, 'no side chat chooser');
+  assert.equal(await sides(), before, 'no new side chat');
 });
 
 await test('side chat links on one reply: h / l move the cursor between them; enter opens one', async p => {

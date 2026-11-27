@@ -131,12 +131,12 @@ Rows that already matched are not listed. At review time: 159 rows Fixed, 41 Dev
 | chat M11 | /model, /side, /sidechats, /subagents typed alone run on enter | Fixed | `views/chat/Composer.tsx:150-156`. |
 | chat M12 | /model in a subagent | Proposed deviation | A subagent uses its thread's model. |
 | chat SUB1 | A subagent popup shows the subagent's turns, live and from history | Fixed | Claude: the SDK's `forwardSubagentText` streams them (`core/harness/claude/driver.ts`); history reads `<session>/subagents/agent-<id>.jsonl` (`claude/history.ts` claudeSubHistory). Codex: a sub-agent is a thread of its own, read with `thread/read` and listened to live (`codex/driver.ts`). API `threads.sub`; the popup re-reads every 2.5 s while the subagent runs (`views/chat/ChatView.tsx` useSubTurns). |
-| chat SUB2 | A subagent the harness takes no messages for (Claude Code) | Deviation (decided by Josh) | The composer is grayed out and reads "Follow-ups aren't available for this subagent"; the popup opens in NORMAL on its transcript (`views/chat/Composer.tsx` LockedComposer). Codex sub-agents take follow-ups: a turn on the sub-agent's thread (steered while it runs). |
+| chat SUB2 | A subagent the harness takes no messages for (Claude Code) | Deviation (decided by Josh) | The popup has no composer (Josh, 2026-11-27: the disabled one was noise) and opens in NORMAL on its transcript. Codex sub-agents take follow-ups: a turn on the sub-agent's thread (steered while it runs). |
 | chat M13, M14 | @ lists every project file by substring; no empty state | Proposed deviation | Real filesystem browsing, folder by folder, with a Loading state. |
 | chat D1 | Reply actions show the age on every turn; tooltip names /side | Fixed | Transcript Acts. /side is back (Josh, 2026-11-20): it starts a side chat at once, about the composer's quote (which moves into it) or the last reply; /sidechats lists them. |
 | chat D2 | No reply actions in side chats | Fixed | Transcript `c.main`. |
 | chat D5 | The side chat anchor scrolls to the message | Proposed deviation | Both builds only open the thread. |
-| chat D6 | "Send to thread" replaces the draft with "> " + the answer | Proposed deviation | The app inserts a linked quote and keeps the draft. |
+| chat D6 | "Send to thread" replaces the draft with "> " + the answer | Deviation (decided by Josh) | Removed with the popup footer (2026-11-27). In a side chat the selection bar's Add to Chat quotes into the parent thread and Add to Side Chat into this side chat. |
 | chat D7 | /sidechats rows have a pencil Rename, oldest first | Fixed | `views/chat/threads.ts:59-79`. |
 | KNOWN-51 | Timeline ticks as in Cursor: 1.5px ticks, 7px long at rest (the mockup's thickness; 2px read as too thick and 10px too long, Josh 2026-11-21 and 22); the pointer lengthens and darkens the tick under it most and about three on each side less, gliding; press and drag scrubs the thread, release stays | Fixed (Josh's request; the mockup's ticks only lengthened) | `views/chat/Ticks.tsx`, `chat.css`; clip `skein-parity/timeline-ticks.mp4`; UI test "timeline ticks". |
 | KNOWN-52 | A reply's action row (copy, fork, side chat, age) is a line in the reader: `j` / `k` land on it, `h` / `l` (`w` / `b`, `0` / `$`) ring a button, `enter` or `space` presses it; the row shows while the cursor is on it | Fixed (Josh's request) | `views/chat/reader.ts` ROWS / KROWS, `styles/skein.css` `.m-acts.rowcur`, `.m-acts .ib.kcur`; UI tests "reader: j lands on a reply's action row", "enter on Fork in the action row". |
@@ -335,7 +335,7 @@ during this review; rows say what was seen in the browser build at the time.
   already shows files instead of splitting each time, with shift-enter to split on purpose, as in the sidebar (CT-81). Both asked for by
   Josh on 2026-11-21.
 - Small, deliberate choices: a toast for mod-l with nothing selected (keys G12), send queues a follow-up while a turn
-  runs (chat P6), /model keeps the rest of the draft (chat M9), "Send to thread" inserts a linked quote (chat D6),
+  runs (chat P6), /model keeps the rest of the draft (chat M9), a side chat's selection quotes back to its thread (chat D6),
   `G` stays in the reader (chat R11), offline machines connect on start (shell L9), empty machines stay listed
   (shell B3), clearing a project name resets it (shell B9), no sub-folder chevrons (shell F2), a tab dropped
   outside the panes pops out (shell D9), extra keys and middle click (keys L9, shell S21, T5), the SSH shell is
