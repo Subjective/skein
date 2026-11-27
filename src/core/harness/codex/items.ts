@@ -108,6 +108,12 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
       const status: Status = state ? agentStatus(state.status) : item.status === 'failed' ? 'failed' : 'running';
       return [{ t: 'sub', id: item.id, name: item.model ? `Agent (${item.model})` : 'Agent', task: tidy(item.prompt ?? '', 160), status, ...(agent ? { agent, followUps: true } : {}) }];
     }
+    case 'subAgentActivity': {
+      // multi-agent v2 reports a sub-agent's start (and later how it ended) instead of the collab call; its task is
+      // not exposed, so the row shows the task name it was spawned under (/root/repo_survey: "Repo survey")
+      if (item.kind !== 'started') return [];
+      return [{ t: 'sub', id: item.id, name: item.model ? `Agent (${item.model})` : 'Agent', task: taskName(item.agentPath), status: 'running', agent: item.agentThreadId, followUps: true }];
+    }
     case 'imageView': return [{ t: 'tool', id: item.id, kind: 'read', name: 'View image', arg: item.path, status: 'done' }];
     case 'contextCompaction': return [{ t: 'notice', id: item.id, text: 'Context compacted' }];
     case 'enteredReviewMode': return [{ t: 'notice', id: item.id, text: 'Reviewing' }];
@@ -116,12 +122,19 @@ export function itemEvents(item: ThreadItem): ThreadEvent[] {
   }
 }
 
+const taskName = (path: string) => { const s = (path.split('/').pop() ?? '').replace(/_/g, ' ').trim(); return s.charAt(0).toUpperCase() + s.slice(1); };
+
 const agentStatus = (s: CollabAgentStatus): Status => (s === 'pendingInit' || s === 'running' ? 'running' : s === 'completed' ? 'done' : 'failed');
 
-/** The sub-agent states a collab call reports (a wait, a close), by the sub-agent's thread id: what the
- *  sub events that spawned them should now say. */
+/** The sub-agent states a collab call (a wait, a close) or a v2 sub-agent activity reports, by the sub-agent's
+ *  thread id: what the sub events that spawned them should now say. */
 export function agentStates(item: ThreadItem): Map<string, Status> {
   const out = new Map<string, Status>();
+  if (item.type === 'subAgentActivity') {
+    const status: Status | null = item.kind === 'completed' ? 'done' : item.kind === 'interrupted' ? 'failed' : item.kind === 'interacted' ? 'running' : null;
+    if (status) out.set(item.agentThreadId, status);
+    return out;
+  }
   if (item.type !== 'collabAgentToolCall') return out;
   for (const [id, st] of Object.entries(item.agentsStates)) if (st) out.set(id, agentStatus(st.status));
   return out;
