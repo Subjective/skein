@@ -67,6 +67,46 @@ describe('Antigravity steps', () => {
   });
 });
 
+describe('Antigravity subagents', () => {
+  // agy 1.5.18: invoke_subagent completes as soon as the subagent starts; it reports back later in the same turn
+  const spawn = (status: string) => ({ sessionUpdate: status === 'in_progress' ? 'tool_call' : 'tool_call_update', toolCallId: 'call_sa', name: 'invoke_subagent', kind: 'other', title: 'Run invoke_subagent', status,
+    rawInput: { Prompt: 'List the top-level folders of the repo and report back in one sentence.', Role: 'Top-Level Folder Lister', TypeName: 'research' } }) as Update;
+  it('shows a spawn as a subagent row that runs until the turn ends, with its prompt as the first message', () => {
+    const out: { id: string; t: string }[] = [];
+    const fold = new AgyFold(e => out.push(e), () => 'x');
+    fold.update(spawn('in_progress')); fold.update(spawn('completed'));
+    expect(out.every(e => e.t === 'sub')).toBe(true);
+    expect(out.at(-1)).toMatchObject({ t: 'sub', id: 'call_sa', name: 'research', task: 'Top-Level Folder Lister', status: 'running',
+      events: [{ t: 'user', id: 'p-call_sa', text: 'List the top-level folders of the repo and report back in one sentence.' }] });
+    fold.end();
+    expect(out.at(-1)).toMatchObject({ t: 'sub', id: 'call_sa', status: 'done' });
+  });
+  it('puts the calls agy forwards from a subagent (needing approval) under its row, tied to its session', () => {
+    const out: { id: string; t: string }[] = [];
+    const fold = new AgyFold(e => out.push(e), () => 'x');
+    const child = '14b805b6-f79f-492d-a5ec-f2f71e56cc78';
+    fold.update(spawn('in_progress')); fold.update(spawn('completed'));
+    fold.update({ sessionUpdate: 'tool_call', ...runCall, toolCallId: `${child}:call_2`, status: 'pending' } as Update);
+    fold.update({ sessionUpdate: 'tool_call_update', ...runCall, toolCallId: `${child}:call_2`, status: 'completed', rawOutput: runOutput } as Update);
+    expect(out.every(e => e.t === 'sub')).toBe(true);
+    expect(out.at(-1)).toMatchObject({ agent: child, status: 'running', events: [{ t: 'user' }, { t: 'tool', id: 'call_2', name: 'Shell', out: '?? hello.txt', status: 'done' }] });
+    // one still waiting when the turn is stopped fails with it
+    fold.update({ sessionUpdate: 'tool_call', ...runCall, toolCallId: `${child}:call_3`, status: 'pending' } as Update);
+    fold.abandon();
+    expect(out.at(-1)).toMatchObject({ status: 'failed', events: [{ t: 'user' }, { status: 'done' }, { id: 'call_3', status: 'failed' }] });
+  });
+  it('fails a subagent the turn was stopped under, and replays one as done', () => {
+    const out: { t: string; status?: string }[] = [];
+    const fold = new AgyFold(e => out.push(e), () => 'x');
+    fold.update(spawn('completed')); fold.abandon(); fold.end();
+    expect(out.filter(e => e.t !== 'sub')).toEqual([]);
+    expect(out.at(-1)).toMatchObject({ t: 'sub', status: 'failed' });
+    const evs = replay([{ sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'Summarize the repo' } }, spawn('completed'), { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Done.' } }], CWD);
+    expect(evs.map(e => e.t)).toEqual(['user', 'sub', 'text']);
+    expect(evs[1]).toMatchObject({ status: 'done' });
+  });
+});
+
 describe('Antigravity history', () => {
   it('folds a replayed session into turns: your messages, replies and steps', () => {
     const evs = replay(loadReplay, CWD);

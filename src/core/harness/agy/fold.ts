@@ -68,6 +68,25 @@ export function callEvents(c: ToolCall, cwd?: string): ThreadEvent[] {
   return step('other', label, str(i.toolSummary) ?? firstString(i) ?? (c.title && c.title !== `Run ${name}` ? c.title : ''));
 }
 
+/** agy's subagent tool: it returns as soon as the subagent starts, and the subagent reports back within the turn.
+ *  The subagent is a session of its own. agy forwards to the parent only its calls that need approval, as
+ *  `<subagent session id>:<call id>`; that prefix is all that ties a subagent's session to its spawn. */
+const SUBAGENT = 'invoke_subagent';
+type Sub = Extract<ThreadEvent, { t: 'sub' }>;
+/** A forwarded call's subagent session and its own call id. */
+export const fromSub = (id: string): { agent: string; id: string } | null => { const i = id.indexOf(':'); return i > 0 ? { agent: id.slice(0, i), id: id.slice(i + 1) } : null; };
+/** The prompt a subagent was given, as its first message (agy's replay of the subagent's session leaves it out). */
+export const subPromptId = (subId: string) => 'p-' + subId;
+/** A spawn as the thread's subagent row: its type, its role, and the prompt it was given, then what it showed. */
+export function subEvent(c: ToolCall, status: Sub['status'], agent?: string, steps: ThreadEvent[] = []): Sub {
+  const i = input(c), prompt = str(i.Prompt) ?? '';
+  return {
+    t: 'sub', id: c.toolCallId, name: str(i.TypeName) || 'subagent', task: tidy(str(i.Role) || prompt, 160), status,
+    events: [...(prompt ? [{ t: 'user' as const, id: subPromptId(c.toolCallId), text: prompt }] : []), ...steps],
+    ...(agent ? { agent } : {}),
+  };
+}
+
 /** agy's own plan tool: its steps as the turn's to-do list. */
 const STEPS = 'update_steps';
 const stepsOf = (c: ToolCall) => ((input(c).steps as { title?: string; status?: string }[] | undefined) ?? []).map(s => ({ text: s.title ?? '', done: s.status === 'completed' }));
@@ -80,16 +99,18 @@ export class AgyFold {
   private seg: { kind: 'user' | 'text' | 'thinking'; id: string; text: string; images: string[] } | null = null;
   private calls = new Map<string, ToolCall>();
   private steps: string | null = null;
+  /** The turn's subagents: they run until the turn ends (agy reports nothing more about them to the parent). */
+  private subs = new Map<string, { call: ToolCall; status: Sub['status']; agent?: string; steps: ThreadEvent[] }>();
   /** The live driver streams text: a message is marked streaming until the next step or the turn's end. */
   streaming = false;
 
   constructor(private emit: (e: ThreadEvent, replace: boolean) => void, private id: () => string, private cwd?: string) {}
 
   /** A turn starts (the driver's prompt; a replayed user message): the to-do list and messages start afresh. */
-  turn() { this.close(); this.steps = null; }
+  turn() { this.close(); this.steps = null; this.settleSubs('done'); }
 
-  /** The turn ended: its last message stops streaming. */
-  end() { this.close(); }
+  /** The turn ended: its last message stops streaming, and its subagents are done. */
+  end() { this.close(); this.settleSubs('done'); }
 
   /** A content update. Returns false for an update that isn't content (the driver's to handle). */
   update(u: Update): boolean {
@@ -110,6 +131,19 @@ export class AgyFold {
         const { sessionUpdate: _, ...patch } = u;
         const c: ToolCall = { ...this.calls.get(u.toolCallId), ...patch };
         this.calls.set(u.toolCallId, c);
+        const fwd = fromSub(u.toolCallId);
+        if (fwd && this.subStep(fwd.agent, { ...c, toolCallId: fwd.id })) {
+          if (c.status === 'completed' || c.status === 'failed') this.calls.delete(u.toolCallId);
+          return true;
+        }
+        if (c.name === SUBAGENT) {
+          this.calls.delete(c.toolCallId);
+          const s = this.subs.get(c.toolCallId) ?? { call: c, status: 'running' as Sub['status'], steps: [] };
+          s.call = c; s.status = c.status === 'failed' ? 'failed' : 'running';
+          this.subs.set(c.toolCallId, s);
+          this.showSub(s);
+          return true;
+        }
         if (c.name === STEPS) {
           const items = stepsOf(c);
           if (items.length) { this.steps ??= 'steps-' + c.toolCallId; this.emit({ t: 'todo', id: this.steps, items }, true); }
@@ -130,8 +164,35 @@ export class AgyFold {
 
   /** Steps still running when the turn stopped (cancelled, or agy exited): they won't finish. */
   abandon() {
-    for (const c of this.calls.values()) for (const e of callEvents({ ...c, status: 'failed' }, this.cwd)) this.emit(e, true);
+    this.settleSubs('failed');
+    for (const c of this.calls.values()) if (!fromSub(c.toolCallId)) for (const e of callEvents({ ...c, status: 'failed' }, this.cwd)) this.emit(e, true);
     this.calls.clear();
+  }
+
+  /** A subagent's forwarded call, under its spawn. The first call from a subagent session goes to the earliest
+   *  spawn not yet tied to one (agy says nothing else that would tell two spawns apart). */
+  private subStep(agent: string, c: ToolCall): boolean {
+    const all = [...this.subs.values()];
+    const s = all.find(x => x.agent === agent) ?? all.find(x => !x.agent && x.status === 'running');
+    if (!s) return false;
+    s.agent = agent;
+    for (const e of callEvents(c, this.cwd)) { const i = s.steps.findIndex(x => x.id === e.id); if (i >= 0) s.steps[i] = e; else s.steps.push(e); }
+    this.showSub(s);
+    return true;
+  }
+
+  private showSub(s: { call: ToolCall; status: Sub['status']; agent?: string; steps: ThreadEvent[] }) {
+    this.emit(subEvent(s.call, s.status, s.agent, s.steps), true);
+  }
+
+  /** The turn ended: its subagents are done (or failed, when it was stopped). */
+  private settleSubs(status: Sub['status']) {
+    for (const s of this.subs.values()) {
+      if (s.status === 'running') s.status = status;
+      if (status === 'failed') s.steps = s.steps.map(e => ('status' in e && e.status === 'running' ? { ...e, status: 'failed' } as ThreadEvent : e));
+      this.showSub(s);
+    }
+    this.subs.clear();
   }
 
   private open(kind: 'user' | 'text' | 'thinking') { this.seg = { kind, id: this.id(), text: '', images: [] }; }

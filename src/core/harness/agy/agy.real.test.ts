@@ -55,4 +55,27 @@ describe.skipIf(!process.env.SKEIN_REAL_AGY)('real Antigravity', () => {
     const found = await hs.sessions!(m, 50);
     expect(found.some(f => f.harness === 'agy' && f.sessionId === h.thread('t1').sessionId)).toBe(true);
   }, 600_000);
+
+  it('shows a subagent: its row, its calls that need approval, and its own session in the popup', async () => {
+    const h = fakeHost([{ id: 't2', harness: 'agy', dir, model: 'gemini-4-neon', effort: 'low', perm: 'default' }], { has: ['agy'] });
+    const m = h.host.machine('local');
+    await hs.start!(h.thread('t2'), h.host);
+    const d = hs.driver(h.thread('t2'), h.host);
+    await d.send({ text: 'Spawn a research subagent to run `ls -a` in this folder and report back. Wait for it, then reply with what it found. Do not run commands yourself.' });
+    // answer every approval as it comes (the subagent's command asks in Default mode)
+    const answered = new Set<string>();
+    await until(() => {
+      for (const e of h.view()) if (e.t === 'approval' && !answered.has(e.request.requestId)) { answered.add(e.request.requestId); void d.answer(e.request.requestId, e.request.options.find(o => o.primary)!.id); }
+      return h.thread('t2').status === 'idle' || h.thread('t2').status === 'error';
+    }, 300_000);
+    const sub = h.view().find(e => e.t === 'sub') as Extract<ThreadEvent, { t: 'sub' }> | undefined;
+    expect(sub).toMatchObject({ name: 'research', status: 'done' });
+    expect(sub!.events?.[0]).toMatchObject({ t: 'user' });
+    expect(sub!.events?.some(e => e.t === 'tool' && e.kind === 'command')).toBe(true);
+    expect(sub!.agent).toBeTruthy();
+    // the parent shows none of the subagent's calls
+    expect(h.view().some(e => e.t === 'tool' && e.kind === 'command')).toBe(false);
+    const turns = await hs.subHistory!(h.thread('t2'), m, { id: sub!.id, agent: sub!.agent });
+    expect(turns.some(e => e.t === 'tool' && e.kind === 'command')).toBe(true);
+  }, 600_000);
 });
